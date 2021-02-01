@@ -546,13 +546,10 @@ void ParallelMeshInit(int DecompositionStrategy, ViewI_H NeighborX, ViewI_H Neig
                 ifstream Geom;
 
                 Geom.open(tempfile_thislayer);
-                if (TruchasMultilayer) {
-                    // 3 header lines
-                    string s;
-                    getline(Geom,s);
-                    getline(Geom,s);
-                    getline(Geom,s);
-                }
+                // 2 header lines (ignored for now)
+                string DummyLine;
+                getline(Geom,DummyLine);
+                getline(Geom,DummyLine);
                 while (!Geom.eof()) {
                     string s;
                     getline(Geom,s);
