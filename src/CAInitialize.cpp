@@ -940,7 +940,7 @@ void TempInit(int layernumber, int TempFilesInSeries, double G, double R, string
                            int Adj_j = jj - MyYOffset;
                            //if ((id == 16)&&(CritTL[k][ii-LowerXBound][jj-LowerYBound] < 4.5)&&(LayerCounter == 19)) cout << " i = " << Adj_i << " j = " << Adj_j << " k = " << k << " Val = " << CritTL[k][ii-LowerXBound][jj-LowerYBound] << " LTS = " << LayerwiseTSOffset << endl;
                            double CTLiq = CritTL[k][ii-LowerXBound][jj-LowerYBound] - LayerwiseTSOffset;
-                           double CTSol = CritTS[k][ii-LowerXBound][jj-LowerYBound] - LayerwiseTSOffset;
+                           double CoolingRate = CritTS[k][ii-LowerXBound][jj-LowerYBound];
                            //if (CTSol < CTLiq) cout << "ID = " << id << " CTLiq = " << CTLiq << " CTSol = " << CTSol << endl;
                            if (CTLiq > 0)  {
                                // Where does this layer's temperature data belong on the global (including all layers) grid?
@@ -950,7 +950,7 @@ void TempInit(int layernumber, int TempFilesInSeries, double G, double R, string
                                Melted[Coord3D1D] = true;
                                CritTimeStep(Coord3D1D) = round(CTLiq/deltat);
                                LayerID(Coord3D1D) = LayerCounter;
-                               UndercoolingChange(Coord3D1D) = FreezingRange*deltat/(CTSol - CTLiq);
+                               UndercoolingChange(Coord3D1D) = CoolingRate*deltat; // cooling rate per time step
                                //if ((id == 1)&&(Adj_i == 68)&&(Adj_j == 5)&&(LayerCounter == 1)) cout << " Z = " << ZOffset << " , CTS = " << CritTimeStep(Coord3D1D) << " UC = " << UndercoolingChange(Coord3D1D) << " LiqT/SolT = " << CTLiq << " " << CTSol << " ts = " << deltat << " FR = " << FreezingRange << endl;
 //                               if (UndercoolingChange(Coord3D1D) > 0.25) {
 //                                   UndercoolingChange(Coord3D1D) = 0.25;
