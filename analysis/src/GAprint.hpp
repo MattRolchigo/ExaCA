@@ -24,14 +24,11 @@ void PrintExaConstitRVEData(int NumberOfRVEs, std::string BaseFileName, int nx, 
 void PrintInversePoleFigureCrossSections(int NumberOfCrossSections, std::string BaseFileName,
                                          std::vector<int> CrossSectionPlane, std::vector<int> CrossSectionLocation,
                                          int nx, int ny, int nz, int NumberOfOrientations, ViewI3D_H GrainID);
-void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int XMax, int YMin, int YMax,
-                             int ZMin, int ZMax, ViewI3D_H Melted, ViewF3D_H GrainUnitVector, ViewI3D_H GrainID,
+void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int nx, int ny, int nz, ViewI3D_H Melted, ViewF3D_H GrainUnitVector, ViewI3D_H GrainID,
                              int NumberOfOrientations);
 void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int XMax, int YMin, int YMax, int ZMin,
                    int ZMax, int nx, int ny, int nz, ViewI3D_H Melted, ViewI3D_H GrainID_WholeDomain, double deltax);
-void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double deltax, int XMin, int XMax, int YMin,
-                        int YMax, int ZMin, int ZMax, ViewI3D_H GrainID);
-void PrintPoleFigureData(bool *AnalysisTypes, std::string BaseFileName, int NumberOfOrientations, int XMin, int XMax,
-                         int YMin, int YMax, int ZMin, int ZMax, ViewI3D_H GrainID, ViewI3D_H Melted);
+void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double deltax, int nx, int ny, int nz, ViewI3D_H GrainID, ViewI3D_H Melted);
+void PrintPoleFigureData(bool *AnalysisTypes, std::string BaseFileName, int NumberOfOrientations, int nx, int ny, int nz, ViewI3D_H GrainID, ViewI3D_H Melted);
 
 #endif

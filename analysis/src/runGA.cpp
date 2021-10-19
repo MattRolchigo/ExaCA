@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
         // Part 3: Representative volume grain statistics
         // Print data to std::out and if analysis option 0 is toggled, to the file
         // "[OutputFileName]_MisorientationFrequency.csv"
-        PrintMisorientationData(AnalysisTypes, OutputFileName, XMin, XMax, YMin, YMax, ZMin, ZMax, Melted,
+        PrintMisorientationData(AnalysisTypes, OutputFileName, nx, ny, nz, Melted,
                                 GrainUnitVector, GrainID, NumberOfOrientations);
         // Print data to std::out and if analysis options 1, 2, or 5 are toggled, print data to files
         // "[OutputFileName]_VolumeFrequency.csv", "[OutputFileName]_AspectRatioFrequency.csv", and
@@ -102,10 +102,10 @@ int main(int argc, char *argv[]) {
         // Print data to std::out and if analysis options 3, 4, or 6 are toggled, print data to files
         // "[OutputFileName]_GrainAreas.csv", "[OutputFileName]_WeightedGrainAreas.csv", and
         // "[OutputFileName]_GrainWidthDistribution.csv", respectively
-        PrintGrainAreaData(AnalysisTypes, OutputFileName, deltax, XMin, XMax, YMin, YMax, ZMin, ZMax, GrainID);
+        PrintGrainAreaData(AnalysisTypes, OutputFileName, deltax, nx, ny , nz, GrainID, Melted);
         // If analysis option 7 is toggled, print orientation data to files "[OutputFileName]_pyEBSDOrientations.csv"
         // and "[OutputFileName]_MTEXOrientations.csv"
-        PrintPoleFigureData(AnalysisTypes, OutputFileName, NumberOfOrientations, XMin, XMax, YMin, YMax, ZMin, ZMax,
+        PrintPoleFigureData(AnalysisTypes, OutputFileName, NumberOfOrientations, nx, ny, nz,
                             GrainID, Melted);
     }
     // Finalize kokkos and end program

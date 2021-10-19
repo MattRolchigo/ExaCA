@@ -14,8 +14,8 @@
 #include <vector>
 
 //*****************************************************************************/
-void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int XMax, int YMin, int YMax,
-                             int ZMin, int ZMax, ViewI3D_H Melted, ViewF3D_H GrainUnitVector, ViewI3D_H GrainID,
+void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int nx, int ny, int nz,
+                             ViewI3D_H Melted, ViewF3D_H GrainUnitVector, ViewI3D_H GrainID,
                              int NumberOfOrientations) {
 
     // Frequency of misorientations in the selected region
@@ -43,9 +43,9 @@ void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int 
         }
         GrainMisorientation(n) = AngleZmin;
     }
-    for (int k = ZMin; k <= ZMax; k++) {
-        for (int i = XMin; i <= XMax; i++) {
-            for (int j = YMin; j <= YMax; j++) {
+    for (int k = 0; k < nz; k++) {
+        for (int i = 0; i < nx; i++) {
+            for (int j = 0; j < ny; j++) {
                 // Only take data from cells in the representative area that underwent melting
                 if (Melted(k, i, j) == 1) {
                     int MyOrientation = ((abs(GrainID(k, i, j)) - 1) % NumberOfOrientations);
@@ -53,7 +53,7 @@ void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int 
                     if (AnalysisTypes[0])
                         MisorientationPlot << MyMisorientation << std::endl;
                     MisorientationSum += MyMisorientation;
-                    if (k == ZMax) {
+                    if (k == nz-2) {
                         MisorientationSumTop += MyMisorientation;
                         NumberOfMeltedCellsTop++;
                     }
@@ -65,32 +65,35 @@ void PrintMisorientationData(bool *AnalysisTypes, std::string BaseFileName, int 
     if (AnalysisTypes[0])
         MisorientationPlot.close();
     std::cout << "Within the representative region consisting of "
-              << (XMax - XMin + 1) * (YMax - YMin + 1) * (ZMax - ZMin + 1) << " cells, " << NumberOfMeltedCells
+              << nx * ny * nz << " cells, " << NumberOfMeltedCells
               << " underwent melting and:" << std::endl;
     std::cout << "-- The mean misorientation relative to the +Z direction is "
               << MisorientationSum / ((double)(NumberOfMeltedCells)) << " degrees" << std::endl;
     std::cout << "-- The mean misorientation relative to the +Z direction at the representative region top (Z = "
-              << ZMax << ") is " << MisorientationSumTop / ((double)(NumberOfMeltedCellsTop)) << " degrees"
+              << nz-2 << ") is " << MisorientationSumTop / ((double)(NumberOfMeltedCellsTop)) << " degrees"
               << std::endl;
 }
 
 //*****************************************************************************/
 
 void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int XMax, int YMin, int YMax, int ZMin,
-                   int ZMax, int nx, int ny, int nz, ViewI3D_H, ViewI3D_H GrainID, double deltax) {
+                   int ZMax, int nx, int ny, int nz, ViewI3D_H Melted, ViewI3D_H GrainID, double deltax) {
 
+    // Modified from master to only look at grains that underwent melting
     // Get vector of unique GrainIDs
     int Counter = 0;
     int NucleatedGrainCells = 0;
-    int DomainVol = (ZMax - ZMin + 1) * (YMax - YMin + 1) * (XMax - XMin + 1);
+    int DomainVol = nx * ny * nz;
     std::vector<int> UniqueGrainIDs(DomainVol);
-    for (int k = ZMin; k <= ZMax; k++) {
-        for (int i = XMin; i <= XMax; i++) {
-            for (int j = YMin; j <= YMax; j++) {
-                UniqueGrainIDs[Counter] = GrainID(k, i, j);
-                Counter++;
-                if (GrainID(k, i, j) < 0)
-                    NucleatedGrainCells++;
+    for (int k = 0; k < nz; k++) {
+        for (int i = 0; i < nx; i++) {
+            for (int j = 0; j < ny; j++) {
+                if (Melted(k,i,j) == 1) {
+                    UniqueGrainIDs[Counter] = GrainID(k, i, j);
+                    Counter++;
+                    if (GrainID(k, i, j) < 0)
+                        NucleatedGrainCells++;
+                }
             }
         }
     }
@@ -99,21 +102,25 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
     it = std::unique(UniqueGrainIDs.begin(), UniqueGrainIDs.end());
     UniqueGrainIDs.resize(std::distance(UniqueGrainIDs.begin(), it));
     int NumberOfGrains = UniqueGrainIDs.size();
-    std::cout << "-- There are " << NumberOfGrains << " grains in this volume, and the mean grain volume is "
+    std::cout << "-- There are " << NumberOfGrains << " grains in the region that underwent melting, and the mean grain volume is "
               << deltax * deltax * pow(10, 12) * ((double)(DomainVol) / (double)(NumberOfGrains)) << " cubic microns"
               << std::endl;
     std::cout << "-- The volume fraction consisting of nucleated grains is "
               << ((double)(NucleatedGrainCells)) / ((double)(DomainVol)) << std::endl;
 
-    float *AspectRatio = new float[NumberOfGrains];
+    float *AspectRatioXZ = new float[NumberOfGrains];
+    float *AspectRatioYZ = new float[NumberOfGrains];
     int *VolGrain = new int[NumberOfGrains];
     float *GrainHeight = new float[NumberOfGrains];
-    float ARSum = 0.0;
-    float VolWtARSum = 0.0;
+    float ARSumXZ = 0.0;
+    float VolWtARSumXZ = 0.0;
+    float ARSumYZ = 0.0;
+    float VolWtARSumYZ = 0.0;
     float GrainHeightSum = 0.0;
     float GrainWidthSum = 0.0;
     for (int n = 0; n < NumberOfGrains; n++) {
-        AspectRatio[n] = 0;
+        AspectRatioXZ[n] = 0;
+        AspectRatioYZ[n] = 0;
         VolGrain[n] = 0;
         int TempTopX = 0;
         int TempTopY = 0;
@@ -122,11 +129,11 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
         int TempBottomY = ny - 1;
         int TempBottomZ = nz - 1;
         int ThisGrainID = UniqueGrainIDs[n];
-        for (int k = ZMin; k <= ZMax; k++) {
-            for (int i = XMin; i <= XMax; i++) {
-                for (int j = YMin; j <= YMax; j++) {
-                    // Only take data from cells in the representative area that underwent melting
-                    if (GrainID(k, i, j) == ThisGrainID) {
+        for (int k = 0; k < nz; k++) {
+            for (int i = 0; i < nx; i++) {
+                for (int j = 0; j < ny; j++) {
+                    // Only take data from grains that at least partially underwent melting
+                    if ((GrainID(k, i, j) == ThisGrainID)&&(Melted(k, i, j) == 1)) {
                         VolGrain[n]++;
                         if (i > TempTopX)
                             TempTopX = i;
@@ -151,14 +158,21 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
         GrainWidthSum += 0.5 * (GrainWidthX + GrainWidthY);
         float AR_XZ = (float)(TempTopZ - TempBottomZ + 1) / (float)(TempTopX - TempBottomX + 1);
         float AR_YZ = (float)(TempTopZ - TempBottomZ + 1) / (float)(TempTopY - TempBottomY + 1);
-        AspectRatio[n] = 0.5 * (AR_XZ + AR_YZ);
-        ARSum += AspectRatio[n];
-        VolWtARSum += AspectRatio[n] * (float)(VolGrain[n]);
+        AspectRatioYZ[n] = AR_YZ;
+        AspectRatioXZ[n] = AR_XZ;
+        ARSumYZ += AspectRatioYZ[n];
+        ARSumXZ += AspectRatioXZ[n];
+        VolWtARSumXZ += AspectRatioXZ[n] * (float)(VolGrain[n]);
+        VolWtARSumYZ += AspectRatioYZ[n] * (float)(VolGrain[n]);
     }
-    std::cout << "-- The mean grain aspect ratio (Z direction to transverse) is " << ARSum / (float)(NumberOfGrains)
+    std::cout << "-- The mean grain aspect ratio (Z direction to transverse) is " << ARSumYZ / (float)(NumberOfGrains)
               << std::endl;
     std::cout << "-- The mean volume-weighted grain aspect ratio (Z direction to transverse) is "
-              << VolWtARSum / ((float)(DomainVol)) << std::endl;
+              << VolWtARSumYZ / ((float)(DomainVol)) << std::endl;
+    std::cout << "-- The mean grain aspect ratio (Z direction to scan) is " << ARSumXZ / (float)(NumberOfGrains)
+              << std::endl;
+    std::cout << "-- The mean volume-weighted grain aspect ratio (Z direction to scan) is "
+              << VolWtARSumXZ / ((float)(DomainVol)) << std::endl;
     std::cout << "-- The mean grain height is " << GrainHeightSum / (float)(NumberOfGrains) << " microns" << std::endl;
     std::cout << "-- The mean grain width is " << GrainWidthSum / (float)(NumberOfGrains) << " microns" << std::endl;
 
@@ -166,7 +180,7 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
         std::ofstream VolumePlot;
         std::string FNameV = BaseFileName + "_VolumeFrequency.csv";
         VolumePlot.open(FNameV);
-        std::cout << "Printing file " << FNameV << " of grain volumes (in cubic microns) in selected volume"
+        std::cout << "Printing file " << FNameV << " of grain volumes (in cubic microns)"
                   << std::endl;
         for (int n = 0; n < NumberOfGrains; n++) {
             VolumePlot << VolGrain[n] * deltax * deltax * pow(10, 12) << std::endl;
@@ -174,14 +188,18 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
         VolumePlot.close();
     }
     if (AnalysisTypes[2]) {
-        std::ofstream ARPlot;
-        std::string FNameAR = BaseFileName + "_AspectRatioFrequency.csv";
-        ARPlot.open(FNameAR);
-        std::cout << "Printing file " << FNameAR << " of grain aspect ratios in selected volume" << std::endl;
+        std::ofstream ARPlotX, ARPlotY;
+        std::string FNameARX = BaseFileName + "_XZAspectRatioFrequency.csv";
+        std::string FNameARY = BaseFileName + "_YZAspectRatioFrequency.csv";
+        ARPlotX.open(FNameARX);
+        ARPlotY.open(FNameARY);
+        std::cout << "Printing files " << FNameARX << " and " << FNameARY << " of grain aspect ratios" << std::endl;
         for (int n = 0; n < NumberOfGrains; n++) {
-            ARPlot << AspectRatio[n] << std::endl;
+            ARPlotX << AspectRatioXZ[n] << std::endl;
+            ARPlotY << AspectRatioYZ[n] << std::endl;
         }
-        ARPlot.close();
+        ARPlotX.close();
+        ARPlotY.close();
     }
     if (AnalysisTypes[5]) {
         std::ofstream GrainHeightPlot;
@@ -197,8 +215,7 @@ void PrintSizeData(bool *AnalysisTypes, std::string BaseFileName, int XMin, int 
 }
 
 //*****************************************************************************/
-void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double deltax, int XMin, int XMax, int YMin,
-                        int YMax, int ZMin, int ZMax, ViewI3D_H GrainID) {
+void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double deltax, int nx, int ny, int nz, ViewI3D_H GrainID, ViewI3D_H Melted) {
 
     std::string FName1 = BaseFileName + "_GrainAreas.csv";
     std::string FName2 = BaseFileName + "_WeightedGrainAreas.csv";
@@ -214,17 +231,15 @@ void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double de
         Grainplot2.open(FName2);
     }
 
-    if (!(AnalysisTypes[2]) && (!(AnalysisTypes[3])))
-        ZMin = ZMax; // only print grain area/weighted grain area to screen at this one Z coordinate
-
-    int LayerArea = (XMax - XMin + 1) * (YMax - YMin + 1);
-    for (int k = ZMin; k <= ZMax; k++) {
-        std::vector<int> GIDAllVals_ThisLayer(LayerArea);
-        int Counter = 0;
-        for (int i = XMin; i <= XMax; i++) {
-            for (int j = YMin; j <= YMax; j++) {
-                GIDAllVals_ThisLayer[Counter] = GrainID(k, i, j);
-                Counter++;
+    for (int k = 1; k < nz-1; k++) {
+        std::vector<int> GIDAllVals_ThisLayer;
+        int LayerArea = 0;
+        for (int i = 0; i < nx; i++) {
+            for (int j = 0; j < ny; j++) {
+                if (Melted(k,i,j) == 1) {
+                    GIDAllVals_ThisLayer.push_back(GrainID(k, i, j));
+                    LayerArea++;
+                }
             }
         }
         std::vector<int> GIDVals_ThisLayer;
@@ -235,8 +250,8 @@ void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double de
         GIDVals_ThisLayer.resize(std::distance(GIDVals_ThisLayer.begin(), it));
         int GrainsThisLayer = GIDVals_ThisLayer.size();
         double MeanGrainAreaThisLayer = (double)(LayerArea) / (double)(GrainsThisLayer);
-        if (k == ZMax) {
-            std::cout << "Number of grains at the representative region top (Z = " << ZMax << "): " << GrainsThisLayer
+        if (k == nz-2) {
+            std::cout << "Number of grains at the representative region top (Z = " << nz-2 << "): " << GrainsThisLayer
                       << std::endl;
             if (AnalysisTypes[6]) {
                 std::string FName3 = BaseFileName + "_GrainWidthDistributionX.csv";
@@ -244,17 +259,17 @@ void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double de
                 std::ofstream Grainplot3;
                 std::ofstream Grainplot4;
                 std::cout << "Printing files " << FName3 << " and " << FName4
-                          << " of grain width distributions in x and y (in microns) at Z = " << ZMax << std::endl;
+                          << " of grain width distributions in x and y (in microns) at Z = " << nz-2 << std::endl;
                 Grainplot3.open(FName3);
                 Grainplot4.open(FName4);
                 for (int n = 0; n < GrainsThisLayer; n++) {
                     int ThisGrainID = GIDVals_ThisLayer[n];
-                    int TempTopX = XMin;
-                    int TempTopY = YMin;
-                    int TempBottomX = XMax;
-                    int TempBottomY = YMax;
-                    for (int i = XMin; i <= XMax; i++) {
-                        for (int j = YMin; j <= YMax; j++) {
+                    int TempTopX = 0;
+                    int TempTopY = 0;
+                    int TempBottomX = nx-1;
+                    int TempBottomY = ny-1;
+                    for (int i = 0; i < nx; i++) {
+                        for (int j = 0; j < ny; j++) {
                             if (GrainID(k, i, j) == ThisGrainID) {
                                 if (i > TempTopX)
                                     TempTopX = i;
@@ -276,27 +291,32 @@ void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double de
                 Grainplot4.close();
             }
         }
-        if (((AnalysisTypes[3]) && (k % 5 == 0)) || (k == ZMax)) {
+        if (((AnalysisTypes[3]) && (k % 5 == 0)) || (k == nz-2)) {
             long int AreaXArea = 0;
+            std::string FNameA = BaseFileName + "_GrainAreasTopSurface.csv";
+            std::ofstream GrainplotA;
+            GrainplotA.open(FNameA);
             for (int l = 0; l < GrainsThisLayer; l++) {
                 long int MyGrainArea = 0;
                 for (int ll = 0; ll < LayerArea; ll++) {
                     if (GIDVals_ThisLayer[l] == GIDAllVals_ThisLayer[ll])
                         MyGrainArea++;
                 }
+                GrainplotA << (float)(MyGrainArea) * deltax * deltax / pow(10, -12) << std::endl;
                 AreaXArea += MyGrainArea * MyGrainArea;
             }
+            GrainplotA.close();
             double WeightedArea = ((double)(AreaXArea) / (double)(LayerArea));
             if (AnalysisTypes[3])
                 Grainplot2 << WeightedArea * deltax * deltax / pow(10, -12) << std::endl;
-            if (k == ZMax)
-                std::cout << "-- The mean weighted grain area at the representative region top (Z = " << ZMax << ") is "
+            if (k == nz-2)
+                std::cout << "-- The mean weighted grain area at the representative region top (Z = " << nz-2 << ") is "
                           << WeightedArea * deltax * deltax / pow(10, -12) << " square microns" << std::endl;
         }
         if (AnalysisTypes[4])
             Grainplot1 << MeanGrainAreaThisLayer * deltax * deltax / pow(10, -12) << std::endl;
-        if (k == ZMax)
-            std::cout << "-- The mean grain area at the representative region top (Z = " << ZMax << ") is "
+        if (k == nz-2)
+            std::cout << "-- The mean grain area at the representative region top (Z = " << nz-2 << ") is "
                       << MeanGrainAreaThisLayer * deltax * deltax / pow(10, -12) << " square microns" << std::endl;
     }
     if (AnalysisTypes[3])
@@ -306,8 +326,7 @@ void PrintGrainAreaData(bool *AnalysisTypes, std::string BaseFileName, double de
 }
 
 //*****************************************************************************/
-void PrintPoleFigureData(bool *AnalysisTypes, std::string BaseFileName, int NumberOfOrientations, int XMin, int XMax,
-                         int YMin, int YMax, int ZMin, int ZMax, ViewI3D_H GrainID, ViewI3D_H Melted) {
+void PrintPoleFigureData(bool *AnalysisTypes, std::string BaseFileName, int NumberOfOrientations, int nx, int ny, int nz, ViewI3D_H GrainID, ViewI3D_H Melted) {
 
     if (AnalysisTypes[7]) {
 
@@ -320,10 +339,10 @@ void PrintPoleFigureData(bool *AnalysisTypes, std::string BaseFileName, int Numb
             GOHistogram[i] = 0;
         }
         // frequency data on grain ids
-        for (int k = ZMin; k <= ZMax; k++) {
-            for (int j = YMin; j <= YMax; j++) {
-                for (int i = XMin; i <= XMax; i++) {
-                    if (Melted(k, i, j)) {
+        for (int k = 0; k < nz; k++) {
+            for (int j = 0; j < ny; j++) {
+                for (int i = 0; i < nx; i++) {
+                    if (Melted(k, i, j) == 1) {
                         int GOVal = (abs(GrainID(k, i, j)) - 1) % NumberOfOrientations;
                         GOHistogram[GOVal]++;
                     }

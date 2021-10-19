@@ -779,57 +779,13 @@ void ParallelMeshInit(int DecompositionStrategy, ViewI_H NeighborX, ViewI_H Neig
         int LayersToRead = std::min(NumberOfLayers, TempFilesInSeries); // was given in input file
         for (int LayerReadCount = 1; LayerReadCount <= LayersToRead; LayerReadCount++) {
 
-            std::string tempfile_thislayer = temp_paths[LayerReadCount - 1];
-            std::ifstream TemperatureFile;
-            TemperatureFile.open(tempfile_thislayer);
-
-            // Read the header line data
-            // Make sure the first line contains all required column names: x, y, z, tm, tl, cr
-            // Check 2 mixes of lower and uppercase letters/similar possible column names just in case
-            std::string HeaderLine;
-            getline(TemperatureFile, HeaderLine);
-            checkForHeaderValues(HeaderLine);
-
-            double XMin_ThisLayer = 1000000.0;
-            double XMax_ThisLayer = -1000000.0;
-            double YMin_ThisLayer = 1000000.0;
-            double YMax_ThisLayer = -1000000.0;
-            double ZMin_ThisLayer = 1000000.0;
-            double ZMax_ThisLayer = -100000.0;
-
-            // Units are assumed to be in meters, meters, seconds, seconds, and K/second
-            std::vector<double> XCoordinates(1000000), YCoordinates(1000000), ZCoordinates(1000000);
-            long unsigned int XYZPointCounter = 0;
-            while (!TemperatureFile.eof()) {
-                std::string s;
-                getline(TemperatureFile, s);
-                if (s.empty())
-                    break;
-                // Only get x, y, and z values
-                std::vector<double> XYZTemperaturePoint(3, 0);
-                getTemperatureDataPoint(s, XYZTemperaturePoint);
-                XCoordinates[XYZPointCounter] = XYZTemperaturePoint[0];
-                YCoordinates[XYZPointCounter] = XYZTemperaturePoint[1];
-                ZCoordinates[XYZPointCounter] = XYZTemperaturePoint[2];
-                XYZPointCounter++;
-                if (XYZPointCounter == XCoordinates.size()) {
-                    XCoordinates.resize(XYZPointCounter + 1000000);
-                    YCoordinates.resize(XYZPointCounter + 1000000);
-                    ZCoordinates.resize(XYZPointCounter + 1000000);
-                }
-            }
-            XCoordinates.resize(XYZPointCounter);
-            YCoordinates.resize(XYZPointCounter);
-            ZCoordinates.resize(XYZPointCounter);
-            TemperatureFile.close();
-            // Min/max x, y, and z coordinates from this layer's data
-            XMin_ThisLayer = *min_element(XCoordinates.begin(), XCoordinates.end());
-            YMin_ThisLayer = *min_element(YCoordinates.begin(), YCoordinates.end());
-            ZMin_ThisLayer = *min_element(ZCoordinates.begin(), ZCoordinates.end());
-            XMax_ThisLayer = *max_element(XCoordinates.begin(), XCoordinates.end());
-            YMax_ThisLayer = *max_element(YCoordinates.begin(), YCoordinates.end());
-            ZMax_ThisLayer = *max_element(ZCoordinates.begin(), ZCoordinates.end());
-
+            double XMin_ThisLayer = -2.25 * pow(10,-5);
+            double XMax_ThisLayer = 0.0030425;
+            double YMin_ThisLayer = -7.25 * pow(10,-5);
+            double YMax_ThisLayer = 7.25 * pow(10,-5);
+            double ZMin_ThisLayer = -4.25 * pow(10,-5);
+            double ZMax_ThisLayer = -2.5 * pow (10,-6);
+            
             // Based on the input file's layer offset, adjust ZMin/ZMax from the temperature data coordinate
             // system to the multilayer CA coordinate system Check to see in the XYZ bounds for this layer are
             // also limiting for the entire multilayer CA coordinate system
@@ -1604,8 +1560,7 @@ void SubstrateInit_FromGrainSpacing(float SubstrateGrainSpacing, int nx, int ny,
     std::uniform_real_distribution<double> dis(0.0, 1.0);
 
     // Probability that a given cell will be the center of a baseplate grain
-    double BaseplateGrainProb = (deltax * deltax * deltax) /
-                                (SubstrateGrainSpacing * SubstrateGrainSpacing * SubstrateGrainSpacing * pow(10, -18));
+    double BaseplateGrainProb = (deltax * deltax * deltax) / (SubstrateGrainSpacing * SubstrateGrainSpacing * SubstrateGrainSpacing * pow(10, -18));
     ViewI_H NumBaseplateGrains_H(Kokkos::ViewAllocateWithoutInitializing("NBaseplate"), 1);
     NumBaseplateGrains_H(0) = 0;
     ViewI_H BaseplateGrainX_H(Kokkos::ViewAllocateWithoutInitializing("BaseplateGrainX"), nx * ny * nzActive);
@@ -1683,7 +1638,7 @@ void SubstrateInit_FromGrainSpacing(float SubstrateGrainSpacing, int nx, int ny,
         std::cout << "Baseplate grain structure initialized" << std::endl;
     // Initialize grain seeds above baseplate to emulate bulk nucleation at edge of melted powder particles
     int PowderLayerActCells_ThisRank = 0;
-    for (int k = nzActive; k < nz; k++) {
+    for (int k = nzActive+1; k < nz; k++) {
         for (int i = 1; i < MyXSlices - 1; i++) {
             for (int j = 1; j < MyYSlices - 1; j++) {
                 int CAGridLocation = k * MyXSlices * MyYSlices + i * MyYSlices + j;
