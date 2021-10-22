@@ -238,7 +238,8 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
                        std::string &SubstrateFileName, float &SubstrateGrainSpacing, bool &UseSubstrateFile, double &G,
                        double &R, int &nx, int &ny, int &nz, double &FractSurfaceSitesActive, std::string &PathToOutput,
                        int &PrintDebug, bool &PrintMisorientation, bool &PrintFullOutput, int &NSpotsX, int &NSpotsY,
-                       int &SpotOffset, int &SpotRadius) {
+                       int &SpotOffset, int &SpotRadius, bool &PrintMovieFrames, int &MovieFrameInc,
+                       bool &PrintIdleMovieFrames) {
 
     std::string Colon = ":";
     std::string Quote = "'";
@@ -561,6 +562,34 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
             PrintDebug = 1;
         else
             PrintDebug = 0;
+    }
+    // Should video data of the microstructure evolution be printed?
+    std::string DummyLine;
+    getline(InputData, DummyLine); // empty line
+    if (DummyLine.empty()) {
+        // No movie printing options in this file
+        PrintMovieFrames = false;
+        PrintIdleMovieFrames = false;
+    }
+    else {
+        PrintMovieFrames = parseInputBool(InputData, "intermediate output frames");
+        if (PrintMovieFrames) {
+            // Obtain the increment in time of printing data to files
+            val = parseInput(InputData, "how many microseconds should separate frames");
+            double MovieFrameInc_time = stod(val) * pow(10, -6);
+            MovieFrameInc = round(MovieFrameInc_time / deltat);
+            if (id == 0)
+                std::cout << "Intermediate output for movie frames will be printed every " << MovieFrameInc
+                          << " time steps (or every " << MovieFrameInc_time << " microseconds)" << std::endl;
+            // Should files be printed every MovieFramInc time steps no matter what, or should frames where no
+            // solidification is occurring be skipped?
+            PrintIdleMovieFrames = parseInputBool(
+                InputData, "Print intermediate output even if system is unchanged from last printed file");
+        }
+        else {
+            // Do not print movie frames - PrintIdleMovieFreams should be false
+            PrintIdleMovieFrames = false;
+        }
     }
     InputData.close();
 
