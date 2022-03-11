@@ -2696,7 +2696,7 @@ void GrainNucleiInitRemelt(int layernumber, int MyXSlices, int MyYSlices, int nz
         // Time steps to reach this undercooling after cell goes below the liquidus
         int TimeToNucUnd = LayerTimeTempHistory(D3D1ConvPosition, EventNumNucleation, 1) +
                            round(LocNucUnd / LayerTimeTempHistory(D3D1ConvPosition, EventNumNucleation, 2));
-        NucleationTimes(NEvent) = LayerTimeTempHistory(D3D1ConvPosition, EventNumNucleation, 1);
+        NucleationTimes(NEvent) = TimeToNucUnd;
         if (TimeToNucUnd < LayerTimeTempHistory(D3D1ConvPosition, EventNumNucleation, 1))
             NucleationTimes(NEvent) = TimeToNucUnd;
     }
