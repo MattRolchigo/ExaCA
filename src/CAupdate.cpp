@@ -137,8 +137,10 @@ void FillSteeringVector_NoRemelt(int cycle, int LocalActiveDomainSize, int MyXSl
     // Cells associated with this layer that are not solid type but have passed the liquidus (crit time step) have their
     // undercooling values updated Cells that meet the aforementioned criteria and are active type should be added to
     // the steering vector
-    Kokkos::parallel_for(
-        "FillSV", LocalActiveDomainSize, KOKKOS_LAMBDA(const int &D3D1ConvPosition) {
+    int SVSize = 0;
+    Kokkos::parallel_reduce(
+        "FillSV", LocalActiveDomainSize,
+        KOKKOS_LAMBDA(const int D3D1ConvPosition, int &update) {
             // Cells of interest for the CA
             int RankZ = D3D1ConvPosition / (MyXSlices * MyYSlices);
             int Rem = D3D1ConvPosition % (MyXSlices * MyYSlices);
@@ -159,11 +161,15 @@ void FillSteeringVector_NoRemelt(int cycle, int LocalActiveDomainSize, int MyXSl
                 UndercoolingCurrent(GlobalD3D1ConvPosition) +=
                     UndercoolingChange(GlobalD3D1ConvPosition) * (cell_Liquid + cell_Active);
                 if (cell_Active) {
+                    // update steering vector length for the thread
+                    // still need numSteer atomic add as the counter across all threads
+                    update++;
                     SteeringVector(Kokkos::atomic_fetch_add(&numSteer(0), 1)) = D3D1ConvPosition;
                 }
             }
-        });
-    Kokkos::deep_copy(numSteer_Host, numSteer);
+        },
+        SVSize);
+    numSteer_Host(0) = SVSize;
 }
 
 //*****************************************************************************/
