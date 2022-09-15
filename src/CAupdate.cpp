@@ -250,7 +250,7 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int MyXSlic
 }
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
-void CellCapture(int, int np, int, int DecompositionStrategy, int, int, int MyXSlices, int MyYSlices, double AConst,
+void CellCapture(int id, int np, int cycle, int DecompositionStrategy, int, int, int MyXSlices, int MyYSlices, double AConst,
                  double BConst, double CConst, double DConst, int MyXOffset, int MyYOffset, NList NeighborX,
                  NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                  ViewF UndercoolingChange, ViewF GrainUnitVector, ViewF CritDiagonalLength, ViewF DiagonalLength,
@@ -499,6 +499,7 @@ void CellCapture(int, int np, int, int DecompositionStrategy, int, int, int MyXS
                                     float GhostDOCY = cy;
                                     float GhostDOCZ = cz;
                                     float GhostDL = NewODiagL;
+                                    printf("Rank %d cycle %d sending %d %f %f %f %f \n",id, cycle,GhostGID,GhostDOCX,GhostDOCY,GhostDOCZ,GhostDL);
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     if (DecompositionStrategy == 1)

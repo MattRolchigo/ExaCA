@@ -11,8 +11,8 @@
 #include <Kokkos_Core.hpp>
 
 // Load data (GrainID, DOCenter, DiagonalLength) into ghost nodes if the given RankY is associated with a 1D halo region
-KOKKOS_INLINE_FUNCTION void loadghostnodes(const double GhostGID, const double GhostDOCX, const double GhostDOCY,
-                                           const double GhostDOCZ, const double GhostDL, const int BufSizeX,
+KOKKOS_INLINE_FUNCTION void loadghostnodes(const int GhostGID, const float GhostDOCX, const float GhostDOCY,
+                                           const float GhostDOCZ, const float GhostDL, const int BufSizeX,
                                            const int MyYSlices, const int RankX, const int RankY, const int RankZ,
                                            const bool AtNorthBoundary, const bool AtSouthBoundary,
                                            Buffer2D BufferSouthSend, Buffer2D BufferNorthSend, ViewI BufferSouthSend_I,

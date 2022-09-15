@@ -262,7 +262,7 @@ void GhostNodes2D(int, int, int NeighborRank_North, int NeighborRank_South, int 
 
 //*****************************************************************************/
 // 1D domain decomposition: update ghost nodes with new cell data from Nucleation and CellCapture routines
-void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int MyXSlices, int MyYSlices, int MyXOffset,
+void GhostNodes1D(int cycle, int id, int NeighborRank_North, int NeighborRank_South, int MyXSlices, int MyYSlices, int MyXOffset,
                   int MyYOffset, NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CellType, ViewF DOCenter,
                   ViewI GrainID, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
@@ -277,9 +277,9 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
               &SendRequests[0]);
     MPI_Isend(BufferNorthSend.data(), 4 * BufSizeX * BufSizeZ, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD,
               &SendRequests[1]);
-    MPI_Isend(BufferSouthSend_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_South, 0, MPI_COMM_WORLD,
+    MPI_Isend(BufferSouthSend_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_South, 1, MPI_COMM_WORLD,
               &SendRequests[2]);
-    MPI_Isend(BufferNorthSend_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_North, 0, MPI_COMM_WORLD,
+    MPI_Isend(BufferNorthSend_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_North, 1, MPI_COMM_WORLD,
               &SendRequests[3]);
 
     // Receive buffers for all neighbors (MPI_Irecv)
@@ -287,9 +287,9 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
               &RecvRequests[0]);
     MPI_Irecv(BufferNorthRecv.data(), 4 * BufSizeX * BufSizeZ, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD,
               &RecvRequests[1]);
-    MPI_Irecv(BufferSouthRecv_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_South, 0, MPI_COMM_WORLD,
+    MPI_Irecv(BufferSouthRecv_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_South, 1, MPI_COMM_WORLD,
               &RecvRequests[2]);
-    MPI_Irecv(BufferNorthRecv_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_North, 0, MPI_COMM_WORLD,
+    MPI_Irecv(BufferNorthRecv_I.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_North, 1, MPI_COMM_WORLD,
               &RecvRequests[3]);
 
     // Wait on send requests
