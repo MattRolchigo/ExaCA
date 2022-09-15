@@ -499,7 +499,7 @@ void CellCapture(int id, int np, int cycle, int DecompositionStrategy, int, int,
                                     float GhostDOCY = cy;
                                     float GhostDOCZ = cz;
                                     float GhostDL = NewODiagL;
-                                    printf("Rank %d cycle %d sending %d %f %f %f %f \n",id, cycle,GhostGID,GhostDOCX,GhostDOCY,GhostDOCZ,GhostDL);
+//                                    printf("Rank %d cycle %d sending %d %f %f %f %f \n",id, cycle,GhostGID,GhostDOCX,GhostDOCY,GhostDOCZ,GhostDL);
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     if (DecompositionStrategy == 1)
