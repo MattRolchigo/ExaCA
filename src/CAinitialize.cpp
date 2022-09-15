@@ -1712,7 +1712,7 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                                      Buffer2D BufferNorthEastSend, Buffer2D BufferNorthWestSend,
                                      Buffer2D BufferSouthEastSend, Buffer2D BufferSouthWestSend, int BufSizeX,
                                      int BufSizeY, bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary,
-                                     bool AtWestBoundary) {
+                                     bool AtWestBoundary, ViewI BufferSouthSend_I, ViewI BufferNorthSend_I) {
 
     // Calls to Xdist(gen) and Y dist(gen) return random locations for grain seeds
     // Since X = 0 and X = nx-1 are the cell centers of the last cells in X, locations are evenly scattered between X =
@@ -1788,7 +1788,8 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                     // Collect data for the ghost nodes, if necessary
                     if (DecompositionStrategy == 1)
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, LocalX,
-                                       LocalY, 0, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend);
+                                       LocalY, 0, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
+                                       BufferSouthSend_I, BufferNorthSend_I);
                     else
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, BufSizeY,
                                        MyXSlices, MyYSlices, LocalX, LocalY, 0, AtNorthBoundary, AtSouthBoundary,
@@ -2032,7 +2033,8 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int DecompositionStr
                            Buffer2D BufferWestSend, Buffer2D BufferEastSend, Buffer2D BufferNorthSend,
                            Buffer2D BufferSouthSend, Buffer2D BufferNorthEastSend, Buffer2D BufferNorthWestSend,
                            Buffer2D BufferSouthEastSend, Buffer2D BufferSouthWestSend, int BufSizeX, int BufSizeY,
-                           bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary, bool AtWestBoundary) {
+                           bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary, bool AtWestBoundary,
+                           ViewI BufferSouthSend_I, ViewI BufferNorthSend_I) {
 
     // Start with all cells as solid for the first layer, with liquid cells where temperature data exists
     if (layernumber == 0) {
@@ -2129,8 +2131,8 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int DecompositionStr
                     // Collect data for the ghost nodes, if necessary
                     if (DecompositionStrategy == 1)
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, RankX,
-                                       RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend);
+                                       RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
+                                       BufferSouthSend_I, BufferNorthSend_I);
                     else
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, BufSizeY,
                                        MyXSlices, MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary,
@@ -2499,7 +2501,8 @@ void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeY, int B
                     Buffer2D &BufferSouthWestSend, Buffer2D &BufferWestRecv, Buffer2D &BufferEastRecv,
                     Buffer2D &BufferNorthRecv, Buffer2D &BufferSouthRecv, Buffer2D &BufferNorthEastRecv,
                     Buffer2D &BufferNorthWestRecv, Buffer2D &BufferSouthEastRecv, Buffer2D &BufferSouthWestRecv,
-                    ViewI &SteeringVector) {
+                    ViewI &SteeringVector, ViewI &BufferNorthSend_I, ViewI &BufferSouthSend_I, ViewI &BufferNorthRecv_I,
+                    ViewI &BufferSouthRecv_I) {
 
     // Realloc steering vector as LocalActiveDomainSize may have changed (old values aren't needed)
     Kokkos::realloc(SteeringVector, LocalActiveDomainSize);
@@ -2508,8 +2511,10 @@ void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeY, int B
     Kokkos::realloc(DiagonalLength, LocalActiveDomainSize);
     Kokkos::realloc(DOCenter, 3 * LocalActiveDomainSize);
     Kokkos::realloc(CritDiagonalLength, 26 * LocalActiveDomainSize);
-    Kokkos::realloc(BufferNorthSend, BufSizeX * BufSizeZ, 5);
-    Kokkos::realloc(BufferSouthSend, BufSizeX * BufSizeZ, 5);
+    Kokkos::realloc(BufferNorthSend, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferSouthSend, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferNorthSend_I, BufSizeX * BufSizeZ);
+    Kokkos::realloc(BufferSouthSend_I, BufSizeX * BufSizeZ);
     Kokkos::realloc(BufferEastSend, BufSizeY * BufSizeZ, 5);
     Kokkos::realloc(BufferWestSend, BufSizeY * BufSizeZ, 5);
     Kokkos::realloc(BufferNorthEastSend, BufSizeZ, 5);
@@ -2517,8 +2522,10 @@ void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeY, int B
     Kokkos::realloc(BufferSouthEastSend, BufSizeZ, 5);
     Kokkos::realloc(BufferSouthWestSend, BufSizeZ, 5);
 
-    Kokkos::realloc(BufferNorthRecv, BufSizeX * BufSizeZ, 5);
-    Kokkos::realloc(BufferSouthRecv, BufSizeX * BufSizeZ, 5);
+    Kokkos::realloc(BufferNorthRecv, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferSouthRecv, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferNorthRecv_I, BufSizeX * BufSizeZ);
+    Kokkos::realloc(BufferSouthRecv_I, BufSizeX * BufSizeZ);
     Kokkos::realloc(BufferEastRecv, BufSizeY * BufSizeZ, 5);
     Kokkos::realloc(BufferWestRecv, BufSizeY * BufSizeZ, 5);
     Kokkos::realloc(BufferNorthEastRecv, BufSizeZ, 5);

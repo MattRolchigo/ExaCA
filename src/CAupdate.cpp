@@ -177,7 +177,8 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int MyXSlic
                                bool AtEastBoundary, bool AtWestBoundary, Buffer2D BufferWestSend,
                                Buffer2D BufferEastSend, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
                                Buffer2D BufferNorthEastSend, Buffer2D BufferNorthWestSend, Buffer2D BufferSouthEastSend,
-                               Buffer2D BufferSouthWestSend, int DecompositionStrategy) {
+                               Buffer2D BufferSouthWestSend, int DecompositionStrategy, ViewI BufferSouthSend_I,
+                               ViewI BufferNorthSend_I) {
 
     Kokkos::parallel_for(
         "FillSV_RM", LocalActiveDomainSize, KOKKOS_LAMBDA(const int &D3D1ConvPosition) {
@@ -201,7 +202,8 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int MyXSlic
                 // Remove solid cell data from the buffer
                 if (DecompositionStrategy == 1)
                     loadghostnodes(0, 0, 0, 0, 0, BufSizeX, MyYSlices, RankX, RankY, RankZ, AtNorthBoundary,
-                                   AtSouthBoundary, BufferSouthSend, BufferNorthSend);
+                                   AtSouthBoundary, BufferSouthSend, BufferNorthSend, BufferSouthSend_I,
+                                   BufferNorthSend_I);
                 else
                     loadghostnodes(0, 0, 0, 0, 0, BufSizeX, BufSizeY, MyXSlices, MyYSlices, RankX, RankY, RankZ,
                                    AtNorthBoundary, AtSouthBoundary, AtWestBoundary, AtEastBoundary, BufferSouthSend,
@@ -258,8 +260,8 @@ void CellCapture(int, int np, int, int DecompositionStrategy, int, int, int MyXS
                  Buffer2D BufferSouthWestSend, int BufSizeX, int BufSizeY, int ZBound_Low, int nzActive, int,
                  ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
                  bool AtSouthBoundary, bool AtEastBoundary, bool AtWestBoundary, ViewI SolidificationEventCounter,
-                 ViewI MeltTimeStep, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents,
-                 bool RemeltingYN) {
+                 ViewI MeltTimeStep, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents, bool RemeltingYN,
+                 ViewI BufferSouthSend_I, ViewI BufferNorthSend_I) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -492,18 +494,18 @@ void CellCapture(int, int np, int, int DecompositionStrategy, int, int, int MyXS
 
                                 if (np > 1) {
 
-                                    double GhostGID = static_cast<double>(h);
-                                    double GhostDOCX = cx;
-                                    double GhostDOCY = cy;
-                                    double GhostDOCZ = cz;
-                                    double GhostDL = NewODiagL;
+                                    int GhostGID = h;
+                                    float GhostDOCX = cx;
+                                    float GhostDOCY = cy;
+                                    float GhostDOCZ = cz;
+                                    float GhostDL = NewODiagL;
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     if (DecompositionStrategy == 1)
                                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX,
                                                        MyYSlices, MyNeighborX, MyNeighborY, MyNeighborZ,
                                                        AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                                       BufferNorthSend);
+                                                       BufferNorthSend, BufferSouthSend_I, BufferNorthSend_I);
                                     else
                                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX,
                                                        BufSizeY, MyXSlices, MyYSlices, MyNeighborX, MyNeighborY,
@@ -575,16 +577,16 @@ void CellCapture(int, int np, int, int DecompositionStrategy, int, int, int MyXS
                                        MyOrientation, GrainUnitVector, CritDiagonalLength);
                 if (np > 1) {
 
-                    double GhostGID = static_cast<double>(MyGrainID);
-                    double GhostDOCX = static_cast<double>(GlobalX + 0.5);
-                    double GhostDOCY = static_cast<double>(GlobalY + 0.5);
-                    double GhostDOCZ = static_cast<double>(GlobalZ + 0.5);
-                    double GhostDL = 0.01;
+                    int GhostGID = MyGrainID;
+                    float GhostDOCX = GlobalX + 0.5;
+                    float GhostDOCY = GlobalY + 0.5;
+                    float GhostDOCZ = GlobalZ + 0.5;
+                    float GhostDL = 0.01;
                     // Collect data for the ghost nodes, if necessary
                     if (DecompositionStrategy == 1)
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, RankX,
-                                       RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend);
+                                       RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
+                                       BufferSouthSend_I, BufferNorthSend_I);
                     else
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, BufSizeY,
                                        MyXSlices, MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary,

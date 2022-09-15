@@ -77,28 +77,23 @@ void testSubstrateInit_ConstrainedGrowth() {
     int BufSizeZ = nzActive;
 
     // Send/recv buffers for ghost node data should be initialized with zeros
-    Buffer2D BufferSouthSend("BufferSouthSend", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferNorthSend("BufferNorthSend", BufSizeX * BufSizeZ, 5);
+    Buffer2D BufferSouthSend("BufferSouthSend", BufSizeX * BufSizeZ, 4);
+    Buffer2D BufferNorthSend("BufferNorthSend", BufSizeX * BufSizeZ, 4);
+    ViewI BufferSouthSend_I("BufferSouthSend_I", BufSizeX * BufSizeZ);
+    ViewI BufferNorthSend_I("BufferNorthSend_I", BufSizeX * BufSizeZ);
     Buffer2D BufferEastSend("BufferEastSend", BufSizeY * BufSizeZ, 5);
     Buffer2D BufferWestSend("BufferWestSend", BufSizeY * BufSizeZ, 5);
     Buffer2D BufferNorthEastSend("BufferNorthEastSend", BufSizeZ, 5);
     Buffer2D BufferNorthWestSend("BufferNorthWestSend", BufSizeZ, 5);
     Buffer2D BufferSouthEastSend("BufferSouthEastSend", BufSizeZ, 5);
     Buffer2D BufferSouthWestSend("BufferSouthWestSend", BufSizeZ, 5);
-    Buffer2D BufferSouthRecv("BufferSouthRecv", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferNorthRecv("BufferNorthRecv", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferEastRecv("BufferEastRecv", BufSizeY * BufSizeZ, 5);
-    Buffer2D BufferWestRecv("BufferWestRecv", BufSizeY * BufSizeZ, 5);
-    Buffer2D BufferNorthEastRecv("BufferNorthEastRecv", BufSizeZ, 5);
-    Buffer2D BufferNorthWestRecv("BufferNorthWestRecv", BufSizeZ, 5);
-    Buffer2D BufferSouthEastRecv("BufferSouthEastRecv", BufSizeZ, 5);
-    Buffer2D BufferSouthWestRecv("BufferSouthWestRecv", BufSizeZ, 5);
+
     SubstrateInit_ConstrainedGrowth(
         id, FractSurfaceSitesActive, MyXSlices, MyYSlices, nx, ny, MyXOffset, MyYOffset, NeighborX, NeighborY,
         NeighborZ, GrainUnitVector, NGrainOrientations, CellType, GrainID, DiagonalLength, DOCenter, CritDiagonalLength,
         RNGSeed, np, DecompositionStrategy, BufferWestSend, BufferEastSend, BufferNorthSend, BufferSouthSend,
         BufferNorthEastSend, BufferNorthWestSend, BufferSouthEastSend, BufferSouthWestSend, BufSizeX, BufSizeY,
-        AtNorthBoundary, AtSouthBoundary, AtEastBoundary, AtWestBoundary);
+        AtNorthBoundary, AtSouthBoundary, AtEastBoundary, AtWestBoundary, BufferSouthSend_I, BufferNorthSend_I);
 
     // Copy CellType, GrainID views to host to check values
     ViewI_H CellType_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), CellType);
@@ -336,8 +331,10 @@ void testCellTypeInit_NoRemelt() {
     int BufSizeY = 0;
 
     // Send buffers for ghost node data should be initialized with zeros
-    Buffer2D BufferSouthSend("BufferSouthSend", BufSizeX * nzActive, 5);
-    Buffer2D BufferNorthSend("BufferNorthSend", BufSizeX * nzActive, 5);
+    Buffer2D BufferSouthSend("BufferSouthSend", BufSizeX * nzActive, 4);
+    Buffer2D BufferNorthSend("BufferNorthSend", BufSizeX * nzActive, 4);
+    ViewI BufferSouthSend_I("BufferSouthSend_I", BufSizeX * nzActive);
+    ViewI BufferNorthSend_I("BufferNorthSend_I", BufSizeX * nzActive);
     Buffer2D BufferEastSend("BufferEastSend", BufSizeY * nzActive, 5);
     Buffer2D BufferWestSend("BufferWestSend", BufSizeY * nzActive, 5);
     Buffer2D BufferNorthEastSend("BufferNorthEastSend", nzActive, 5);
@@ -352,7 +349,7 @@ void testCellTypeInit_NoRemelt() {
                           CritDiagonalLength, DOCenter, LayerID, BufferWestSend, BufferEastSend, BufferNorthSend,
                           BufferSouthSend, BufferNorthEastSend, BufferNorthWestSend, BufferSouthEastSend,
                           BufferSouthWestSend, BufSizeX, BufSizeY, AtNorthBoundary, AtSouthBoundary, AtEastBoundary,
-                          AtWestBoundary);
+                          AtWestBoundary, BufferSouthSend_I, BufferNorthSend_I);
 
     // Copy views back to host to check the results
     ViewF_H DiagonalLength_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), DiagonalLength);
@@ -409,6 +406,8 @@ void testCellTypeInit_NoRemelt() {
 
     auto BufferSouthSend_H = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferSouthSend);
     auto BufferNorthSend_H = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferNorthSend);
+    auto BufferSouthSend_I_H = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferSouthSend_I);
+    auto BufferNorthSend_I_H = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferNorthSend_I);
     // Further check that active cell data was properly loaded into send buffers, and that locations in the send buffers
     // not corresponding to active cells were left alone (should still be 0s)
     for (int k = ZBound_Low; k <= ZBound_High; k++) {
@@ -418,11 +417,11 @@ void testCellTypeInit_NoRemelt() {
             int D3D1ConvPositionGlobal_South =
                 k * MyXSlices * MyYSlices + i * MyYSlices + 1; // Position of cell on grid
             if ((CellType_Host(D3D1ConvPositionGlobal_South) == Active) && (!(AtSouthBoundary))) {
-                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 0), 1);
-                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 1), i + MyXOffset + 0.5);
-                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 2), 1 + MyYOffset + 0.5);
-                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 3), k + 0.5);
-                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 4), 0.01);
+                EXPECT_FLOAT_EQ(BufferSouthSend_I_H(GNPosition), 1);
+                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 0), i + MyXOffset + 0.5);
+                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 1), 1 + MyYOffset + 0.5);
+                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 2), k + 0.5);
+                EXPECT_FLOAT_EQ(BufferSouthSend_H(GNPosition, 3), 0.01);
             }
             else {
                 for (int l = 0; l < 5; l++) {
@@ -432,14 +431,14 @@ void testCellTypeInit_NoRemelt() {
             // Check the north buffer - Data being sent to the "north" (BufferNorthSend) is from active cells at Y = 2
             int D3D1ConvPositionGlobal_North = k * MyXSlices * MyYSlices + i * MyYSlices + 2;
             if ((CellType_Host(D3D1ConvPositionGlobal_North) == Active) && (!(AtNorthBoundary))) {
-                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 0), 1);
-                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 1), i + MyXOffset + 0.5);
-                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 2), 2 + MyYOffset + 0.5);
-                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 3), k + 0.5);
-                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 4), 0.01);
+                EXPECT_FLOAT_EQ(BufferNorthSend_I_H(GNPosition), 1);
+                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 0), i + MyXOffset + 0.5);
+                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 1), 2 + MyYOffset + 0.5);
+                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 2), k + 0.5);
+                EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, 3), 0.01);
             }
             else {
-                for (int l = 0; l < 5; l++) {
+                for (int l = 0; l < 4; l++) {
                     EXPECT_FLOAT_EQ(BufferNorthSend_H(GNPosition, l), 0.0);
                 }
             }

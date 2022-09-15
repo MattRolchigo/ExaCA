@@ -101,7 +101,7 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                                      Buffer2D BufferNorthEastSend, Buffer2D BufferNorthWestSend,
                                      Buffer2D BufferSouthEastSend, Buffer2D BufferSouthWestSend, int BufSizeX,
                                      int BufSizeY, bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary,
-                                     bool AtWestBoundary);
+                                     bool AtWestBoundary, ViewI BufferSouthSend_I, ViewI BufferNorthSend_I);
 void SubstrateInit_FromFile(std::string SubstrateFileName, int nz, int MyXSlices, int MyYSlices, int MyXOffset,
                             int MyYOffset, int pid, ViewI &GrainID, int nzActive, bool BaseplateThroughPowder);
 void BaseplateInit_FromGrainSpacing(float SubstrateGrainSpacing, int nx, int ny, float *ZMinLayer, float *ZMaxLayer,
@@ -121,7 +121,8 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int DecompositionStr
                            Buffer2D BufferWestSend, Buffer2D BufferEastSend, Buffer2D BufferNorthSend,
                            Buffer2D BufferSouthSend, Buffer2D BufferNorthEastSend, Buffer2D BufferNorthWestSend,
                            Buffer2D BufferSouthEastSend, Buffer2D BufferSouthWestSend, int BufSizeX, int BufSizeY,
-                           bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary, bool AtWestBoundary);
+                           bool AtNorthBoundary, bool AtSouthBoundary, bool AtEastBoundary, bool AtWestBoundary,
+                           ViewI BufferSouthSend_I, ViewI BufferNorthSend_I);
 void NucleiInit(int layernumber, double RNGSeed, int MyXSlices, int MyYSlices, int MyXOffset, int MyYOffset, int nx,
                 int ny, int nzActive, int ZBound_Low, int id, double NMax, double dTN, double dTsigma, double deltax,
                 ViewI &NucleiLocation, ViewI_H &NucleationTimes_Host, ViewI &NucleiGrainID, ViewI CellType,
@@ -156,7 +157,8 @@ void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeY, int B
                     Buffer2D &BufferSouthWestSend, Buffer2D &BufferWestRecv, Buffer2D &BufferEastRecv,
                     Buffer2D &BufferNorthRecv, Buffer2D &BufferSouthRecv, Buffer2D &BufferNorthEastRecv,
                     Buffer2D &BufferNorthWestRecv, Buffer2D &BufferSouthEastRecv, Buffer2D &BufferSouthWestRecv,
-                    ViewI &SteeringVector);
+                    ViewI &SteeringVector, ViewI &BufferNorthSend_I, ViewI &BufferSouthSend_I, ViewI &BufferNorthRecv_I,
+                    ViewI &BufferSouthRecv_I);
 
 void skipLines(std::ifstream &stream, std::string seperator = "*****");
 std::string parseInput(std::ifstream &stream, std::string key);

@@ -15,23 +15,24 @@ KOKKOS_INLINE_FUNCTION void loadghostnodes(const double GhostGID, const double G
                                            const double GhostDOCZ, const double GhostDL, const int BufSizeX,
                                            const int MyYSlices, const int RankX, const int RankY, const int RankZ,
                                            const bool AtNorthBoundary, const bool AtSouthBoundary,
-                                           Buffer2D BufferSouthSend, Buffer2D BufferNorthSend) {
+                                           Buffer2D BufferSouthSend, Buffer2D BufferNorthSend, ViewI BufferSouthSend_I,
+                                           ViewI BufferNorthSend_I) {
 
     if ((RankY == 1) && (!(AtSouthBoundary))) {
         int GNPosition = RankZ * BufSizeX + RankX;
-        BufferSouthSend(GNPosition, 0) = GhostGID;
-        BufferSouthSend(GNPosition, 1) = GhostDOCX;
-        BufferSouthSend(GNPosition, 2) = GhostDOCY;
-        BufferSouthSend(GNPosition, 3) = GhostDOCZ;
-        BufferSouthSend(GNPosition, 4) = GhostDL;
+        BufferSouthSend_I(GNPosition) = GhostGID;
+        BufferSouthSend(GNPosition, 0) = GhostDOCX;
+        BufferSouthSend(GNPosition, 1) = GhostDOCY;
+        BufferSouthSend(GNPosition, 2) = GhostDOCZ;
+        BufferSouthSend(GNPosition, 3) = GhostDL;
     }
     else if ((RankY == MyYSlices - 2) && (!(AtNorthBoundary))) {
         int GNPosition = RankZ * BufSizeX + RankX;
-        BufferNorthSend(GNPosition, 0) = GhostGID;
-        BufferNorthSend(GNPosition, 1) = GhostDOCX;
-        BufferNorthSend(GNPosition, 2) = GhostDOCY;
-        BufferNorthSend(GNPosition, 3) = GhostDOCZ;
-        BufferNorthSend(GNPosition, 4) = GhostDL;
+        BufferNorthSend_I(GNPosition) = GhostGID;
+        BufferNorthSend(GNPosition, 0) = GhostDOCX;
+        BufferNorthSend(GNPosition, 1) = GhostDOCY;
+        BufferNorthSend(GNPosition, 2) = GhostDOCZ;
+        BufferNorthSend(GNPosition, 3) = GhostDL;
     }
 }
 
@@ -126,6 +127,7 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                   int MyYOffset, NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CellType, ViewF DOCenter,
                   ViewI GrainID, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSizeX, int, int BufSizeZ, int ZBound_Low);
+                  Buffer2D BufferSouthRecv, int BufSizeX, int, int BufSizeZ, int ZBound_Low, ViewI BufferNorthSend_I,
+                  ViewI BufferSouthSend_I, ViewI BufferNorthRecv_I, ViewI BufferSouthRecv_I);
 
 #endif

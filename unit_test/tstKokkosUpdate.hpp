@@ -154,8 +154,10 @@ void testFillSteeringVector_Remelt() {
     int BufSizeZ = nzActive;
 
     // Send/recv buffers for ghost node data - initialize with values of 1.0
-    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSizeX * BufSizeZ, 5);
+    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSizeX * BufSizeZ, 4);
+    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSizeX * BufSizeZ, 4);
+    ViewI BufferSouthSend_I(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend_I"), BufSizeX * BufSizeZ);
+    ViewI BufferNorthSend_I(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend_I"), BufSizeX * BufSizeZ);
     Buffer2D BufferEastSend(Kokkos::ViewAllocateWithoutInitializing("BufferEastSend"), BufSizeY * BufSizeZ, 5);
     Buffer2D BufferWestSend(Kokkos::ViewAllocateWithoutInitializing("BufferWestSend"), BufSizeY * BufSizeZ, 5);
     Buffer2D BufferNorthEastSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthEastSend"), BufSizeZ, 5);
@@ -164,6 +166,8 @@ void testFillSteeringVector_Remelt() {
     Buffer2D BufferSouthWestSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthWestSend"), BufSizeZ, 5);
     Kokkos::deep_copy(BufferSouthSend, 1.0);
     Kokkos::deep_copy(BufferNorthSend, 1.0);
+    Kokkos::deep_copy(BufferSouthSend_I, 1.0);
+    Kokkos::deep_copy(BufferNorthSend_I, 1.0);
 
     // Initialize neighbor lists
     NList NeighborX, NeighborY, NeighborZ;
@@ -222,7 +226,8 @@ void testFillSteeringVector_Remelt() {
                                   nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep, BufSizeX, BufSizeY,
                                   AtNorthBoundary, AtSouthBoundary, AtEastBoundary, AtWestBoundary, BufferWestSend,
                                   BufferEastSend, BufferNorthSend, BufferSouthSend, BufferNorthEastSend,
-                                  BufferNorthWestSend, BufferSouthEastSend, BufferSouthWestSend, DecompositionStrategy);
+                                  BufferNorthWestSend, BufferSouthEastSend, BufferSouthWestSend, DecompositionStrategy,
+                                  BufferSouthSend_I, BufferNorthSend_I);
     }
 
     // Copy CellType, SteeringVector, numSteer, UndercoolingCurrent, Buffers back to host to check steering vector
@@ -233,6 +238,8 @@ void testFillSteeringVector_Remelt() {
     UndercoolingCurrent_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), UndercoolingCurrent);
     Buffer2D_H BufferSouthSend_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferSouthSend);
     Buffer2D_H BufferNorthSend_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferNorthSend);
+    ViewI_H BufferSouthSend_I_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferSouthSend_I);
+    ViewI_H BufferNorthSend_I_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), BufferNorthSend_I);
 
     // Check the modified CellType and UndercoolingCurrent values on the host:
     // Check that the cells corresponding to outside of the "active" portion of the domain have unchanged values
@@ -290,24 +297,28 @@ void testFillSteeringVector_Remelt() {
         int RankX = i % BufSizeX;
         int NorthCellCoordinate = GlobalZ * MyXSlices * MyYSlices + RankX * MyYSlices + (MyYSlices - 1);
         if ((CellType_Host(NorthCellCoordinate) == TempSolid) || (CellType_Host(NorthCellCoordinate) == Solid)) {
-            for (int j = 0; j < 5; j++) {
+            EXPECT_EQ(BufferNorthSend_I_Host(i), 1);
+            for (int j = 0; j < 4; j++) {
                 EXPECT_EQ(BufferNorthSend_Host(i, j), 1.0);
             }
         }
         else {
-            for (int j = 0; j < 5; j++) {
+            EXPECT_EQ(BufferNorthSend_I_Host(i), 0);
+            for (int j = 0; j < 4; j++) {
                 EXPECT_EQ(BufferNorthSend_Host(i, j), 0.0);
             }
         }
         int SouthCellCoordinate = GlobalZ * MyXSlices * MyYSlices + RankX * MyYSlices + (MyYSlices - 1);
         if ((CellType_Host(SouthCellCoordinate) == TempSolid) || (CellType_Host(SouthCellCoordinate) == Solid)) {
-            for (int j = 0; j < 5; j++) {
-                EXPECT_EQ(BufferNorthSend_Host(i, j), 1.0);
+            EXPECT_EQ(BufferSouthSend_I_Host(i), 1);
+            for (int j = 0; j < 4; j++) {
+                EXPECT_EQ(BufferSouthSend_Host(i, j), 1.0);
             }
         }
         else {
-            for (int j = 0; j < 5; j++) {
-                EXPECT_EQ(BufferNorthSend_Host(i, j), 0.0);
+            EXPECT_EQ(BufferSouthSend_I_Host(i), 0);
+            for (int j = 0; j < 4; j++) {
+                EXPECT_EQ(BufferSouthSend_Host(i, j), 0.0);
             }
         }
     }
