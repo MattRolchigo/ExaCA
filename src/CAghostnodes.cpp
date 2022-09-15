@@ -341,10 +341,11 @@ void GhostNodes1D(int cycle, int id, int NeighborRank_North, int NeighborRank_So
                     // Update this ghost node cell's information with data from other rank
                     GrainID(GlobalCellLocation) = NewGrainID;
                     DOCenter((long int)(3) * CellLocation) = DOCenterX;
-                    DOCenter((long int)(3) * CellLocation + 1) = DOCenterY;
-                    DOCenter((long int)(3) * CellLocation + 2) = DOCenterZ;
+                    DOCenter((long int)(3) * CellLocation + (long int)(1)) = DOCenterY;
+                    DOCenter((long int)(3) * CellLocation + (long int)(2)) = DOCenterZ;
                     int MyOrientation = getGrainOrientation(GrainID(GlobalCellLocation), NGrainOrientations);
                     DiagonalLength(CellLocation) = NewDiagonalLength;
+                    printf("Rank %d cycle %d placed %d %f %f %f %f \n",id,cycle,NewGrainID,DOCenterX,DOCenterY,DOCenterZ,NewDiagonalLength);
                     // Global coordinates of cell center
                     double xp = RankX + MyXOffset + 0.5;
                     double yp = RankY + MyYOffset + 0.5;
