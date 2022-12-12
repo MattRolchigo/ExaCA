@@ -1201,6 +1201,7 @@ void TempInit_ReadDataNoRemelt(int id, int &nx, int &MyYSlices, int &MyYOffset, 
     // from HT_deltax to deltax
     int LowerYBound = MyYOffset - (MyYOffset % HTtoCAratio);
     int UpperYBound = MyYOffset + MyYSlices - 1 + HTtoCAratio - ((MyYOffset + MyYSlices - 1) % HTtoCAratio);
+    int nyRead = UpperYBound - LowerYBound + 1;
 
     // LayerID = -1 for cells that don't solidify as part of any layer of the multilayer problem
     Kokkos::deep_copy(LayerID_Host, -1);
@@ -1222,19 +1223,13 @@ void TempInit_ReadDataNoRemelt(int id, int &nx, int &MyYSlices, int &MyYOffset, 
         if (id == 0)
             std::cout << "Layer " << LayerCounter << " rank " << id << " ZMin this layer is " << ZMinLayer[LayerCounter]
                       << std::endl;
-        std::vector<std::vector<std::vector<double>>> CR, CritTL;
-        for (int k = 0; k < nzTempValuesThisLayer; k++) {
-            std::vector<std::vector<double>> TemperatureXX;
-            for (int i = 0; i < nx; i++) {
-                std::vector<double> TemperatureX;
-                for (int j = LowerYBound; j <= UpperYBound; j++) {
-                    TemperatureX.push_back(-1.0);
-                }
-                TemperatureXX.push_back(TemperatureX);
-            }
-            CR.push_back(TemperatureXX);
-            CritTL.push_back(TemperatureXX);
-        }
+        // Temporary views to arrange liquidus time, cooling rate data read into "RawData", in 3D
+        ViewD3D_H TL_Host(Kokkos::ViewAllocateWithoutInitializing("LiquidusTime"), nzTempValuesThisLayer, nx, nyRead);
+        ViewD3D_H CR_Host(Kokkos::ViewAllocateWithoutInitializing("CoolingRate"), nzTempValuesThisLayer, nx, nyRead);
+        // Initialized with -1 (for cells with no temperature data)
+        Kokkos::deep_copy(TL_Host, -1);
+        Kokkos::deep_copy(CR_Host, -1);
+
         // Data was already read into the "RawData" temporary data structure
         // Determine which section of "RawData" is relevant for this layer of the overall domain
         int StartRange = FirstValue[LayerCounter];
@@ -1251,16 +1246,15 @@ void TempInit_ReadDataNoRemelt(int id, int &nx, int &MyYSlices, int &MyYOffset, 
             int ZInt = getTempCoordZ(i, deltax, RawData, LayerHeight, LayerCounter, ZMinLayer);
             double TLiquidus = getTempCoordTL(i, RawData);
             // Liquidus time/cooling rate - only keep values for the last time that this point went below the liquidus
-            if (TLiquidus > CritTL[ZInt][XInt][YInt - LowerYBound]) {
-                CritTL[ZInt][XInt][YInt - LowerYBound] = TLiquidus;
+            if (TLiquidus > TL_Host(ZInt, XInt, YInt - LowerYBound)) {
+                TL_Host(ZInt, XInt, YInt - LowerYBound) = TLiquidus;
                 if (TLiquidus < SmallestTime) {
                     // Store smallest read TLiquidus value over all cells
                     SmallestTime = RawData[i];
                 }
                 double CoolingRate = getTempCoordCR(i, RawData);
-                CR[ZInt][XInt][YInt - LowerYBound] = CoolingRate;
-                double SolidusTime =
-                    CritTL[ZInt][XInt][YInt - LowerYBound] + FreezingRange / CR[ZInt][XInt][YInt - LowerYBound];
+                CR_Host(ZInt, XInt, YInt - LowerYBound) = CoolingRate;
+                double SolidusTime = TLiquidus + FreezingRange / CoolingRate;
                 if (SolidusTime > LargestTime) {
                     // Store largest TSolidus value (based on liquidus/cooling rate/freezing range) over all cells
                     LargestTime = SolidusTime;
@@ -1293,69 +1287,12 @@ void TempInit_ReadDataNoRemelt(int id, int &nx, int &MyYSlices, int &MyYOffset, 
             std::cout << "Layer " << LayerCounter << " temperatures read" << std::endl;
 
         // Data interpolation between heat transport and CA grids, if necessary
-        if (HTtoCAratio != 1) {
-            for (int k = 0; k < nzTempValuesThisLayer; k++) {
-                int LowZ = k - (k % HTtoCAratio);
-                int HighZ = LowZ + HTtoCAratio;
-                double FHighZ = (double)(k - LowZ) / (double)(HTtoCAratio);
-                double FLowZ = 1.0 - FHighZ;
-                if (HighZ > nzTempValuesThisLayer - 1)
-                    HighZ = LowZ;
-                for (int i = 0; i < nx; i++) {
-                    int LowX = i - (i % HTtoCAratio);
-                    int HighX = LowX + HTtoCAratio;
-                    double FHighX = (double)(i - LowX) / (double)(HTtoCAratio);
-                    double FLowX = 1.0 - FHighX;
-                    if (HighX > nx)
-                        HighX = nx;
+        // Copy TL and CR views to the device
+        ViewD3D TL = Kokkos::create_mirror_view_and_copy(device_memory_space(), TL_Host);
+        ViewD3D CR = Kokkos::create_mirror_view_and_copy(device_memory_space(), CR_Host);
+        if (HTtoCAratio != 1)
+            InterpolateSparseData(TL, CR, nx, nyRead, nzTempValuesThisLayer, HTtoCAratio);
 
-                    for (int j = 0; j <= UpperYBound - LowerYBound; j++) {
-                        int LowY = j - (j % HTtoCAratio);
-                        int HighY = LowY + HTtoCAratio;
-                        double FHighY = (float)(j - LowY) / (float)(HTtoCAratio);
-                        double FLowY = 1.0 - FHighY;
-                        if (HighY >= UpperYBound - LowerYBound)
-                            HighY = UpperYBound - LowerYBound;
-                        double Pt1 = CritTL[LowZ][LowX][LowY];
-                        double Pt2 = CritTL[LowZ][HighX][LowY];
-                        double Pt12 = FLowX * Pt1 + FHighX * Pt2;
-                        double Pt3 = CritTL[LowZ][LowX][HighY];
-                        double Pt4 = CritTL[LowZ][HighX][HighY];
-                        double Pt34 = FLowX * Pt3 + FHighX * Pt4;
-                        double Pt1234 = Pt12 * FLowY + Pt34 * FHighY;
-                        double Pt5 = CritTL[HighZ][LowX][LowY];
-                        double Pt6 = CritTL[HighZ][HighX][LowY];
-                        double Pt56 = FLowX * Pt5 + FHighX * Pt6;
-                        double Pt7 = CritTL[HighZ][LowX][HighY];
-                        double Pt8 = CritTL[HighZ][HighX][HighY];
-                        double Pt78 = FLowX * Pt7 + FHighX * Pt8;
-                        double Pt5678 = Pt56 * FLowY + Pt78 * FHighY;
-                        if ((Pt1 > 0) && (Pt2 > 0) && (Pt3 > 0) && (Pt4 > 0) && (Pt5 > 0) && (Pt6 > 0) && (Pt7 > 0) &&
-                            (Pt8 > 0)) {
-                            CritTL[k][i][j] = Pt1234 * FLowZ + Pt5678 * FHighZ;
-                        }
-                        Pt1 = CR[LowZ][LowX][LowY];
-                        Pt2 = CR[LowZ][HighX][LowY];
-                        Pt12 = FLowX * Pt1 + FHighX * Pt2;
-                        Pt3 = CR[LowZ][LowX][HighY];
-                        Pt4 = CR[LowZ][HighX][HighY];
-                        Pt34 = FLowX * Pt3 + FHighX * Pt4;
-                        Pt1234 = Pt12 * FLowY + Pt34 * FHighY;
-                        Pt5 = CR[HighZ][LowX][LowY];
-                        Pt6 = CR[HighZ][HighX][LowY];
-                        Pt56 = FLowX * Pt5 + FHighX * Pt6;
-                        Pt7 = CR[HighZ][LowX][HighY];
-                        Pt8 = CR[HighZ][HighX][HighY];
-                        Pt78 = FLowX * Pt7 + FHighX * Pt8;
-                        Pt5678 = Pt56 * FLowY + Pt78 * FHighY;
-                        if ((Pt1 > 0) && (Pt2 > 0) && (Pt3 > 0) && (Pt4 > 0) && (Pt5 > 0) && (Pt6 > 0) && (Pt7 > 0) &&
-                            (Pt8 > 0)) {
-                            CR[k][i][j] = Pt1234 * FLowZ + Pt5678 * FHighZ;
-                        }
-                    }
-                }
-            }
-        }
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0)
             std::cout << "Interpolation done" << std::endl;
@@ -1367,33 +1304,28 @@ void TempInit_ReadDataNoRemelt(int id, int &nx, int &MyYSlices, int &MyYOffset, 
             std::cout << "Layer " << LayerCounter << " data belongs to global z coordinates of "
                       << round((ZMinLayer[LayerCounter] - ZMin) / deltax) << " through "
                       << round((ZMinLayer[LayerCounter] - ZMin) / deltax) + nzTempValuesThisLayer - 1 << std::endl;
-
-        for (int k = 0; k < nzTempValuesThisLayer; k++) {
-            for (int i = 0; i < nx; i++) {
-                for (int jj = LowerYBound; jj <= UpperYBound; jj++) {
-                    if ((jj >= MyYOffset) && (jj < MyYOffset + MyYSlices)) {
-                        int Adj_j = jj - MyYOffset;
-                        // Liquidus time normalized to the time at which the layer started solidifying
-                        double CTLiq = CritTL[k][i][jj - LowerYBound] - SmallestTime_Global;
-                        if (CTLiq > 0) {
-                            // Where does this layer's temperature data belong on the global (including all layers)
-                            // grid? Adjust Z coordinate by ZMin
-                            int ZOffset = round((ZMinLayer[LayerCounter] - ZMin) / deltax) + k;
-                            int Coord3D1D = ZOffset * nx * MyYSlices + i * MyYSlices + Adj_j;
-                            CritTimeStep_Host(Coord3D1D) = round(CTLiq / deltat);
-                            LayerID_Host(Coord3D1D) = LayerCounter;
-                            UndercoolingChange_Host(Coord3D1D) = std::abs(CR[k][i][jj - LowerYBound]) * deltat;
-                        }
+        int ZMin_ThisLayer = ZMinLayer[LayerCounter];
+        Kokkos::parallel_for(
+            "InitTemperatureViews",
+            Kokkos::MDRangePolicy<Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
+                {0, 0, LowerYBound}, {nzTempValuesThisLayer, nx, UpperYBound + 1}),
+            KOKKOS_LAMBDA(const int k, const int i, const int jj) {
+                if ((jj >= MyYOffset) && (jj < MyYOffset + MyYSlices)) {
+                    int Adj_j = jj - MyYOffset;
+                    // Liquidus time normalized to the time at which the layer started solidifying
+                    double CTLiq = TL(k, i, jj - LowerYBound) - SmallestTime_Global;
+                    if (CTLiq > 0) {
+                        // Where does this layer's temperature data belong on the global (including all layers)
+                        // grid? Adjust Z coordinate by ZMin
+                        int ZOffset = round((ZMin_ThisLayer - ZMin) / deltax) + k;
+                        int Coord3D1D = ZOffset * nx * MyYSlices + i * MyYSlices + Adj_j;
+                        CritTimeStep(Coord3D1D) = round(CTLiq / deltat);
+                        LayerID(Coord3D1D) = LayerCounter;
+                        UndercoolingChange(Coord3D1D) = std::abs(CR(k, i, jj - LowerYBound)) * deltat;
                     }
                 }
-            }
-        }
+            });
     } // End read over all temperature files and placement of data
-
-    // Copy initialized host data back to device
-    CritTimeStep = Kokkos::create_mirror_view_and_copy(device_memory_space(), CritTimeStep_Host);
-    LayerID = Kokkos::create_mirror_view_and_copy(device_memory_space(), LayerID_Host);
-    UndercoolingChange = Kokkos::create_mirror_view_and_copy(device_memory_space(), UndercoolingChange_Host);
 }
 
 // Calculate the number of times that a cell in layer "layernumber" undergoes melting/solidification, and store in

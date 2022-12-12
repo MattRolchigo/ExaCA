@@ -164,3 +164,170 @@ ViewF_H MisorientationCalc(int NumberOfOrientations, ViewF_H GrainUnitVector, in
     }
     return GrainMisorientation;
 }
+
+// Trilinear interpolation of TL and CR from points evenly spaced by HTtoCAratio, on a grid of size nxTemp by nyTemp by
+// nzTemp
+void InterpolateSparseData(ViewD3D &TL, ViewD3D &CR, int nxTemp, int nyTemp, int nzTemp, int HTtoCAratio) {
+
+    // First, interpolate in the X, Y, and Z directions
+    Kokkos::parallel_for(
+        "IntXLine", nxTemp, KOKKOS_LAMBDA(const int &i) {
+            for (int j = 0; j < nyTemp; j += HTtoCAratio) {
+                for (int k = 0; k < nzTemp; k += HTtoCAratio) {
+                    // X direction
+                    int LowIndex = i - (i % HTtoCAratio);
+                    int HighIndex = LowIndex + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nxTemp - 1 < HighIndex)
+                        HighIndex = nxTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_line(TL(k, LowIndex, j), TL(k, HighIndex, j), i, LowIndex,
+                                                            HighIndex, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_line(CR(k, LowIndex, j), CR(k, HighIndex, j), i, LowIndex,
+                                                            HighIndex, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::parallel_for(
+        "IntYLine", nyTemp, KOKKOS_LAMBDA(const int &j) {
+            for (int i = 0; i < nxTemp; i += HTtoCAratio) {
+                for (int k = 0; k < nzTemp; k += HTtoCAratio) {
+                    // Y direction
+                    int LowIndex = j - (j % HTtoCAratio);
+                    int HighIndex = LowIndex + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nyTemp - 1 < HighIndex)
+                        HighIndex = nyTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_line(TL(k, i, LowIndex), TL(k, i, HighIndex), j, LowIndex,
+                                                            HighIndex, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_line(CR(k, i, LowIndex), CR(k, i, HighIndex), j, LowIndex,
+                                                            HighIndex, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::parallel_for(
+        "IntZLine", nzTemp, KOKKOS_LAMBDA(const int &k) {
+            for (int i = 0; i < nxTemp; i += HTtoCAratio) {
+                for (int j = 0; j < nyTemp; j += HTtoCAratio) {
+                    // Z direction
+                    int LowIndex = k - (k % HTtoCAratio);
+                    int HighIndex = LowIndex + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nzTemp - 1 < HighIndex)
+                        HighIndex = nzTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_line(TL(LowIndex, i, j), TL(HighIndex, i, j), k, LowIndex,
+                                                            HighIndex, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_line(CR(LowIndex, i, j), CR(HighIndex, i, j), k, LowIndex,
+                                                            HighIndex, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::fence();
+
+    // Next, interpolate in the XY, XZ, and YZ planes
+    Kokkos::parallel_for(
+        "IntXYPlane", nxTemp, KOKKOS_LAMBDA(const int &i) {
+            for (int j = 0; j < nyTemp; j++) {
+                for (int k = 0; k < nzTemp; k += HTtoCAratio) {
+                    // XY plane
+                    int LowIndex1 = i - (i % HTtoCAratio);
+                    int HighIndex1 = LowIndex1 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nxTemp - 1 < HighIndex1)
+                        HighIndex1 = nxTemp - 1;
+                    int LowIndex2 = j - (j % HTtoCAratio);
+                    int HighIndex2 = LowIndex2 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nyTemp - 1 < HighIndex2)
+                        HighIndex2 = nyTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_plane(
+                        TL(k, LowIndex1, j), TL(k, HighIndex1, j), TL(k, i, LowIndex2), TL(k, i, HighIndex2), i, j,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_plane(
+                        CR(k, LowIndex1, j), CR(k, HighIndex1, j), CR(k, i, LowIndex2), CR(k, i, HighIndex2), i, j,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::parallel_for(
+        "IntXZPlane", nzTemp, KOKKOS_LAMBDA(const int &k) {
+            for (int i = 0; i < nxTemp; i++) {
+                for (int j = 0; j < nyTemp; j += HTtoCAratio) {
+                    // XZ plane
+                    int LowIndex1 = i - (i % HTtoCAratio);
+                    int HighIndex1 = LowIndex1 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nxTemp - 1 < HighIndex1)
+                        HighIndex1 = nxTemp - 1;
+                    int LowIndex2 = k - (k % HTtoCAratio);
+                    int HighIndex2 = LowIndex2 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nzTemp - 1 < HighIndex2)
+                        HighIndex2 = nzTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_plane(
+                        TL(k, LowIndex1, j), TL(k, HighIndex1, j), TL(LowIndex2, i, j), TL(HighIndex2, i, j), i, k,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_plane(
+                        CR(k, LowIndex1, j), CR(k, HighIndex1, j), CR(LowIndex2, i, j), CR(HighIndex2, i, j), i, k,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::parallel_for(
+        "IntYZPlane", nzTemp, KOKKOS_LAMBDA(const int &k) {
+            for (int i = 0; i < nxTemp; i += HTtoCAratio) {
+                for (int j = 0; j < nyTemp; j++) {
+                    // YZ plane
+                    int LowIndex1 = j - (j % HTtoCAratio);
+                    int HighIndex1 = LowIndex1 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nyTemp - 1 < HighIndex1)
+                        HighIndex1 = nyTemp - 1;
+                    int LowIndex2 = k - (k % HTtoCAratio);
+                    int HighIndex2 = LowIndex2 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nzTemp - 1 < HighIndex2)
+                        HighIndex2 = nzTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_plane(
+                        TL(k, i, LowIndex1), TL(k, i, HighIndex1), TL(LowIndex2, i, j), TL(HighIndex2, i, j), j, k,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_plane(
+                        CR(k, i, LowIndex1), CR(k, i, HighIndex1), CR(LowIndex2, i, j), CR(HighIndex2, i, j), j, k,
+                        LowIndex1, HighIndex1, LowIndex2, HighIndex2, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::fence();
+
+    // Finally, interpolate the remaining points bounded by the planes
+    Kokkos::parallel_for(
+        "IntVol", nzTemp, KOKKOS_LAMBDA(const int &k) {
+            for (int i = 0; i < nxTemp; i++) {
+                for (int j = 0; j < nyTemp; j++) {
+                    int LowIndex1 = i - (i % HTtoCAratio);
+                    int HighIndex1 = LowIndex1 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nxTemp - 1 < HighIndex1)
+                        HighIndex1 = nxTemp - 1;
+                    int LowIndex2 = j - (j % HTtoCAratio);
+                    int HighIndex2 = LowIndex2 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nyTemp - 1 < HighIndex2)
+                        HighIndex2 = nyTemp - 1;
+                    int LowIndex3 = k - (k % HTtoCAratio);
+                    int HighIndex3 = LowIndex3 + HTtoCAratio;
+                    // keep index from going out of bounds if at very edge of domain
+                    if (nzTemp - 1 < HighIndex3)
+                        HighIndex3 = nzTemp - 1;
+                    TL(k, i, j) = getInterpolatedValue_volume(
+                        TL(k, LowIndex1, j), TL(k, HighIndex1, j), TL(k, i, LowIndex2), TL(k, i, HighIndex2),
+                        TL(LowIndex3, i, j), TL(HighIndex3, i, j), i, j, k, LowIndex1, HighIndex1, LowIndex2,
+                        HighIndex2, LowIndex3, HighIndex3, HTtoCAratio, TL(k, i, j));
+                    CR(k, i, j) = getInterpolatedValue_volume(
+                        CR(k, LowIndex1, j), CR(k, HighIndex1, j), CR(k, i, LowIndex2), CR(k, i, HighIndex2),
+                        CR(LowIndex3, i, j), CR(HighIndex3, i, j), i, j, k, LowIndex1, HighIndex1, LowIndex2,
+                        HighIndex2, LowIndex3, HighIndex3, HTtoCAratio, CR(k, i, j));
+                }
+            }
+        });
+    Kokkos::fence();
+}
