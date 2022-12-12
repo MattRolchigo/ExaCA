@@ -517,9 +517,9 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
         XMin = std::numeric_limits<double>::max();
         YMin = std::numeric_limits<double>::max();
         ZMin = std::numeric_limits<double>::max();
-        XMax = std::numeric_limits<double>::min();
-        YMax = std::numeric_limits<double>::min();
-        ZMax = std::numeric_limits<double>::min();
+        XMax = std::numeric_limits<double>::lowest();
+        YMax = std::numeric_limits<double>::lowest();
+        ZMax = std::numeric_limits<double>::lowest();
 
         // Read the first temperature file, first line to determine if the "new" OpenFOAM output format (with a 1 line
         // header) is used, or whether the "old" OpenFOAM header (which contains information like the X/Y/Z bounds of
@@ -554,9 +554,9 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
             double XMin_ThisLayer = std::numeric_limits<double>::max();
             double YMin_ThisLayer = std::numeric_limits<double>::max();
             double ZMin_ThisLayer = std::numeric_limits<double>::max();
-            double XMax_ThisLayer = std::numeric_limits<double>::min();
-            double YMax_ThisLayer = std::numeric_limits<double>::min();
-            double ZMax_ThisLayer = std::numeric_limits<double>::min();
+            double XMax_ThisLayer = std::numeric_limits<double>::lowest();
+            double YMax_ThisLayer = std::numeric_limits<double>::lowest();
+            double ZMax_ThisLayer = std::numeric_limits<double>::lowest();
 
             // Units are assumed to be in meters, meters, seconds, seconds, and K/second
             std::vector<double> XCoordinates(1000000), YCoordinates(1000000), ZCoordinates(1000000);
@@ -760,7 +760,7 @@ void ReadTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAra
         // Read data from the remaining lines - values should be separated by commas
         // Space separated data is no longer accepted by ExaCA
         double ZMin_ThisLayer = std::numeric_limits<double>::max();
-        double ZMax_ThisLayer = std::numeric_limits<double>::min();
+        double ZMax_ThisLayer = std::numeric_limits<double>::lowest();
         while (!TemperatureFile.eof()) {
             std::vector<std::string> ParsedLine(6); // Each line has an x, y, z, tm, tl, cr
             std::string ReadLine;
