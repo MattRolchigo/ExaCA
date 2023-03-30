@@ -1908,7 +1908,7 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                                      int MyYOffset, NList NeighborX, NList NeighborY, NList NeighborZ,
                                      ViewF GrainUnitVector, int NGrainOrientations, ViewI CellType, ViewI GrainID,
                                      ViewF DiagonalLength, ViewF DOCenter, ViewF CritDiagonalLength, double RNGSeed,
-                                     int np, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, int BufSizeX,
+                                     int np, ViewF2D BufferNorthSend_Octahedron, ViewF2D BufferSouthSend_Octahedron, ViewI BufferNorthSend_Grain, ViewI BufferSouthSend_Grain, int BufSizeX,
                                      bool AtNorthBoundary, bool AtSouthBoundary) {
 
     // Calls to Xdist(gen) and Y dist(gen) return random locations for grain seeds
@@ -1982,7 +1982,7 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                     float GhostDL = 0.01;
                     // Collect data for the ghost nodes, if necessary
                     loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, GlobalX,
-                                   LocalY, 0, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend);
+                                   LocalY, 0, AtNorthBoundary, AtSouthBoundary, BufferSouthSend_Octahedron, BufferNorthSend_Octahedron, BufferSouthSend_Grain, BufferNorthSend_Grain);
                 } // End if statement for serial/parallel code
             }
         });
@@ -2241,7 +2241,8 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int nx, int MyYSlice
                            int nz, int LocalActiveDomainSize, int LocalDomainSize, ViewI CellType, ViewI CritTimeStep,
                            NList NeighborX, NList NeighborY, NList NeighborZ, int NGrainOrientations,
                            ViewF GrainUnitVector, ViewF DiagonalLength, ViewI GrainID, ViewF CritDiagonalLength,
-                           ViewF DOCenter, ViewI LayerID, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                           ViewF DOCenter, ViewI LayerID, ViewF2D BufferNorthSend_Octahedron,
+                           ViewF2D BufferSouthSend_Octahedron, ViewI BufferNorthSend_Grain, ViewI BufferSouthSend_Grain,
                            int BufSizeX, bool AtNorthBoundary, bool AtSouthBoundary) {
 
     // Start with all cells as solid for the first layer, with liquid cells where temperature data exists
@@ -2330,14 +2331,14 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int nx, int MyYSlice
                 // If this new active cell is in the halo region, load the send buffers
                 if (np > 1) {
 
-                    double GhostGID = static_cast<double>(MyGrainID);
-                    double GhostDOCX = static_cast<double>(GlobalX + 0.5);
-                    double GhostDOCY = static_cast<double>(GlobalY + 0.5);
-                    double GhostDOCZ = static_cast<double>(GlobalZ + 0.5);
-                    double GhostDL = 0.01;
+                    int GhostGID = MyGrainID;
+                    float GhostDOCX = GlobalX + 0.5;
+                    float GhostDOCY = GlobalY + 0.5;
+                    float GhostDOCZ = GlobalZ + 0.5;
+                    float GhostDL = 0.01;
                     // Collect data for the ghost nodes, if necessary
                     loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, GlobalX,
-                                   RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend);
+                                   RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend_Octahedron, BufferNorthSend_Octahedron, BufferSouthSend_Grain, BufferNorthSend_Grain);
 
                 } // End if statement for serial/parallel code
             }
@@ -2625,8 +2626,9 @@ void NucleiInit(int layernumber, double RNGSeed, int MyYSlices, int MyYOffset, i
 
 //*****************************************************************************/
 void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeZ, ViewF &DiagonalLength,
-                    ViewF &CritDiagonalLength, ViewF &DOCenter, Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend,
-                    Buffer2D &BufferNorthRecv, Buffer2D &BufferSouthRecv, ViewI &SteeringVector) {
+                    ViewF &CritDiagonalLength, ViewF &DOCenter, ViewF2D &BufferNorthSend_Octahedron,
+                    ViewF2D &BufferSouthSend_Octahedron, ViewI &BufferNorthSend_Grain, ViewI &BufferSouthSend_Grain, ViewF2D &BufferNorthRecv_Octahedron,
+                    ViewF2D &BufferSouthRecv_Octahedron, ViewI &BufferNorthRecv_Grain, ViewI &BufferSouthRecv_Grain, ViewI &SteeringVector) {
 
     // Realloc steering vector as LocalActiveDomainSize may have changed (old values aren't needed)
     Kokkos::realloc(SteeringVector, LocalActiveDomainSize);
@@ -2635,18 +2637,26 @@ void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeZ, ViewF
     Kokkos::realloc(DiagonalLength, LocalActiveDomainSize);
     Kokkos::realloc(DOCenter, 3 * LocalActiveDomainSize);
     Kokkos::realloc(CritDiagonalLength, 26 * LocalActiveDomainSize);
-    Kokkos::realloc(BufferNorthSend, BufSizeX * BufSizeZ, 5);
-    Kokkos::realloc(BufferSouthSend, BufSizeX * BufSizeZ, 5);
-    Kokkos::realloc(BufferNorthRecv, BufSizeX * BufSizeZ, 5);
-    Kokkos::realloc(BufferSouthRecv, BufSizeX * BufSizeZ, 5);
+    Kokkos::realloc(BufferNorthSend_Octahedron, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferSouthSend_Octahedron, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferNorthRecv_Octahedron, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferSouthRecv_Octahedron, BufSizeX * BufSizeZ, 4);
+    Kokkos::realloc(BufferNorthSend_Grain, BufSizeX * BufSizeZ);
+    Kokkos::realloc(BufferSouthSend_Grain, BufSizeX * BufSizeZ);
+    Kokkos::realloc(BufferNorthRecv_Grain, BufSizeX * BufSizeZ);
+    Kokkos::realloc(BufferSouthRecv_Grain, BufSizeX * BufSizeZ);
 
     // Reset active cell data structures on device
     Kokkos::deep_copy(DiagonalLength, 0);
     Kokkos::deep_copy(DOCenter, 0);
     Kokkos::deep_copy(CritDiagonalLength, 0);
     // Reset halo region structures on device
-    Kokkos::deep_copy(BufferSouthSend, 0.0);
-    Kokkos::deep_copy(BufferSouthRecv, 0.0);
-    Kokkos::deep_copy(BufferNorthSend, 0.0);
-    Kokkos::deep_copy(BufferNorthRecv, 0.0);
+    Kokkos::deep_copy(BufferSouthSend_Octahedron, 0.0);
+    Kokkos::deep_copy(BufferSouthRecv_Octahedron, 0.0);
+    Kokkos::deep_copy(BufferNorthSend_Octahedron, 0.0);
+    Kokkos::deep_copy(BufferNorthRecv_Octahedron, 0.0);
+    Kokkos::deep_copy(BufferSouthSend_Grain, 0.0);
+    Kokkos::deep_copy(BufferSouthRecv_Grain, 0.0);
+    Kokkos::deep_copy(BufferNorthSend_Grain, 0.0);
+    Kokkos::deep_copy(BufferNorthRecv_Grain, 0.0);
 }

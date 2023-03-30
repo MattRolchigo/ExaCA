@@ -201,10 +201,14 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     int BufSizeZ = nzActive;
 
     // Send/recv buffers for ghost node data should be initialized with zeros
-    Buffer2D BufferSouthSend("BufferSouthSend", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferNorthSend("BufferNorthSend", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferSouthRecv("BufferSouthRecv", BufSizeX * BufSizeZ, 5);
-    Buffer2D BufferNorthRecv("BufferNorthRecv", BufSizeX * BufSizeZ, 5);
+    ViewF2D BufferSouthSend_Octahedron("BufferSouthSendF", BufSizeX * BufSizeZ, 4);
+    ViewF2D BufferNorthSend_Octahedron("BufferNorthSendF", BufSizeX * BufSizeZ, 4);
+    ViewF2D BufferSouthRecv_Octahedron("BufferSouthRecvF", BufSizeX * BufSizeZ, 4);
+    ViewF2D BufferNorthRecv_Octahedron("BufferNorthRecvF", BufSizeX * BufSizeZ, 4);
+    ViewI BufferSouthSend_Grain("BufferSouthSend", BufSizeX * BufSizeZ);
+    ViewI BufferNorthSend_Grain("BufferNorthSend", BufSizeX * BufSizeZ);
+    ViewI BufferSouthRecv_Grain("BufferSouthRecv", BufSizeX * BufSizeZ);
+    ViewI BufferNorthRecv_Grain("BufferNorthRecv", BufSizeX * BufSizeZ);
 
     // Initialize the grain structure and cell types - for either a constrained solidification problem, using a
     // substrate from a file, or generating a substrate using the existing CA algorithm
@@ -212,8 +216,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     if (SimulationType == "C") {
         SubstrateInit_ConstrainedGrowth(id, FractSurfaceSitesActive, MyYSlices, nx, ny, MyYOffset, NeighborX, NeighborY,
                                         NeighborZ, GrainUnitVector, NGrainOrientations, CellType, GrainID,
-                                        DiagonalLength, DOCenter, CritDiagonalLength, RNGSeed, np, BufferNorthSend,
-                                        BufferSouthSend, BufSizeX, AtNorthBoundary, AtSouthBoundary);
+                                        DiagonalLength, DOCenter, CritDiagonalLength, RNGSeed, np, BufferNorthSend_Octahedron,
+                                        BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufSizeX, AtNorthBoundary, AtSouthBoundary);
     }
     else {
         if (UseSubstrateFile)
@@ -230,7 +234,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CellTypeInit_NoRemelt(0, id, np, nx, MyYSlices, MyYOffset, ZBound_Low, nz, LocalActiveDomainSize,
                                   LocalDomainSize, CellType, CritTimeStep, NeighborX, NeighborY, NeighborZ,
                                   NGrainOrientations, GrainUnitVector, DiagonalLength, GrainID, CritDiagonalLength,
-                                  DOCenter, LayerID, BufferNorthSend, BufferSouthSend, BufSizeX, AtNorthBoundary,
+                                  DOCenter, LayerID, BufferNorthSend_Octahedron,
+                                  BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufSizeX, AtNorthBoundary,
                                   AtSouthBoundary);
         }
     }
@@ -266,7 +271,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     if ((np > 1) && (!(RemeltingYN))) {
         GhostNodes1D(-1, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX, NeighborY,
                      NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength, CritDiagonalLength,
-                     NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, BufSizeX,
+                     NGrainOrientations, BufferNorthSend_Octahedron,
+                     BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufferNorthRecv_Octahedron,
+                     BufferSouthRecv_Octahedron, BufferNorthRecv_Grain, BufferSouthRecv_Grain, BufSizeX,
                      BufSizeZ, ZBound_Low);
     }
 
@@ -328,7 +335,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 FillSteeringVector_Remelt(cycle, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
                                           CritTimeStep, UndercoolingCurrent, UndercoolingChange, CellType, GrainID,
                                           ZBound_Low, nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
-                                          BufSizeX, AtNorthBoundary, AtSouthBoundary, BufferNorthSend, BufferSouthSend);
+                                          BufSizeX, AtNorthBoundary, AtSouthBoundary, BufferNorthSend_Octahedron,
+                                          BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain);
             else
                 FillSteeringVector_NoRemelt(cycle, LocalActiveDomainSize, nx, MyYSlices, CritTimeStep,
                                             UndercoolingCurrent, UndercoolingChange, CellType, ZBound_Low, layernumber,
@@ -338,8 +346,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             StartCaptureTime = MPI_Wtime();
             CellCapture(id, np, cycle, LocalActiveDomainSize, LocalDomainSize, nx, MyYSlices, irf, MyYOffset, NeighborX,
                         NeighborY, NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, GrainUnitVector,
-                        CritDiagonalLength, DiagonalLength, CellType, DOCenter, GrainID, NGrainOrientations,
-                        BufferNorthSend, BufferSouthSend, BufSizeX, ZBound_Low, nzActive, nz, SteeringVector, numSteer,
+                        CritDiagonalLength, DiagonalLength, CellType, DOCenter, GrainID, NGrainOrientations, BufferNorthSend_Octahedron,
+                        BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufSizeX, ZBound_Low, nzActive, nz, SteeringVector, numSteer,
                         numSteer_Host, AtNorthBoundary, AtSouthBoundary, SolidificationEventCounter, MeltTimeStep,
                         LayerTimeTempHistory, NumberOfSolidificationEvents, RemeltingYN);
             CaptureTime += MPI_Wtime() - StartCaptureTime;
@@ -349,8 +357,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 StartGhostTime = MPI_Wtime();
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength,
-                             CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSizeX, BufSizeZ, ZBound_Low);
+                             CritDiagonalLength, NGrainOrientations, BufferNorthSend_Octahedron,
+                             BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufferNorthRecv_Octahedron,
+                             BufferSouthRecv_Octahedron, BufferNorthRecv_Grain, BufferSouthRecv_Grain, BufSizeX, BufSizeZ, ZBound_Low);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 
@@ -424,8 +433,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
 
             // Resize and zero all view data relating to the active region from the last layer, in preparation for the
             // next layer
-            ZeroResetViews(LocalActiveDomainSize, BufSizeX, BufSizeZ, DiagonalLength, CritDiagonalLength, DOCenter,
-                           BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, SteeringVector);
+            ZeroResetViews(LocalActiveDomainSize, BufSizeX, BufSizeZ, DiagonalLength, CritDiagonalLength, DOCenter, BufferNorthSend_Octahedron,
+                           BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufferNorthRecv_Octahedron,
+                           BufferSouthRecv_Octahedron, BufferNorthRecv_Grain, BufferSouthRecv_Grain, SteeringVector);
 
             MPI_Barrier(MPI_COMM_WORLD);
             if (id == 0)
@@ -446,7 +456,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 CellTypeInit_NoRemelt(layernumber + 1, id, np, nx, MyYSlices, MyYOffset, ZBound_Low, nz,
                                       LocalActiveDomainSize, LocalDomainSize, CellType, CritTimeStep, NeighborX,
                                       NeighborY, NeighborZ, NGrainOrientations, GrainUnitVector, DiagonalLength,
-                                      GrainID, CritDiagonalLength, DOCenter, LayerID, BufferNorthSend, BufferSouthSend,
+                                      GrainID, CritDiagonalLength, DOCenter, LayerID, BufferNorthSend_Octahedron,
+                                      BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain,
                                       BufSizeX, AtNorthBoundary, AtSouthBoundary);
 
             // Initialize potential nucleation event data for next layer "layernumber + 1"
@@ -463,8 +474,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             if ((np > 1) && (!(RemeltingYN))) {
                 GhostNodes1D(-1, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength,
-                             CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSizeX, BufSizeZ, ZBound_Low);
+                             CritDiagonalLength, NGrainOrientations, BufferNorthSend_Octahedron,
+                             BufferSouthSend_Octahedron, BufferNorthSend_Grain, BufferSouthSend_Grain, BufferNorthRecv_Octahedron,
+                             BufferSouthRecv_Octahedron, BufferNorthRecv_Grain, BufferSouthRecv_Grain, BufSizeX, BufSizeZ, ZBound_Low);
             }
             if (id == 0)
                 std::cout << "New layer ghost nodes initialized" << std::endl;

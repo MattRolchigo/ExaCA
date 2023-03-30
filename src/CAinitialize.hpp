@@ -109,7 +109,7 @@ void SubstrateInit_ConstrainedGrowth(int id, double FractSurfaceSitesActive, int
                                      int MyYOffset, NList NeighborX, NList NeighborY, NList NeighborZ,
                                      ViewF GrainUnitVector, int NGrainOrientations, ViewI CellType, ViewI GrainID,
                                      ViewF DiagonalLength, ViewF DOCenter, ViewF CritDiagonalLength, double RNGSeed,
-                                     int np, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, int BufSizeX,
+                                     int np, ViewF2D BufferNorthSend_Octahedron, ViewF2D BufferSouthSend_Octahedron, ViewI BufferNorthSend_Grain, ViewI BufferSouthSend_Grain, int BufSizeX,
                                      bool AtNorthBoundary, bool AtSouthBoundary);
 void SubstrateInit_FromFile(std::string SubstrateFileName, int nz, int nx, int MyYSlices, int MyYOffset, int pid,
                             ViewI &GrainID, int nzActive, bool BaseplateThroughPowder);
@@ -125,7 +125,8 @@ void CellTypeInit_NoRemelt(int layernumber, int id, int np, int nx, int MyYSlice
                            int nz, int LocalActiveDomainSize, int LocalDomainSize, ViewI CellType, ViewI CritTimeStep,
                            NList NeighborX, NList NeighborY, NList NeighborZ, int NGrainOrientations,
                            ViewF GrainUnitVector, ViewF DiagonalLength, ViewI GrainID, ViewF CritDiagonalLength,
-                           ViewF DOCenter, ViewI LayerID, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                           ViewF DOCenter, ViewI LayerID, ViewF2D BufferNorthSend_Octahedron,
+                           ViewF2D BufferSouthSend_Octahedron, ViewI BufferNorthSend_Grain, ViewI BufferSouthSend_Grain,
                            int BufSizeX, bool AtNorthBoundary, bool AtSouthBoundary);
 void NucleiInit(int layernumber, double RNGSeed, int MyYSlices, int MyYOffset, int nx, int ny, int nzActive,
                 int ZBound_Low, int id, double NMax, double dTN, double dTsigma, double deltax, ViewI &NucleiLocation,
@@ -149,7 +150,8 @@ void placeNucleiData_Remelt(int NucleiMultiplier, int Nuclei_ThisLayerSingle, Vi
                             std::vector<int> &NucleiGrainID_MyRank_V, std::vector<int> &NucleiLocation_MyRank_V,
                             std::vector<int> &NucleationTimes_MyRank_V, int &PossibleNuclei_ThisRankThisLayer);
 void ZeroResetViews(int LocalActiveDomainSize, int BufSizeX, int BufSizeZ, ViewF &DiagonalLength,
-                    ViewF &CritDiagonalLength, ViewF &DOCenter, Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend,
-                    Buffer2D &BufferNorthRecv, Buffer2D &BufferSouthRecv, ViewI &SteeringVector);
+                    ViewF &CritDiagonalLength, ViewF &DOCenter, ViewF2D &BufferNorthSend_Octahedron,
+                    ViewF2D &BufferSouthSend_Octahedron, ViewI &BufferNorthSend_Grain, ViewI &BufferSouthSend_Grain, ViewF2D &BufferNorthRecv_Octahedron,
+                    ViewF2D &BufferSouthRecv_Octahedron, ViewI &BufferNorthRecv_Grain, ViewI &BufferSouthRecv_Grain, ViewI &SteeringVector);
 
 #endif

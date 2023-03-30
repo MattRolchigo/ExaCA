@@ -25,7 +25,7 @@ typedef Kokkos::View<int *> ViewI;
 typedef Kokkos::View<int **> ViewI2D;
 typedef Kokkos::View<int *, Kokkos::MemoryTraits<Kokkos::Atomic>> View_a;
 typedef Kokkos::View<double **> Buffer2D;
-typedef Kokkos::View<float *> TestView;
+typedef Kokkos::View<float **> ViewF2D;
 typedef Kokkos::View<float ***> ViewF3D;
 
 using exe_space = Kokkos::DefaultExecutionSpace::execution_space;
