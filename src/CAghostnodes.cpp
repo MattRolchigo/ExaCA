@@ -38,9 +38,9 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
     MPI_Irecv(BufferNorthRecv_Octahedron.data(), 4 * BufSizeX * BufSizeZ, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD,
               &RecvRequests[1]);
     MPI_Irecv(BufferSouthRecv_Grain.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_South, 1, MPI_COMM_WORLD,
-              &RecvRequests[0]);
+              &RecvRequests[2]);
     MPI_Irecv(BufferNorthRecv_Grain.data(), BufSizeX * BufSizeZ, MPI_INT, NeighborRank_North, 1, MPI_COMM_WORLD,
-              &RecvRequests[1]);
+              &RecvRequests[3]);
 
     // Wait on sends and receives
     MPI_Waitall(4, RecvRequests.data(), MPI_STATUS_IGNORE);
