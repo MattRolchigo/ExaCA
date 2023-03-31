@@ -121,8 +121,7 @@ void FillSteeringVector_NoRemelt(int cycle, int LocalActiveDomainSize, int nx, i
 void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int MyYSlices, NList NeighborX,
                                NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                                ViewF UndercoolingChange, ViewI CellType, ViewI GrainID, int ZBound_Low, int nzActive,
-                               ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, ViewI MeltTimeStep,
-                               int BufSizeX, bool AtNorthBoundary, bool AtSouthBoundary, Buffer2D BufferNorthSend,
+                               ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, ViewI MeltTimeStep, bool AtNorthBoundary, bool AtSouthBoundary, Buffer2D BufferNorthSend,
                                Buffer2D BufferSouthSend) {
 
     Kokkos::parallel_for(
@@ -145,7 +144,7 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int
                 // Reset current undercooling to zero
                 UndercoolingCurrent(GlobalD3D1ConvPosition) = 0.0;
                 // Remove solid cell data from the buffer
-                loadghostnodes(0, 0, 0, 0, 0, BufSizeX, MyYSlices, RankX, RankY, RankZ, AtNorthBoundary,
+                loadghostnodes(0, 0, 0, 0, 0, nx, MyYSlices, RankX, RankY, RankZ, AtNorthBoundary,
                                AtSouthBoundary, BufferSouthSend, BufferNorthSend);
             }
             else if ((isNotSolid) && (pastCritTime)) {
@@ -188,11 +187,11 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int
 }
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
-void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialResponseFunction irf, int MyYOffset,
+void CellCapture(int np, int nx, int MyYSlices, InterfacialResponseFunction irf, int MyYOffset,
                  NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                  ViewF UndercoolingChange, ViewF GrainUnitVector, ViewF CritDiagonalLength, ViewF DiagonalLength,
                  ViewI CellType, ViewF DOCenter, ViewI GrainID, int NGrainOrientations, Buffer2D BufferNorthSend,
-                 Buffer2D BufferSouthSend, int BufSizeX, int ZBound_Low, int nzActive, int, ViewI SteeringVector,
+                 Buffer2D BufferSouthSend, int ZBound_Low, int nzActive, int, ViewI SteeringVector,
                  ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary, bool AtSouthBoundary,
                  ViewI SolidificationEventCounter, ViewI MeltTimeStep, ViewF3D LayerTimeTempHistory,
                  ViewI NumberOfSolidificationEvents, bool RemeltingYN) {
@@ -433,7 +432,7 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                                     double GhostDL = NewODiagL;
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
-                                    loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX,
+                                    loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, nx,
                                                    MyYSlices, MyNeighborX, MyNeighborY, MyNeighborZ, AtNorthBoundary,
                                                    AtSouthBoundary, BufferSouthSend, BufferNorthSend);
                                 } // End if statement for serial/parallel code
@@ -505,7 +504,7 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                     double GhostDOCZ = static_cast<double>(GlobalZ + 0.5);
                     double GhostDL = 0.01;
                     // Collect data for the ghost nodes, if necessary
-                    loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, BufSizeX, MyYSlices, GlobalX,
+                    loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, nx, MyYSlices, GlobalX,
                                    RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend);
                 } // End if statement for serial/parallel code
                 // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active

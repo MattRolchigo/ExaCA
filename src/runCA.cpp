@@ -260,14 +260,14 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewI_H numSteer_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
     numSteer_Host(0) = 0;
     ViewI numSteer = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteer_Host);
+    int BufSize = 5 * BufSizeX * BufSizeZ;
 
     // Update ghost node data for initial state of simulation - only needed if no remelting, as there are no active
     // cells inititially in simulations that directly model the melting process
     if ((np > 1) && (!(RemeltingYN))) {
-        GhostNodes1D(-1, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX, NeighborY,
+        GhostNodes1D(NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX, NeighborY,
                      NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength, CritDiagonalLength,
-                     NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, BufSizeX,
-                     BufSizeZ, ZBound_Low);
+                     NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, BufSize, ZBound_Low);
     }
 
     // If specified, print initial values in some views for debugging purposes
@@ -328,7 +328,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 FillSteeringVector_Remelt(cycle, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
                                           CritTimeStep, UndercoolingCurrent, UndercoolingChange, CellType, GrainID,
                                           ZBound_Low, nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
-                                          BufSizeX, AtNorthBoundary, AtSouthBoundary, BufferNorthSend, BufferSouthSend);
+                                          AtNorthBoundary, AtSouthBoundary, BufferNorthSend, BufferSouthSend);
             else
                 FillSteeringVector_NoRemelt(cycle, LocalActiveDomainSize, nx, MyYSlices, CritTimeStep,
                                             UndercoolingCurrent, UndercoolingChange, CellType, ZBound_Low, layernumber,
@@ -336,10 +336,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CreateSVTime += MPI_Wtime() - StartCreateSVTime;
 
             StartCaptureTime = MPI_Wtime();
-            CellCapture(id, np, cycle, LocalActiveDomainSize, LocalDomainSize, nx, MyYSlices, irf, MyYOffset, NeighborX,
+            CellCapture(np, nx, MyYSlices, irf, MyYOffset, NeighborX,
                         NeighborY, NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, CellType, DOCenter, GrainID, NGrainOrientations,
-                        BufferNorthSend, BufferSouthSend, BufSizeX, ZBound_Low, nzActive, nz, SteeringVector, numSteer,
+                        BufferNorthSend, BufferSouthSend, ZBound_Low, nzActive, nz, SteeringVector, numSteer,
                         numSteer_Host, AtNorthBoundary, AtSouthBoundary, SolidificationEventCounter, MeltTimeStep,
                         LayerTimeTempHistory, NumberOfSolidificationEvents, RemeltingYN);
             CaptureTime += MPI_Wtime() - StartCaptureTime;
@@ -347,10 +347,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             if (np > 1) {
                 // Update ghost nodes
                 StartGhostTime = MPI_Wtime();
-                GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
+                GhostNodes1D(NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSizeX, BufSizeZ, ZBound_Low);
+                             BufferSouthRecv, BufSize, ZBound_Low);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 
@@ -421,6 +421,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
 
             // Update buffer size
             BufSizeZ = nzActive;
+            BufSize = 5 * BufSizeX * BufSizeZ;
 
             // Resize and zero all view data relating to the active region from the last layer, in preparation for the
             // next layer
@@ -461,10 +462,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             // Update ghost nodes for grain locations and attributes
             MPI_Barrier(MPI_COMM_WORLD);
             if ((np > 1) && (!(RemeltingYN))) {
-                GhostNodes1D(-1, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
+                GhostNodes1D(NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, CellType, DOCenter, GrainID, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSizeX, BufSizeZ, ZBound_Low);
+                             BufferSouthRecv, BufSize, ZBound_Low);
             }
             if (id == 0)
                 std::cout << "New layer ghost nodes initialized" << std::endl;

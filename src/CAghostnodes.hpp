@@ -34,10 +34,10 @@ KOKKOS_INLINE_FUNCTION void loadghostnodes(const double GhostGID, const double G
         BufferNorthSend(GNPosition, 4) = GhostDL;
     }
 }
-void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
+void GhostNodes1D(int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CellType, ViewF DOCenter, ViewI GrainID,
                   ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength, int NGrainOrientations,
                   Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSizeX, int BufSizeZ, int ZBound_Low);
+                  Buffer2D BufferSouthRecv, int BufSize, int ZBound_Low);
 
 #endif

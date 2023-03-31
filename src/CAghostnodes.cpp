@@ -13,29 +13,30 @@
 
 //*****************************************************************************/
 // 1D domain decomposition: update ghost nodes with new cell data from Nucleation and CellCapture routines
-void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
+void GhostNodes1D(int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CellType, ViewF DOCenter, ViewI GrainID,
                   ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength, int NGrainOrientations,
                   Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSizeX, int BufSizeZ, int ZBound_Low) {
+                  Buffer2D BufferSouthRecv, int BufSize, int ZBound_Low) {
 
     std::vector<MPI_Request> SendRequests(2, MPI_REQUEST_NULL);
     std::vector<MPI_Request> RecvRequests(2, MPI_REQUEST_NULL);
 
     // Send data to each other rank (MPI_Isend)
-    MPI_Isend(BufferSouthSend.data(), 5 * BufSizeX * BufSizeZ, MPI_DOUBLE, NeighborRank_South, 0, MPI_COMM_WORLD,
+    MPI_Isend(BufferSouthSend.data(), BufSize, MPI_DOUBLE, NeighborRank_South, 0, MPI_COMM_WORLD,
               &SendRequests[0]);
-    MPI_Isend(BufferNorthSend.data(), 5 * BufSizeX * BufSizeZ, MPI_DOUBLE, NeighborRank_North, 0, MPI_COMM_WORLD,
+    MPI_Isend(BufferNorthSend.data(), BufSize, MPI_DOUBLE, NeighborRank_North, 0, MPI_COMM_WORLD,
               &SendRequests[1]);
 
     // Receive buffers for all neighbors (MPI_Irecv)
-    MPI_Irecv(BufferSouthRecv.data(), 5 * BufSizeX * BufSizeZ, MPI_DOUBLE, NeighborRank_South, 0, MPI_COMM_WORLD,
+    MPI_Irecv(BufferSouthRecv.data(), BufSize, MPI_DOUBLE, NeighborRank_South, 0, MPI_COMM_WORLD,
               &RecvRequests[0]);
-    MPI_Irecv(BufferNorthRecv.data(), 5 * BufSizeX * BufSizeZ, MPI_DOUBLE, NeighborRank_North, 0, MPI_COMM_WORLD,
+    MPI_Irecv(BufferNorthRecv.data(), BufSize, MPI_DOUBLE, NeighborRank_North, 0, MPI_COMM_WORLD,
               &RecvRequests[1]);
 
     // unpack in any order
     bool unpack_complete = false;
+    int NumElementsBuf = BufSize / 5;
     while (!unpack_complete) {
         // Get the next buffer to unpack from rank "unpack_index"
         int unpack_index = MPI_UNDEFINED;
@@ -46,15 +47,14 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
         }
         // Otherwise unpack the next buffer.
         else {
-            int RecvBufSize = BufSizeX * BufSizeZ;
             Kokkos::parallel_for(
-                "BufferUnpack", RecvBufSize, KOKKOS_LAMBDA(const int &BufPosition) {
+                "BufferUnpack", NumElementsBuf, KOKKOS_LAMBDA(const int &BufPosition) {
                     int RankX, RankY, RankZ, NewGrainID;
                     long int CellLocation;
                     double DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength;
                     bool Place = false;
-                    RankZ = BufPosition / BufSizeX;
-                    RankX = BufPosition % BufSizeX;
+                    RankZ = BufPosition / nx;
+                    RankX = BufPosition % nx;
                     // Which rank was the data received from?
                     if ((unpack_index == 0) && (NeighborRank_South != MPI_PROC_NULL)) {
                         // Data receieved from South
