@@ -99,7 +99,12 @@ void CellCapture(int id, int np, int cycle, int LocalActiveDomainSize, int Local
                  int ZBound_Low, int nzActive, int nz, ViewI SteeringVector, ViewI numSteer_G, ViewI_H numSteer_H,
                  bool AtNorthBoundary, bool AtSouthBoundary, ViewI SolidificationEventCounter, ViewI MeltTimeStep,
                  ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents, bool RemeltingYN);
-void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, ViewI FutureWorkView,
+void PrintErrorCells(int id, int cycle, int layernumber, int LocalActiveDomainSize, ViewI CritTimeStep,
+                     ViewI UndercoolingChange, int nx, int MyYSlices, int ZBound_Low, int &XSwitch, ViewI CellType);
+void PrintErrorCells_Remelt(int id, int cycle, int layernumber, int LocalActiveDomainSize, ViewF3D LayerTimeTempHistory,
+                            int nx, int MyYSlices, int ZBound_Low, ViewI NumberOfSolidificationEvents, int &XSwitch,
+                            ViewI CellType);
+bool JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, ViewI FutureWorkView,
                   unsigned long int LocalIncompleteCells, int LocalActiveDomainSize, int MyYSlices, int ZBound_Low,
                   bool RemeltingYN, ViewI CellType, ViewI LayerID, int id, int layernumber, int np, int nx, int ny,
                   int nz, int MyYOffset, ViewI GrainID, ViewI CritTimeStep, ViewF GrainUnitVector,
@@ -123,6 +128,7 @@ void IntermediateOutputAndCheck_Remelt(
     ViewI CellType, ViewI CritTimeStep, ViewI GrainID, std::string TemperatureDataType, int layernumber, int,
     int ZBound_Low, int NGrainOrientations, ViewI LayerID, ViewF GrainUnitVector, ViewF UndercoolingChange,
     ViewF UndercoolingCurrent, std::string PathToOutput, std::string OutputFile, bool PrintIdleMovieFrames,
-    int MovieFrameInc, int &IntermediateFileCounter, int NumberOfLayers, ViewI MeltTimeStep, bool PrintBinary);
+    int MovieFrameInc, int &IntermediateFileCounter, int NumberOfLayers, ViewI MeltTimeStep, bool PrintBinary,
+    ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents);
 
 #endif

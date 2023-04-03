@@ -363,7 +363,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                         SimulationType, layernumber, NumberOfLayers, ZBound_Low, NGrainOrientations, LayerID,
                         GrainUnitVector, UndercoolingChange, UndercoolingCurrent, PathToOutput, OutputFile,
                         PrintIdleTimeSeriesFrames, TimeSeriesInc, IntermediateFileCounter, NumberOfLayers, MeltTimeStep,
-                        PrintBinary);
+                        PrintBinary, LayerTimeTempHistory, NumberOfSolidificationEvents);
                 else
                     IntermediateOutputAndCheck(id, np, cycle, MyYSlices, MyYOffset, LocalDomainSize,
                                                LocalActiveDomainSize, nx, ny, nz, nzActive, deltax, XMin, YMin, ZMin,
