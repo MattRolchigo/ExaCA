@@ -530,7 +530,7 @@ void PrintErrorCells(int id, int cycle, int layernumber, int LocalActiveDomainSi
     // Go through cells in the current layer, printing out data for the appropriate cells
     for (int D3D1ConvPosition = 0; D3D1ConvPosition < LocalActiveDomainSize; D3D1ConvPosition++) {
         int GlobalD3D1ConvPosition = D3D1ConvPosition + ZBound_Low * nx * MyYSlices;
-        if (CellType(GlobalD3D1ConvPosition) == Liquid) {
+        if (CellType_Host(GlobalD3D1ConvPosition) == Liquid) {
             int RankZ = D3D1ConvPosition / (nx * MyYSlices);
             int Rem = D3D1ConvPosition % (nx * MyYSlices);
             int RankX = Rem / MyYSlices;
@@ -566,7 +566,7 @@ void PrintErrorCells_Remelt(int id, int cycle, int layernumber, int LocalActiveD
     // Go through cells in the current layer, printing out data for the appropriate cells
     for (int D3D1ConvPosition = 0; D3D1ConvPosition < LocalActiveDomainSize; D3D1ConvPosition++) {
         int GlobalD3D1ConvPosition = D3D1ConvPosition + ZBound_Low * nx * MyYSlices;
-        if (CellType(GlobalD3D1ConvPosition) == TempSolid) {
+        if (CellType_Host(GlobalD3D1ConvPosition) == TempSolid) {
             int NumSolidificationEventsThisCell = NumberOfSolidificationEvents_Host(D3D1ConvPosition);
             for (int n = 0; n < NumSolidificationEventsThisCell; n++) {
                 int RankZ = D3D1ConvPosition / (nx * MyYSlices);
