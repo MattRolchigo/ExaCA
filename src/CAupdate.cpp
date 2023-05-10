@@ -616,51 +616,50 @@ void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, ViewI 
 // Jump to the next time step with work to be done, if nothing left to do in the near future
 // With remelting, the cells of interest are active cells, and the view checked for future work is
 // MeltTimeStep Print intermediate output during this jump if PrintIdleMovieFrames = true
-void JumpTimeStep_Remelt(int &cycle, unsigned long int RemainingCellsOfInterest, unsigned long int LocalIncompleteCells,
-                         ViewI MeltTimeStep, int LocalActiveDomainSize, int MyYSlices, int ZBound_Low, ViewI CellType,
-                         ViewI LayerID, int id, int layernumber, int np, int nx, int ny, int nz, int MyYOffset,
-                         ViewI GrainID, ViewI CritTimeStep, ViewF GrainUnitVector, ViewF UndercoolingChange,
-                         ViewF UndercoolingCurrent, std::string OutputFile, int NGrainOrientations,
-                         std::string PathToOutput, int &IntermediateFileCounter, int nzActive, double deltax,
-                         double XMin, double YMin, double ZMin, int NumberOfLayers, bool PrintIdleMovieFrames,
-                         int MovieFrameInc, bool PrintBinary, ViewI SolidificationEventCounter,
-                         ViewI NumberOfSolidificationEvents, ViewF3D LayerTimeTempHistory) {
+void JumpTimeStep_Remelt(int &cycle, int RemainingCellsOfInterest, int LocalIncompleteCells, ViewI MeltTimeStep,
+                         int LocalActiveDomainSize, int MyYSlices, int ZBound_Low, ViewI CellType, ViewI LayerID,
+                         int id, int layernumber, int np, int nx, int ny, int nz, int MyYOffset, ViewI GrainID,
+                         ViewI CritTimeStep, ViewF GrainUnitVector, ViewF UndercoolingChange, ViewF UndercoolingCurrent,
+                         std::string OutputFile, int NGrainOrientations, std::string PathToOutput,
+                         int &IntermediateFileCounter, int nzActive, double deltax, double XMin, double YMin,
+                         double ZMin, int NumberOfLayers, bool PrintIdleMovieFrames, int MovieFrameInc,
+                         bool PrintBinary, ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents,
+                         ViewF3D LayerTimeTempHistory) {
 
-    MPI_Bcast(&RemainingCellsOfInterest, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&RemainingCellsOfInterest, 1, MPI_INT, 0, MPI_COMM_WORLD);
     if (RemainingCellsOfInterest == 0) {
         // If this rank still has cells that will later undergo transformation (LocalIncompleteCells > 0), check when
         // the next solid cells go above the liquidus. Otherwise, assign the largest possible time step as the next time
         // work needs to be done on the rank
-        unsigned long int NextWorkTimeStep;
+        int NextWorkTimeStep;
         if (LocalIncompleteCells > 0) {
             Kokkos::parallel_reduce(
                 "CheckNextTSForWork", LocalActiveDomainSize,
-                KOKKOS_LAMBDA(const int &D3D1ConvPosition, unsigned long int &tempv) {
+                KOKKOS_LAMBDA(const int &D3D1ConvPosition, int &tempv) {
                     int RankZ = D3D1ConvPosition / (nx * MyYSlices);
                     int Rem = D3D1ConvPosition % (nx * MyYSlices);
                     int RankX = Rem / MyYSlices;
                     int RankY = Rem % MyYSlices;
                     int GlobalZ = RankZ + ZBound_Low;
                     int GlobalD3D1ConvPosition = GlobalZ * nx * MyYSlices + RankX * MyYSlices + RankY;
-                    unsigned long int NextWorkTimeStep_ThisCell =
-                        (unsigned long int)(MeltTimeStep(GlobalD3D1ConvPosition));
+                    int NextWorkTimeStep_ThisCell = MeltTimeStep(GlobalD3D1ConvPosition);
                     // remelting/no remelting criteria for a cell to be associated with future work
                     if (CellType(GlobalD3D1ConvPosition) == TempSolid) {
                         if (NextWorkTimeStep_ThisCell < tempv)
                             tempv = NextWorkTimeStep_ThisCell;
                     }
                 },
-                Kokkos::Min<unsigned long int>(NextWorkTimeStep));
+                Kokkos::Min<int>(NextWorkTimeStep));
         }
         else
             NextWorkTimeStep = INT_MAX;
 
-        unsigned long int GlobalNextWorkTimeStep;
-        MPI_Allreduce(&NextWorkTimeStep, &GlobalNextWorkTimeStep, 1, MPI_UNSIGNED_LONG, MPI_MIN, MPI_COMM_WORLD);
+        int GlobalNextWorkTimeStep;
+        MPI_Allreduce(&NextWorkTimeStep, &GlobalNextWorkTimeStep, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
         if ((GlobalNextWorkTimeStep - cycle) > 5000) {
             if (PrintIdleMovieFrames) {
                 // Print any movie frames that occur during the skipped time steps
-                for (unsigned long int cycle_jump = cycle + 1; cycle_jump < GlobalNextWorkTimeStep; cycle_jump++) {
+                for (int cycle_jump = cycle + 1; cycle_jump < GlobalNextWorkTimeStep; cycle_jump++) {
                     if (cycle_jump % MovieFrameInc == 0) {
                         // Print current state of ExaCA simulation (up to and including the current layer's data)
                         // Host mirrors of CellType and GrainID are not maintained - pass device views and perform
@@ -679,7 +678,7 @@ void JumpTimeStep_Remelt(int &cycle, unsigned long int RemainingCellsOfInterest,
             if (id == 0)
                 std::cout << "Jumping to cycle " << cycle + 1 << std::endl;
         }
-        else if (GlobalNextWorkTimeStep <= static_cast<unsigned long int>(cycle)) {
+        else if (GlobalNextWorkTimeStep <= cycle) {
             // A solidification event was missed due to potentially duplicate data points in the temperature data - skip
             // this event but print a warning
             int Incomplete_Event_Count;
@@ -746,16 +745,15 @@ void IntermediateOutputAndCheck(int id, int np, int &cycle, int MyYSlices, int M
                                 bool PrintIdleMovieFrames, int MovieFrameInc, int &IntermediateFileCounter,
                                 int NumberOfLayers, bool PrintBinary) {
 
-    unsigned long int LocalSuperheatedCells;
-    unsigned long int LocalUndercooledCells;
-    unsigned long int LocalActiveCells;
-    unsigned long int LocalSolidCells;
-    unsigned long int LocalRemainingLiquidCells;
+    int LocalSuperheatedCells;
+    int LocalUndercooledCells;
+    int LocalActiveCells;
+    int LocalSolidCells;
+    int LocalRemainingLiquidCells;
     Kokkos::parallel_reduce(
         LocalDomainSize,
-        KOKKOS_LAMBDA(const int &D3D1ConvPosition, unsigned long int &sum_superheated,
-                      unsigned long int &sum_undercooled, unsigned long int &sum_active, unsigned long int &sum_solid,
-                      unsigned long int &sum_remaining_liquid) {
+        KOKKOS_LAMBDA(const int &D3D1ConvPosition, int &sum_superheated, int &sum_undercooled, int &sum_active,
+                      int &sum_solid, int &sum_remaining_liquid) {
             if (LayerID(D3D1ConvPosition) == layernumber) {
                 if (CellType(D3D1ConvPosition) == Liquid) {
                     if (CritTimeStep(D3D1ConvPosition) > cycle)
@@ -775,15 +773,13 @@ void IntermediateOutputAndCheck(int id, int np, int &cycle, int MyYSlices, int M
         },
         LocalSuperheatedCells, LocalUndercooledCells, LocalActiveCells, LocalSolidCells, LocalRemainingLiquidCells);
 
-    unsigned long int Global_SuccessfulNucEvents_ThisRank = 0;
-    unsigned long int GlobalSuperheatedCells, GlobalUndercooledCells, GlobalActiveCells, GlobalSolidCells,
-        GlobalRemainingLiquidCells;
-    MPI_Reduce(&LocalSuperheatedCells, &GlobalSuperheatedCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalUndercooledCells, &GlobalUndercooledCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalActiveCells, &GlobalActiveCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalSolidCells, &GlobalSolidCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalRemainingLiquidCells, &GlobalRemainingLiquidCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
-               MPI_COMM_WORLD);
+    int Global_SuccessfulNucEvents_ThisRank = 0;
+    int GlobalSuperheatedCells, GlobalUndercooledCells, GlobalActiveCells, GlobalSolidCells, GlobalRemainingLiquidCells;
+    MPI_Reduce(&LocalSuperheatedCells, &GlobalSuperheatedCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalUndercooledCells, &GlobalUndercooledCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalActiveCells, &GlobalActiveCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalSolidCells, &GlobalSolidCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalRemainingLiquidCells, &GlobalRemainingLiquidCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&SuccessfulNucEvents_ThisRank, &Global_SuccessfulNucEvents_ThisRank, 1, MPI_INT, MPI_SUM, 0,
                MPI_COMM_WORLD);
 
@@ -821,16 +817,15 @@ void IntermediateOutputAndCheck_Remelt(
     int MovieFrameInc, int &IntermediateFileCounter, int NumberOfLayers, ViewI MeltTimeStep, bool PrintBinary,
     ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents, ViewF3D LayerTimeTempHistory) {
 
-    unsigned long int LocalSuperheatedCells;
-    unsigned long int LocalUndercooledCells;
-    unsigned long int LocalActiveCells;
-    unsigned long int LocalTempSolidCells;
-    unsigned long int LocalFinishedSolidCells;
+    int LocalSuperheatedCells;
+    int LocalUndercooledCells;
+    int LocalActiveCells;
+    int LocalTempSolidCells;
+    int LocalFinishedSolidCells;
     Kokkos::parallel_reduce(
         LocalActiveDomainSize,
-        KOKKOS_LAMBDA(const int &D3D1ConvPosition, unsigned long int &sum_superheated,
-                      unsigned long int &sum_undercooled, unsigned long int &sum_active,
-                      unsigned long int &sum_temp_solid, unsigned long int &sum_finished_solid) {
+        KOKKOS_LAMBDA(const int &D3D1ConvPosition, int &sum_superheated, int &sum_undercooled, int &sum_active,
+                      int &sum_temp_solid, int &sum_finished_solid) {
             int GlobalD3D1ConvPosition = D3D1ConvPosition + ZBound_Low * nx * MyYSlices;
             if (CellType(GlobalD3D1ConvPosition) == Liquid) {
                 if (CritTimeStep(GlobalD3D1ConvPosition) > cycle)
@@ -847,14 +842,14 @@ void IntermediateOutputAndCheck_Remelt(
         },
         LocalSuperheatedCells, LocalUndercooledCells, LocalActiveCells, LocalTempSolidCells, LocalFinishedSolidCells);
 
-    unsigned long int Global_SuccessfulNucEvents_ThisRank = 0;
-    unsigned long int GlobalSuperheatedCells, GlobalUndercooledCells, GlobalActiveCells, GlobalTempSolidCells,
+    int Global_SuccessfulNucEvents_ThisRank = 0;
+    int GlobalSuperheatedCells, GlobalUndercooledCells, GlobalActiveCells, GlobalTempSolidCells,
         GlobalFinishedSolidCells;
-    MPI_Reduce(&LocalSuperheatedCells, &GlobalSuperheatedCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalUndercooledCells, &GlobalUndercooledCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalActiveCells, &GlobalActiveCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalTempSolidCells, &GlobalTempSolidCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&LocalFinishedSolidCells, &GlobalFinishedSolidCells, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalSuperheatedCells, &GlobalSuperheatedCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalUndercooledCells, &GlobalUndercooledCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalActiveCells, &GlobalActiveCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalTempSolidCells, &GlobalTempSolidCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&LocalFinishedSolidCells, &GlobalFinishedSolidCells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&SuccessfulNucEvents_ThisRank, &Global_SuccessfulNucEvents_ThisRank, 1, MPI_INT, MPI_SUM, 0,
                MPI_COMM_WORLD);
 
