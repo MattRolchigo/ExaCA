@@ -98,12 +98,20 @@ void CellCapture(int id, int np, int cycle, int LocalActiveDomainSize, int Local
                  ViewI_H numSteer_H, bool AtNorthBoundary, bool AtSouthBoundary, ViewI SolidificationEventCounter,
                  ViewI MeltTimeStep, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents, bool RemeltingYN,
                  int &BufSize);
-void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, ViewI FutureWorkView,
+void JumpTimeStep_Remelt(int &cycle, unsigned long int RemainingCellsOfInterest, unsigned long int LocalIncompleteCells,
+                         ViewI MeltTimeStep, int LocalActiveDomainSize, int MyYSlices, int ZBound_Low, ViewI CellType,
+                         ViewI LayerID, int id, int layernumber, int np, int nx, int ny, int nz, int MyYOffset,
+                         ViewI GrainID, ViewI CritTimeStep, ViewF GrainUnitVector, ViewF UndercoolingChange,
+                         ViewF UndercoolingCurrent, std::string OutputFile, int NGrainOrientations,
+                         std::string PathToOutput, int &IntermediateFileCounter, int nzActive, double deltax,
+                         double XMin, double YMin, double ZMin, int NumberOfLayers, bool PrintIdleMovieFrames,
+                         int MovieFrameInc, bool PrintBinary, ViewI SolidificationEventCounter,
+                         ViewI NumberOfSolidificationEvents, ViewF3D LayerTimeTempHistory);
+void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, ViewI CritTimeStep,
                   unsigned long int LocalIncompleteCells, int LocalActiveDomainSize, int MyYSlices, int ZBound_Low,
-                  bool RemeltingYN, ViewI CellType, ViewI LayerID, int id, int layernumber, int np, int nx, int ny,
-                  int nz, int MyYOffset, ViewI GrainID, ViewI CritTimeStep, ViewF GrainUnitVector,
-                  ViewF UndercoolingChange, ViewF UndercoolingCurrent, std::string OutputFile,
-                  int DecompositionStrategy, int NGrainOrientations, std::string PathToOutput,
+                  ViewI CellType, ViewI LayerID, int id, int layernumber, int np, int nx, int ny, int nz, int MyYOffset,
+                  ViewI GrainID, ViewF GrainUnitVector, ViewF UndercoolingChange, ViewF UndercoolingCurrent,
+                  std::string OutputFile, int DecompositionStrategy, int NGrainOrientations, std::string PathToOutput,
                   int &IntermediateFileCounter, int nzActive, double deltax, double XMin, double YMin, double ZMin,
                   int NumberOfLayers, int &XSwitch, std::string TemperatureDataType, bool PrintIdleMovieFrames,
                   int MovieFrameInc, bool PrintBinary, int FinishTimeStep);
@@ -122,6 +130,7 @@ void IntermediateOutputAndCheck_Remelt(
     ViewI CellType, ViewI CritTimeStep, ViewI GrainID, std::string TemperatureDataType, int layernumber, int,
     int ZBound_Low, int NGrainOrientations, ViewI LayerID, ViewF GrainUnitVector, ViewF UndercoolingChange,
     ViewF UndercoolingCurrent, std::string PathToOutput, std::string OutputFile, bool PrintIdleMovieFrames,
-    int MovieFrameInc, int &IntermediateFileCounter, int NumberOfLayers, ViewI MeltTimeStep, bool PrintBinary);
+    int MovieFrameInc, int &IntermediateFileCounter, int NumberOfLayers, ViewI MeltTimeStep, bool PrintBinary,
+    ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents, ViewF3D LayerTimeTempHistory);
 
 #endif
