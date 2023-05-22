@@ -325,7 +325,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
         // Loop continues until all liquid cells claimed by solid grains
         do {
             // Start of time step - check and see if intermediate system output is to be printed to files
-            if ((PrintTimeSeries) && (cycle % TimeSeriesInc == 0)) {
+            if ((PrintTimeSeries) && (cycle % TimeSeriesInc == 0) && (layernumber >= 27)) {
                 if ((((layernumber % 2) == 0) && (cycle > 28070000) && (cycle < 36100000)) || (((layernumber % 2) == 1) && (cycle > 2300000) && (cycle < 3050000))) {
                     // Print current state of ExaCA simulation (up to and including the current layer's data)
                     // Host mirrors of CellType and GrainID are not maintained - pass device views and perform copy inside
