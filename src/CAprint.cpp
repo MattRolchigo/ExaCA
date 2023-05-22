@@ -727,9 +727,9 @@ void PrintExaCATiming(int np, double InitTime, double RunTime, double OutTime, i
 // Epitaxial grains are colored 0-62 (by misorientation with +Z direction)
 // Nucleated grains are colored 100-162 (by misorientation with +Z direction plus 100)
 void PrintIntermediateExaCAState(int IntermediateFileCounter, int layernumber, std::string BaseFileName,
-                                 std::string PathToOutput, int ZBound_Low, int nzActive, int nx, int ny,
+                                 std::string PathToOutput, int ZBound_Low, int nzActive, int, int,
                                  ViewI3D_H GrainID_WholeDomain, ViewI3D_H CellType_WholeDomain, ViewF_H GrainUnitVector,
-                                 int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin,
+                                 int NGrainOrientations, double deltax, double XMin, double YMin, double,
                                  bool PrintBinary) {
 
     std::string FName = PathToOutput + BaseFileName + "_layer" + std::to_string(layernumber) + "_" +
@@ -737,8 +737,11 @@ void PrintIntermediateExaCAState(int IntermediateFileCounter, int layernumber, s
 
     // Size of output in Z will depend on the current layer bounds - always start from Z = 0, but only collect data up
     // to Z = ZBound_Low + nzActive
-    int ZPrintSize = ZBound_Low + nzActive;
-    std::cout << "Printing file " << FName << " : Z coordinates of 0 through " << ZPrintSize - 1 << std::endl;
+    int ZPrintBottom = 477;
+    int ZPrintTop = ZBound_Low + nzActive;
+    if (ZPrintTop > 877)
+        ZPrintTop = 877;
+    std::cout << "Printing file " << FName << " : Z coordinates of " << ZPrintBottom << " through " << ZPrintTop - 1 << std::endl;
     ViewF_H GrainMisorientation(Kokkos::ViewAllocateWithoutInitializing("GrainMisorientation"), NGrainOrientations);
     for (int n = 0; n < NGrainOrientations; n++) {
         // Find the smallest possible misorientation between the domain +Z direction, and this grain orientations' 6
@@ -754,19 +757,21 @@ void PrintIntermediateExaCAState(int IntermediateFileCounter, int layernumber, s
         GrainMisorientation(n) = AngleZmin;
     }
     std::ofstream GrainplotM;
-    WriteHeader(GrainplotM, FName, PrintBinary, nx, ny, ZPrintSize, deltax, XMin, YMin, ZMin);
+    WriteHeader(GrainplotM, FName, PrintBinary, 400, 400, ZPrintTop - ZPrintBottom, deltax, XMin + 0.00025, YMin + 0.00025, 0.0005);
     GrainplotM << "SCALARS Angle_z float 1" << std::endl;
     GrainplotM << "LOOKUP_TABLE default" << std::endl;
-    for (int k = 0; k < ZPrintSize; k++) {
-        for (int j = 0; j < ny; j++) {
-            for (int i = 0; i < nx; i++) {
+    for (int k = ZPrintBottom; k < ZPrintTop; k++) {
+        for (int j = 200; j < 599; j++) {
+            for (int i = 200; i < 599; i++) {
                 float FloatPrintVal;
                 if (CellType_WholeDomain(k, i, j) != Liquid) {
                     int MyOrientation = getGrainOrientation(GrainID_WholeDomain(k, i, j), NGrainOrientations);
                     if (GrainID_WholeDomain(k, i, j) < 0)
                         FloatPrintVal = GrainMisorientation(MyOrientation) + 100.0;
-                    else
+                    else if (GrainID_WholeDomain(k, i, j) > 0)
                         FloatPrintVal = GrainMisorientation(MyOrientation);
+                    else
+                        FloatPrintVal = 200.0;
                 }
                 else
                     FloatPrintVal = -1.0;

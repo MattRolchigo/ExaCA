@@ -326,15 +326,17 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
         do {
             // Start of time step - check and see if intermediate system output is to be printed to files
             if ((PrintTimeSeries) && (cycle % TimeSeriesInc == 0)) {
-                // Print current state of ExaCA simulation (up to and including the current layer's data)
-                // Host mirrors of CellType and GrainID are not maintained - pass device views and perform copy inside
-                // of subroutine
-                PrintExaCAData(id, layernumber, np, nx, ny, nz, MyYSlices, MyYOffset, GrainID, CritTimeStep,
-                               GrainUnitVector, LayerID, CellType, UndercoolingChange, UndercoolingCurrent, OutputFile,
-                               NGrainOrientations, PathToOutput, 0, false, false, false, true, false,
-                               IntermediateFileCounter, ZBound_Low, nzActive, deltax, XMin, YMin, ZMin, NumberOfLayers,
-                               PrintBinary);
-                IntermediateFileCounter++;
+                if ((((layernumber % 2) == 0) && (cycle > 28070000) && (cycle < 36100000)) || (((layernumber % 2) == 1) && (cycle > 2300000) && (cycle < 3050000))) {
+                    // Print current state of ExaCA simulation (up to and including the current layer's data)
+                    // Host mirrors of CellType and GrainID are not maintained - pass device views and perform copy inside
+                    // of subroutine
+                    PrintExaCAData(id, layernumber, np, nx, ny, nz, MyYSlices, MyYOffset, GrainID, CritTimeStep,
+                                   GrainUnitVector, LayerID, CellType, UndercoolingChange, UndercoolingCurrent, OutputFile,
+                                   NGrainOrientations, PathToOutput, 0, false, false, false, true, false,
+                                   IntermediateFileCounter, ZBound_Low, nzActive, deltax, XMin, YMin, ZMin, NumberOfLayers,
+                                   PrintBinary);
+                    IntermediateFileCounter++;
+                }
             }
             cycle++;
 
