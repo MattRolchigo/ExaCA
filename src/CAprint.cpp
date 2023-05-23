@@ -761,8 +761,8 @@ void PrintIntermediateExaCAState(int IntermediateFileCounter, int layernumber, s
     GrainplotM << "SCALARS Angle_z float 1" << std::endl;
     GrainplotM << "LOOKUP_TABLE default" << std::endl;
     for (int k = ZPrintBottom; k < ZPrintTop; k++) {
-        for (int j = 200; j < 599; j++) {
-            for (int i = 200; i < 599; i++) {
+        for (int j = 200; j < 600; j++) {
+            for (int i = 200; i < 600; i++) {
                 float FloatPrintVal;
                 if (CellType_WholeDomain(k, i, j) != Liquid) {
                     int MyOrientation = getGrainOrientation(GrainID_WholeDomain(k, i, j), NGrainOrientations);
