@@ -57,7 +57,7 @@ ReadType ParseASCIIData(std::istringstream &ss) {
     return readValue;
 }
 std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_thislayer, bool BinaryInputData);
-void parseTemperatureData(std::string tempfile_thislayer, double YMin, double deltax, int LowerYBound, int UpperYBound,
-                          int &NumberOfTemperatureDataPoints, bool BinaryInputData, ViewD_H &RawTemperatureData);
+void parseTemperatureData(std::string tempfile_thislayer, double YMin, double YMax, double deltax, int LowerYBound, int UpperYBound,
+                          int &NumberOfTemperatureDataPoints, bool BinaryInputData, ViewD_H &RawTemperatureData, double XMin_Temp, double XMax, int layernumber);
 
 #endif

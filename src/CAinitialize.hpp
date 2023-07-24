@@ -29,14 +29,14 @@ void NeighborListInit(NList &NeighborX, NList &NeighborY, NList &NeighborZ);
 void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, int &ny, int &nz,
                    std::vector<std::string> &temp_paths, double &XMin, double &XMax, double &YMin, double &YMax,
                    double &ZMin, double &ZMax, int &LayerHeight, int NumberOfLayers, int TempFilesInSeries,
-                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius);
+                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius, double &XMin_Temp);
 void DomainDecomposition(int id, int np, int &MyYSlices, int &MyYOffset, int &NeighborRank_North,
                          int &NeighborRank_South, int &nx, int &ny, int &nz, long int &LocalDomainSize,
                          bool &AtNorthBoundary, bool &AtSouthBoundary);
 void ReadTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAratio, int MyYSlices, int MyYOffset,
-                         double YMin, std::vector<std::string> &temp_paths, int NumberOfLayers, int TempFilesInSeries,
+                         double YMin, double YMax, std::vector<std::string> &temp_paths, int NumberOfLayers, int TempFilesInSeries,
                          int *FirstValue, int *LastValue, bool LayerwiseTempRead, int layernumber,
-                         ViewD_H &RawTemperatureData);
+                         ViewD_H &RawTemperatureData, double XMin_Temp, double XMax);
 int calcZBound_Low(std::string SimulationType, int LayerHeight, int layernumber, double *ZMinLayer, double ZMin,
                    double deltax);
 int calcZBound_High(std::string SimulationType, int SpotRadius, int LayerHeight, int layernumber, double ZMin,

@@ -254,11 +254,13 @@ void testFindXYZBounds(bool TestBinaryInputRead) {
     double XMin, XMax, YMin, YMax, ZMin, ZMax;
     double *ZMinLayer = new double[NumberOfLayers];
     double *ZMaxLayer = new double[NumberOfLayers];
+    double XMin_Temp = 0;
 
     FindXYZBounds("R", 0, deltax, nx, ny, nz, temp_paths, XMin, XMax, YMin, YMax, ZMin, ZMax, LayerHeight,
-                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, 0);
+                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, 0, XMin_Temp);
 
     EXPECT_DOUBLE_EQ(XMin, 0.0);
+    EXPECT_DOUBLE_EQ(XMin_Temp, 0.0);
     EXPECT_DOUBLE_EQ(YMin, 0.0);
     EXPECT_DOUBLE_EQ(ZMin, 0.0);
     EXPECT_DOUBLE_EQ(XMax, 3 * deltax);

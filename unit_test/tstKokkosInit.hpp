@@ -88,6 +88,8 @@ void testReadTemperatureData(int NumberOfLayers, bool LayerwiseTempRead, bool Te
     int HTtoCAratio;
     // Domain size is a 3 by 12 region
     int nx = 3;
+    double XMin_Temp = 0.0;
+    double XMax = 2 * deltax;
     int ny = 12;
     // Write fake OpenFOAM data - only rank 0. Temperature data should be of type double
     // Write two files, one or both of which should be read
@@ -155,6 +157,7 @@ void testReadTemperatureData(int NumberOfLayers, bool LayerwiseTempRead, bool Te
         int MyYSlices = 3;
         int MyYOffset = 3 * id; // each col is separated from the others by 3 cells
         double YMin = 0.0;
+        double YMax = 2 * deltax;
         int layernumber = 0;
         std::vector<std::string> temp_paths(2);
         temp_paths[0] = TestTempFileName1;
@@ -166,9 +169,9 @@ void testReadTemperatureData(int NumberOfLayers, bool LayerwiseTempRead, bool Te
         // Read in data to "RawData"
         ViewD_H RawTemperatureData(Kokkos::ViewAllocateWithoutInitializing("RawTemperatureData"), 9);
 
-        ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, temp_paths, NumberOfLayers,
+        ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, YMax, temp_paths, NumberOfLayers,
                             TempFilesInSeries, FirstValue, LastValue, LayerwiseTempRead, layernumber,
-                            RawTemperatureData);
+                            RawTemperatureData, XMin_Temp, XMax);
 
         // Check the results.
         // Does each rank have the right number of temperature data points? Each rank should have six (x,y,z,tm,tl,cr)

@@ -258,44 +258,59 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
 // or a binary string of double precision values), storing the x, y, z, tm, tl, cr values in the RawData vector. Each
 // rank only contains the points corresponding to cells within the associated Y bounds. NumberOfTemperatureDataPoints is
 // incremented on each rank as data is added to RawData
-void parseTemperatureData(std::string tempfile_thislayer, double YMin, double deltax, int LowerYBound, int UpperYBound,
-                          int &NumberOfTemperatureDataPoints, bool BinaryInputData, ViewD_H &RawTemperatureData) {
+void parseTemperatureData(std::string tempfile_thislayer, double YMin, double YMax, double deltax, int LowerYBound, int UpperYBound,
+                          int &NumberOfTemperatureDataPoints, bool BinaryInputData, ViewD_H &RawTemperatureData, double XMin_Temp, double XMax, int layernumber) {
 
+    double LineOffset = 490 * pow(10,-6); // in microns
+    int NumberOfPasses = std::ceil(YMax / LineOffset);
+    // For a domain
     std::ifstream TemperatureFilestream;
     TemperatureFilestream.open(tempfile_thislayer);
     if (BinaryInputData) {
         while (!TemperatureFilestream.eof()) {
             double XTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
             double YTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double ZTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double MeltingTimePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double LiquidusTimePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double CoolingRatePoint = ReadBinaryData<double>(TemperatureFilestream);
             // If no data was extracted from the stream, the end of the file was reached
             if (!(TemperatureFilestream))
                 break;
-            // Check the y value from ParsedLine, to check if this point is stored on this rank
-            // Check the CA grid positions of the data point to see which rank(s) should store it
-            int YInt = round((YTemperaturePoint - YMin) / deltax);
-            if ((YInt >= LowerYBound) && (YInt <= UpperYBound)) {
-                // This data point is inside the bounds of interest for this MPI rank
-                // Store the x and y values in RawData
-                RawTemperatureData(NumberOfTemperatureDataPoints) = XTemperaturePoint;
-                NumberOfTemperatureDataPoints++;
-                RawTemperatureData(NumberOfTemperatureDataPoints) = YTemperaturePoint;
-                NumberOfTemperatureDataPoints++;
-                // Parse the remaining 4 components (z, tm, tl, cr) from the line and store in RawData
-                for (int component = 2; component < 6; component++) {
-                    RawTemperatureData(NumberOfTemperatureDataPoints) = ReadBinaryData<double>(TemperatureFilestream);
-                    NumberOfTemperatureDataPoints++;
+            for (int pass=0; pass<NumberOfPasses; pass++) {
+                // Offset X coordinate so that the system starts at X = 0
+                XTemperaturePoint -= XMin_Temp;
+                if (pass % 2 == 1) {
+                    // even pass - mirror X coordinate
+                    XTemperaturePoint = XMax - XTemperaturePoint;
                 }
-                int RawTemperatureData_extent = RawTemperatureData.extent(0);
-                // Adjust size of RawData if it is near full
-                if (NumberOfTemperatureDataPoints >= RawTemperatureData_extent - 6) {
-                    Kokkos::resize(RawTemperatureData, RawTemperatureData_extent + 1000000);
+                // Translate Y coordinate for the appropriate pass
+                YTemperaturePoint += LineOffset * pass;
+                if (layernumber % 2 == 1) {
+                    // even layer - swap X and Y coordinates
+                    double XTemperaturePoint_temp = XTemperaturePoint;
+                    XTemperaturePoint = YTemperaturePoint;
+                    YTemperaturePoint = XTemperaturePoint_temp;
                 }
-            }
-            else {
-                // This data point is inside the bounds of interest for this MPI rank
-                // ignore the z, tm, tl, cr values associated with it
-                unsigned char temp[4 * sizeof(double)];
-                TemperatureFilestream.read(reinterpret_cast<char *>(temp), 4 * sizeof(double));
+                // Check the y value from ParsedLine, to check if this point is stored on this rank
+                // Check the CA grid positions of the data point to see which rank(s) should store it
+                int YInt = round((YTemperaturePoint - YMin) / deltax);
+                if ((YInt >= LowerYBound) && (YInt <= UpperYBound)) {
+                    // This data point is inside the bounds of interest for this MPI rank
+                    // Store the x and y values in RawData
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = XTemperaturePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = YTemperaturePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = ZTemperaturePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = MeltingTimePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = LiquidusTimePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = CoolingRatePoint;
+                    NumberOfTemperatureDataPoints += 6;
+                    int RawTemperatureData_extent = RawTemperatureData.extent(0);
+                    // Adjust size of RawData if it is near full
+                    if (NumberOfTemperatureDataPoints >= RawTemperatureData_extent - 6) {
+                        Kokkos::resize(RawTemperatureData, RawTemperatureData_extent + 1000000);
+                    }
+                }
             }
         }
     }

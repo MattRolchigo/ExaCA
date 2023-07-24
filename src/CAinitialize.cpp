@@ -277,7 +277,7 @@ bool checkTemperatureFileFormat(std::string tempfile_thislayer) {
 void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, int &ny, int &nz,
                    std::vector<std::string> &temp_paths, double &XMin, double &XMax, double &YMin, double &YMax,
                    double &ZMin, double &ZMax, int &LayerHeight, int NumberOfLayers, int TempFilesInSeries,
-                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius) {
+                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius, double &XMin_Temp) {
 
     if (SimulationType == "R") {
         // Two passes through reading temperature data files- the first pass only reads the headers to
@@ -393,6 +393,14 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
             ZMaxLayer[n] = deltax * (SpotRadius + LayerHeight * n);
         }
     }
+    
+    // From the limits, take the domain in X and recenter it so that XMin = 0.0
+    XMin_Temp = XMin;
+    XMin = 0.0;
+    XMax = XMax - XMin_Temp;
+    // Size of domain in Y is the same as in X
+    YMin = 0.0;
+    YMax = XMax;
     if (id == 0) {
         std::cout << "Domain size: " << nx << " by " << ny << " by " << nz << std::endl;
         std::cout << "X Limits of domain: " << XMin << " and " << XMax << std::endl;
@@ -428,9 +436,9 @@ void DomainDecomposition(int id, int np, int &MyYSlices, int &MyYOffset, int &Ne
 // Read in temperature data from files, stored in the host view "RawData", with the appropriate MPI ranks storing the
 // appropriate data
 void ReadTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAratio, int MyYSlices, int MyYOffset,
-                         double YMin, std::vector<std::string> &temp_paths, int NumberOfLayers, int TempFilesInSeries,
+                         double YMin, double YMax, std::vector<std::string> &temp_paths, int NumberOfLayers, int TempFilesInSeries,
                          int *FirstValue, int *LastValue, bool LayerwiseTempRead, int layernumber,
-                         ViewD_H &RawTemperatureData) {
+                         ViewD_H &RawTemperatureData, double XMin_Temp, double XMax) {
 
     double HTtoCAratio_unrounded = HT_deltax / deltax;
     double HTtoCAratio_floor = floor(HTtoCAratio_unrounded);
@@ -489,8 +497,8 @@ void ReadTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAra
         // Read and parse temperature file for either binary or ASCII, storing the appropriate values on each MPI rank
         // within RawData and incrementing NumberOfTemperatureDataPoints appropriately
         bool BinaryInputData = checkTemperatureFileFormat(tempfile_thislayer);
-        parseTemperatureData(tempfile_thislayer, YMin, deltax, LowerYBound, UpperYBound, NumberOfTemperatureDataPoints,
-                             BinaryInputData, RawTemperatureData);
+        parseTemperatureData(tempfile_thislayer, YMin, YMax, deltax, LowerYBound, UpperYBound, NumberOfTemperatureDataPoints,
+                             BinaryInputData, RawTemperatureData, XMin_Temp, XMax, layernumber);
         LastValue[LayerReadCount] = NumberOfTemperatureDataPoints;
     } // End loop over all files read for all layers
     Kokkos::resize(RawTemperatureData, NumberOfTemperatureDataPoints);

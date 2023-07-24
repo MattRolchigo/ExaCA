@@ -41,6 +41,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                       FractSurfaceSitesActive, NSpotsX, NSpotsY, SpotOffset, SpotRadius, RNGSeed,
                       BaseplateThroughPowder, PowderActiveFraction, LayerwiseTempRead, PowderFirstLayer, print);
     InterfacialResponseFunction irf(id, MaterialFileName, deltat, deltax);
+    // Same temperature file for each layer but need to rotate it every other layer
+    LayerwiseTempRead = true;
 
     // Variables characterizing local processor grids relative to global domain
     // 1D decomposition in Y: Each MPI rank has a subset consisting of of MyYSlices cells, out of ny cells in Y
@@ -78,8 +80,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // temperature data files and parsing the coordinates
     // For simulations using input temperature data with remelting: even if only LayerwiseTempRead is true, all files
     // need to be read to determine the domain bounds
+    double XMin_Temp;
     FindXYZBounds(SimulationType, id, deltax, nx, ny, nz, temp_paths, XMin, XMax, YMin, YMax, ZMin, ZMax, LayerHeight,
-                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, SpotRadius);
+                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, SpotRadius, XMin_Temp);
 
     // Ensure that input powder layer init options are compatible with this domain size, if needed for this problem type
     if ((SimulationType == "R") || (SimulationType == "S"))
@@ -93,8 +96,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // Read in temperature data from files, stored in "RawData", with the appropriate MPI ranks storing the appropriate
     // data
     if (SimulationType == "R")
-        ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, temp_paths, NumberOfLayers,
-                            TempFilesInSeries, FirstValue, LastValue, LayerwiseTempRead, 0, RawTemperatureData);
+        ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, YMax, temp_paths, NumberOfLayers,
+                            TempFilesInSeries, FirstValue, LastValue, LayerwiseTempRead, 0, RawTemperatureData, XMin_Temp, XMax);
 
     MPI_Barrier(MPI_COMM_WORLD);
     if (id == 0)
@@ -329,9 +332,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             // Determine the bounds of the next layer: Z coordinates span ZBound_Low-ZBound_High, inclusive
             // If the next layer's temperature data isn't already stored, it should be read
             if ((SimulationType == "R") && (LayerwiseTempRead)) {
-                ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, temp_paths,
+                ReadTemperatureData(id, deltax, HT_deltax, HTtoCAratio, MyYSlices, MyYOffset, YMin, YMax, temp_paths,
                                     NumberOfLayers, TempFilesInSeries, FirstValue, LastValue, LayerwiseTempRead,
-                                    layernumber + 1, RawTemperatureData);
+                                    layernumber + 1, RawTemperatureData, XMin_Temp, XMax);
             }
             // Reinitialize temperature views back to zero and resize LayerTimeTempHistory, in
             // preparation for loading the next layer's (layernumber + 1) temperature data from RawData into the
