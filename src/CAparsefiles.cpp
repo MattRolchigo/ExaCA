@@ -292,6 +292,9 @@ void parseTemperatureData(std::string tempfile_thislayer, double YMin, double YM
                     XTemperaturePoint = YTemperaturePoint;
                     YTemperaturePoint = XTemperaturePoint_temp;
                 }
+                // Offset time values
+                MeltingTimePoint += pass * 0.5;
+                LiquidusTimePoint += pass * 0.5;
                 // Check the y value from ParsedLine, to check if this point is stored on this rank
                 // Check the CA grid positions of the data point to see which rank(s) should store it
                 int YInt = round((YTemperaturePoint - YMin) / deltax);
