@@ -401,6 +401,8 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
     // Size of domain in Y is the same as in X
     YMin = 0.0;
     YMax = XMax;
+    // Recompute ny
+    ny = nx;
     if (id == 0) {
         std::cout << "Domain size: " << nx << " by " << ny << " by " << nz << std::endl;
         std::cout << "X Limits of domain: " << XMin << " and " << XMax << std::endl;
