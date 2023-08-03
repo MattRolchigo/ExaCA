@@ -187,9 +187,9 @@ void testGhostNodes1D() {
                 float GhostDOCY = DOCenter(3 * D3D1ConvPosition + 1);
                 float GhostDOCZ = DOCenter(3 * D3D1ConvPosition + 2);
                 float GhostDL = DiagonalLength(D3D1ConvPosition);
-                loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
-                               MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                                    MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                    BufferNorthSend, NGrainOrientations, BufSize);
             }
         });
 
@@ -319,9 +319,9 @@ void testResizeRefillBuffers() {
             DiagonalLength(D3D1ConvPosition) = static_cast<float>(RankY);
             float GhostDL = static_cast<float>(RankY);
             // Load into appropriate buffers
-            loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, MyYSlices,
-                           RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                           NGrainOrientations, BufSize);
+            load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                                MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                BufferNorthSend, NGrainOrientations, BufSize);
         });
     Kokkos::parallel_for(
         "InitDomainActiveCellsSouth", 1, KOKKOS_LAMBDA(const int &) {
@@ -341,9 +341,9 @@ void testResizeRefillBuffers() {
             DiagonalLength(D3D1ConvPosition) = static_cast<float>(RankY);
             float GhostDL = static_cast<float>(RankY);
             // Load into appropriate buffers
-            loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, MyYSlices,
-                           RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                           NGrainOrientations, BufSize);
+            load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                                MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                BufferNorthSend, NGrainOrientations, BufSize);
         });
 
     // Each rank will have "id % 4" cells of additional data to send to the south, and 1 cell of additional data to send
@@ -369,9 +369,9 @@ void testResizeRefillBuffers() {
             float GhostDL = static_cast<float>(RankY);
             // Attempt to load into appropriate buffers
             bool DataFitsInBuffer =
-                loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
-                               MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                                    MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                    BufferNorthSend, NGrainOrientations, BufSize);
             if (!(DataFitsInBuffer)) {
                 // This cell's data did not fit in the buffer with current size BufSize - mark with temporary type
                 CellType(D3D1ConvPosition) = ActiveFailedBufferLoad;
@@ -396,9 +396,9 @@ void testResizeRefillBuffers() {
             float GhostDL = static_cast<float>(RankY);
             // Attempt to load into appropriate buffers
             bool DataFitsInBuffer =
-                loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
-                               MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                                    MyYSlices, RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                    BufferNorthSend, NGrainOrientations, BufSize);
             if (!(DataFitsInBuffer)) {
                 // This cell's data did not fit in the buffer with current size BufSize - mark with temporary type
                 CellType(D3D1ConvPosition) = ActiveFailedBufferLoad;
@@ -410,9 +410,9 @@ void testResizeRefillBuffers() {
     BufSize = ResizeBuffers(BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, SendSizeNorth,
                             SendSizeSouth, SendSizeNorth_Host, SendSizeSouth_Host, OldBufSize);
     if (OldBufSize != BufSize)
-        RefillBuffers(nx, nzActive, MyYSlices, ZBound_Low, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
-                      SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations,
-                      BufSize);
+        FillBuffers(nx, nzActive, MyYSlices, ZBound_Low, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
+                    SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations,
+                    BufSize, true);
     // If there was 1 rank, buffer size should still be 1, as no data was loaded
     // Otherwise, 25 cells should have been added to the buffer in
     // addition to the required capacity increase during the resize

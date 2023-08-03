@@ -236,7 +236,7 @@ void testFillSteeringVector_Remelt() {
     for (int cycle = 1; cycle <= numcycles; cycle++) {
         // Update cell types, local undercooling each time step, and fill the steering vector
         std::cout << cycle << std::endl;
-        FillSteeringVector_Remelt(cycle, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
+        FillSteeringVector_Remelt(cycle, 1, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
                                   CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData, ZBound_Low, nzActive,
                                   SteeringVector, numSteer, numSteer_Host, MeltTimeStep, SolidificationEventCounter,
                                   NumberOfSolidificationEvents, LayerTimeTempHistory);

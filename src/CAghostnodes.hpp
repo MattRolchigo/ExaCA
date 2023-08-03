@@ -15,12 +15,12 @@
 // Load data (GrainID, DOCenter, DiagonalLength) into ghost nodes if the given RankY is associated with a 1D halo region
 // Uses check to ensure that the buffer position does not reach the buffer size - if it does, return false (otherwise
 // return true) but keep incrementing the send size counters for use resizing the buffers in the future
-KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float GhostDOCX, const float GhostDOCY,
-                                           const float GhostDOCZ, const float GhostDL, ViewI SendSizeNorth,
-                                           ViewI SendSizeSouth, const int MyYSlices, const int RankX, const int RankY,
-                                           const int RankZ, const bool AtNorthBoundary, const bool AtSouthBoundary,
-                                           Buffer2D BufferSouthSend, Buffer2D BufferNorthSend, int NGrainOrientations,
-                                           int BufSize) {
+KOKKOS_INLINE_FUNCTION bool load_cell_into_halo(const int GhostGID, const float GhostDOCX, const float GhostDOCY,
+                                                const float GhostDOCZ, const float GhostDL, ViewI SendSizeNorth,
+                                                ViewI SendSizeSouth, const int MyYSlices, const int RankX,
+                                                const int RankY, const int RankZ, const bool AtNorthBoundary,
+                                                const bool AtSouthBoundary, Buffer2D BufferSouthSend,
+                                                Buffer2D BufferNorthSend, int NGrainOrientations, int BufSize) {
     bool DataFitsInBuffer = true;
     if ((RankY == 1) && (!(AtSouthBoundary))) {
         int GNPositionSouth = Kokkos::atomic_fetch_add(&SendSizeSouth(0), 1);
@@ -63,10 +63,15 @@ int ResizeBuffers(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D
                   ViewI_H SendSizeSouth_Host, int OldBufSize, int NumCellsBufferPadding = 25);
 void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D &BufferNorthRecv,
                          Buffer2D &BufferSouthRecv, int NewBufSize);
-void RefillBuffers(int nx, int nzActive, int MyYSlices, int ZBound_Low, CellData<device_memory_space> &cellData,
-                   Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
-                   bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                   int NGrainOrientations, int BufSize);
+void FillBuffers(int nx, int nzActive, int MyYSlices, int, CellData<device_memory_space> &cellData,
+                 Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
+                 bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
+                 int NGrainOrientations, int BufSize, bool loading_from_failed);
+void LoadGhostNodes(int nx, int nzActive, int MyYSlices, int id, CellData<device_memory_space> &cellData,
+                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host,
+                    ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host, Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv,
+                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
+                    int NGrainOrientations, int BufSize);
 void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,

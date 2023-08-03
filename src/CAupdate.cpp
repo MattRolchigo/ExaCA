@@ -60,7 +60,7 @@ void FillSteeringVector_NoRemelt(int cycle, int LocalActiveDomainSize, int nx, i
 //*****************************************************************************/
 // Determine which cells are associated with the "steering vector" of cells that are either active, or becoming active
 // this time step - version with remelting
-void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int MyYSlices, NList NeighborX,
+void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int nx, int MyYSlices, NList NeighborX,
                                NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                                ViewF UndercoolingChange, CellData<device_memory_space> &cellData, int ZBound_Low,
                                int nzActive, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
@@ -128,8 +128,13 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int
                         int NeighborD3D1ConvPosition =
                             MyNeighborZ * nx * MyYSlices + MyNeighborX * MyYSlices + MyNeighborY;
                         if (CellType(NeighborD3D1ConvPosition) == Active) {
-                            CellType(NeighborD3D1ConvPosition) = FutureLiquid;
-                            SteeringVector(Kokkos::atomic_fetch_add(&numSteer(0), 1)) = NeighborD3D1ConvPosition;
+                            // This cell should become liquid - if it is located at a border of a halo region based on
+                            // the Y coordinate on the local grid, load the cell into the steering vector and mark this
+                            // cell as one that should be loaded into the send buffer during CellCapture
+                            if ((np > 1) && ((RankY == 1) || (RankY = MyYSlices - 2)))
+                                CellType(NeighborD3D1ConvPosition) = GhostLiquid;
+                            else
+                                CellType(NeighborD3D1ConvPosition) = Liquid;
                         }
                     }
                 }
@@ -178,11 +183,9 @@ void FillSteeringVector_Remelt(int cycle, int LocalActiveDomainSize, int nx, int
 void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialResponseFunction irf, int MyYOffset,
                  NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                  ViewF UndercoolingChange, ViewF GrainUnitVector, ViewF CritDiagonalLength, ViewF DiagonalLength,
-                 CellData<device_memory_space> &cellData, ViewF DOCenter, int NGrainOrientations,
-                 Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
-                 int ZBound_Low, int nzActive, int, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
-                 bool AtNorthBoundary, bool AtSouthBoundary, ViewI SolidificationEventCounter,
-                 ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents, int &BufSize) {
+                 CellData<device_memory_space> &cellData, ViewF DOCenter, int NGrainOrientations, int ZBound_Low,
+                 int nzActive, int, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
+                 ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -410,41 +413,12 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                                 calcCritDiagonalLength(NeighborD3D1ConvPosition, xp, yp, zp, cx, cy, cz, NeighborX,
                                                        NeighborY, NeighborZ, MyOrientation, GrainUnitVector,
                                                        CritDiagonalLength);
-
-                                if (np > 1) {
-                                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this
-                                    // change if the slowdown is minor
-                                    int GhostGID = h;
-                                    float GhostDOCX = cx;
-                                    float GhostDOCY = cy;
-                                    float GhostDOCZ = cz;
-                                    float GhostDL = NewODiagL;
-                                    // Collect data for the ghost nodes, if necessary
-                                    // Data loaded into the ghost nodes is for the cell that was just captured
-                                    bool DataFitsInBuffer =
-                                        loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL,
-                                                       SendSizeNorth, SendSizeSouth, MyYSlices, MyNeighborX,
-                                                       MyNeighborY, MyNeighborZ, AtNorthBoundary, AtSouthBoundary,
-                                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
-                                    if (!(DataFitsInBuffer)) {
-                                        // This cell's data did not fit in the buffer with current size BufSize - mark
-                                        // with temporary type
-                                        CellType(NeighborD3D1ConvPosition) = ActiveFailedBufferLoad;
-                                    }
-                                    else {
-                                        // Cell activation is now finished - cell type can be changed from
-                                        // TemporaryUpdate to Active
-                                        CellType(NeighborD3D1ConvPosition) = Active;
-                                    }
-                                } // End if statement for serial/parallel code
-                                else {
-                                    // Only update the new cell's type once Critical Diagonal Length, Triangle Index,
-                                    // and Diagonal Length values have been assigned to it Avoids the race condition in
-                                    // which the new cell is activated, and another thread acts on the new active cell
-                                    // before the cell's new critical diagonal length/triangle index/diagonal length
-                                    // values are assigned
+                                // Mark the newly captured cell as one that needs to be loaded into the ghost nodes, if
+                                // needed
+                                if ((np > 1) && ((MyNeighborY == 1) || (MyNeighborY == MyYSlices - 2)))
+                                    CellType(NeighborD3D1ConvPosition) = GhostActive;
+                                else
                                     CellType(NeighborD3D1ConvPosition) = Active;
-                                }
                             } // End if statement within locked capture loop
                         }     // End if statement for outer capture loop
                     }         // End if statement over neighbors on the active grid
@@ -491,51 +465,13 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                 // cell. Octahedron center and cell center overlap for octahedra created as part of a new grain
                 calcCritDiagonalLength(D3D1ConvPosition, cx, cy, cz, cx, cy, cz, NeighborX, NeighborY, NeighborZ,
                                        MyOrientation, GrainUnitVector, CritDiagonalLength);
-                if (np > 1) {
-                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
-                    // slowdown is minor
-                    int GhostGID = MyGrainID;
-                    float GhostDOCX = GlobalX + 0.5;
-                    float GhostDOCY = GlobalY + 0.5;
-                    float GhostDOCZ = GlobalZ + 0.5;
-                    float GhostDL = 0.01;
-                    // Collect data for the ghost nodes, if necessary
-                    bool DataFitsInBuffer =
-                        loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
-                                       MyYSlices, GlobalX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
-                    if (!(DataFitsInBuffer)) {
-                        // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
-                        // type
-                        CellType(D3D1ConvPosition) = ActiveFailedBufferLoad;
-                    }
-                    else {
-                        // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                        CellType(D3D1ConvPosition) = Active;
-                    }
-                } // End if statement for serial/parallel code
-                else {
-                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
+                // Mark the newly nucleated/activated cell as one that needs to be loaded into the ghost nodes, if
+                // needed
+                if ((np > 1) && ((RankY == 1) || (RankY == MyYSlices - 2))) {
+                    CellType(D3D1ConvPosition) = GhostActive;
+                }
+                else
                     CellType(D3D1ConvPosition) = Active;
-                } // End if statement for serial/parallel code
-            }
-            else if (CellType(D3D1ConvPosition) == FutureLiquid) {
-                // This type was assigned to a cell that was recently transformed from active to liquid, due to its
-                // bordering of a cell above the liquidus. This information may need to be sent to other MPI ranks
-                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
-                // length
-                bool DataFitsInBuffer = loadghostnodes(
-                    -1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, MyYSlices, GlobalX, RankY, RankZ,
-                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
-                if (!(DataFitsInBuffer)) {
-                    // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
-                    // type
-                    CellType(D3D1ConvPosition) = LiquidFailedBufferLoad;
-                }
-                else {
-                    // Cell activation is now finished - cell type can be changed from FutureLiquid to Active
-                    CellType(D3D1ConvPosition) = Liquid;
-                }
             }
         });
     Kokkos::fence();

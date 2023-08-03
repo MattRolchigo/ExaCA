@@ -258,9 +258,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             // FillSteeringVector_NoRemelt (a simplified version of FillSteeringVector_Remelt
             StartCreateSVTime = MPI_Wtime();
             if (SimulationType != "C")
-                FillSteeringVector_Remelt(cycle, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
-                                          CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData, ZBound_Low,
-                                          nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
+                FillSteeringVector_Remelt(cycle, np, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY,
+                                          NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData,
+                                          ZBound_Low, nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
                                           SolidificationEventCounter, NumberOfSolidificationEvents,
                                           LayerTimeTempHistory);
             else
@@ -272,29 +272,17 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             StartCaptureTime = MPI_Wtime();
             CellCapture(id, np, cycle, LocalActiveDomainSize, LocalDomainSize, nx, MyYSlices, irf, MyYOffset, NeighborX,
                         NeighborY, NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, GrainUnitVector,
-                        CritDiagonalLength, DiagonalLength, cellData, DOCenter, NGrainOrientations, BufferNorthSend,
-                        BufferSouthSend, SendSizeNorth, SendSizeSouth, ZBound_Low, nzActive, nz, SteeringVector,
-                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, SolidificationEventCounter,
-                        LayerTimeTempHistory, NumberOfSolidificationEvents, BufSize);
-            // Count the number of cells' in halo regions where the data did not fit into the send buffers
-            // Reduce across all ranks, as the same BufSize should be maintained across all ranks
-            // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding
-            int OldBufSize = BufSize;
-            BufSize = ResizeBuffers(BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, SendSizeNorth,
-                                    SendSizeSouth, SendSizeNorth_Host, SendSizeSouth_Host, OldBufSize);
-            if (OldBufSize != BufSize) {
-                if (id == 0)
-                    std::cout << "Resized number of cells stored in send/recv buffers from " << OldBufSize << " to "
-                              << BufSize << std::endl;
-                RefillBuffers(nx, nzActive, MyYSlices, ZBound_Low, cellData, BufferNorthSend, BufferSouthSend,
-                              SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength,
-                              NGrainOrientations, BufSize);
-            }
+                        CritDiagonalLength, DiagonalLength, cellData, DOCenter, NGrainOrientations, ZBound_Low,
+                        nzActive, nz, SteeringVector, numSteer, numSteer_Host, SolidificationEventCounter,
+                        LayerTimeTempHistory, NumberOfSolidificationEvents);
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
             if (np > 1) {
                 // Update ghost nodes
                 StartGhostTime = MPI_Wtime();
+                LoadGhostNodes(nx, nzActive, MyYSlices, id, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
+                               SendSizeNorth_Host, SendSizeSouth, SendSizeSouth_Host, BufferNorthRecv, BufferSouthRecv,
+                               AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations, BufSize);
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
