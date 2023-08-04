@@ -405,14 +405,23 @@ void testResizeRefillBuffers() {
             }
         });
 
+    int SteeringVectorCapacity = 2 * nx * nzActive;
+    ViewI SteeringVectorComm(Kokkos::ViewAllocateWithoutInitializing("SteeringVector"), SteeringVectorCapacity);
+    ViewI_H numSteerComm_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
+    numSteerComm_Host(0) = SteeringVectorCapacity;
+    ViewI numSteerComm = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerComm_Host);
+    Kokkos::parallel_for(
+        "FillSteeringVector", SteeringVectorCapacity,
+        KOKKOS_LAMBDA(const int &D3D1ConvPosition) { SteeringVectorComm(D3D1ConvPosition) = D3D1ConvPosition; });
+
     // Attempt to resize buffers and load the remaining data
     int OldBufSize = BufSize;
     BufSize = ResizeBuffers(BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, SendSizeNorth,
                             SendSizeSouth, SendSizeNorth_Host, SendSizeSouth_Host, OldBufSize);
     if (OldBufSize != BufSize)
-        FillBuffers(nx, nzActive, MyYSlices, ZBound_Low, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
-                    SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations,
-                    BufSize, true);
+        FillBuffers(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData, BufferNorthSend,
+                    BufferSouthSend, SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter,
+                    DiagonalLength, NGrainOrientations, BufSize, true);
     // If there was 1 rank, buffer size should still be 1, as no data was loaded
     // Otherwise, 25 cells should have been added to the buffer in
     // addition to the required capacity increase during the resize

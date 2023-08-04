@@ -24,13 +24,14 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                                ViewF UndercoolingChange, CellData<device_memory_space> &cellData, int ZBound_Low,
                                int nzActive, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
                                ViewI MeltTimeStep, ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents,
-                               ViewF3D LayerTimeTempHistory);
+                               ViewF3D LayerTimeTempHistory, ViewI numSteerComm, ViewI SteeringVectorComm);
 void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialResponseFunction irf, int MyYOffset,
                  NList NeighborX, NList NeighborY, NList NeighborZ, ViewI CritTimeStep, ViewF UndercoolingCurrent,
                  ViewF UndercoolingChange, ViewF GrainUnitVector, ViewF CritDiagonalLength, ViewF DiagonalLength,
                  CellData<device_memory_space> &cellData, ViewF DOCenter, int NGrainOrientations, int ZBound_Low,
                  int nzActive, int, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
-                 ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents);
+                 ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents,
+                 ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm);
 void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, unsigned long int LocalTempSolidCells,
                   ViewI MeltTimeStep, int LocalActiveDomainSize, int MyYSlices, int ZBound_Low,
                   CellData<device_memory_space> &cellData, int id, int layernumber, int np, int nx, int ny,

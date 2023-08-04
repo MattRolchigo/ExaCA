@@ -212,6 +212,12 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewI_H numSteer_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
     numSteer_Host(0) = 0;
     ViewI numSteer = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteer_Host);
+    // Comm steering vector - at most is the size of all cells that can be communicated to each of the max of two
+    // neighboring MPI ranks
+    ViewI SteeringVectorComm(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorComm"), 2 * nx * nzActive);
+    ViewI_H numSteerComm_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
+    numSteerComm_Host(0) = 0;
+    ViewI numSteerComm = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerComm_Host);
 
     // Get the size of buffer data for sending/receiving print information before printing any fields
     print.getSendRecvDataSizes(nx, ny, nz, MyYSlices, MyYOffset, np);
@@ -262,7 +268,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                           NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData,
                                           ZBound_Low, nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
                                           SolidificationEventCounter, NumberOfSolidificationEvents,
-                                          LayerTimeTempHistory);
+                                          LayerTimeTempHistory, numSteerComm, SteeringVectorComm);
             else
                 FillSteeringVector_NoRemelt(cycle, LocalActiveDomainSize, nx, MyYSlices, CritTimeStep,
                                             UndercoolingCurrent, UndercoolingChange, cellData, ZBound_Low, layernumber,
@@ -274,15 +280,17 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                         NeighborY, NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, DOCenter, NGrainOrientations, ZBound_Low,
                         nzActive, nz, SteeringVector, numSteer, numSteer_Host, SolidificationEventCounter,
-                        LayerTimeTempHistory, NumberOfSolidificationEvents);
+                        LayerTimeTempHistory, NumberOfSolidificationEvents, numSteerComm_Host, numSteerComm,
+                        SteeringVectorComm);
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
             if (np > 1) {
                 // Update ghost nodes
                 StartGhostTime = MPI_Wtime();
-                LoadGhostNodes(nx, nzActive, MyYSlices, id, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
-                               SendSizeNorth_Host, SendSizeSouth, SendSizeSouth_Host, BufferNorthRecv, BufferSouthRecv,
-                               AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations, BufSize);
+                LoadGhostNodes(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData,
+                               BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeNorth_Host, SendSizeSouth,
+                               SendSizeSouth_Host, BufferNorthRecv, BufferSouthRecv, AtNorthBoundary, AtSouthBoundary,
+                               DOCenter, DiagonalLength, NGrainOrientations, BufSize);
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,

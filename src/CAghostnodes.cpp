@@ -85,10 +85,10 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
 // grain data ActiveFailedBufferLoad cells - attempt again to load with grain ID, octahedron center, diagonal length If
 // the buffer load event was successful, change cell type to Liquid or Active If the buffer load event was unsuccessful,
 // throw an error: the buffer should've been large enough to hold this event
-void FillBuffers(int nx, int nzActive, int MyYSlices, int, CellData<device_memory_space> &cellData,
-                 Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
-                 bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                 int NGrainOrientations, int BufSize, bool loading_from_failed) {
+void FillBuffers(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices, int,
+                 CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                 ViewI SendSizeNorth, ViewI SendSizeSouth, bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter,
+                 ViewF DiagonalLength, int NGrainOrientations, int BufSize, bool loading_from_failed) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
@@ -102,59 +102,61 @@ void FillBuffers(int nx, int nzActive, int MyYSlices, int, CellData<device_memor
         LoadLiquidType = GhostLiquid;
     }
     Kokkos::parallel_for(
-        "FillBuffers", nx, KOKKOS_LAMBDA(const int &i) {
-            for (int k = 0; k < nzActive; k++) {
-                int j_loc[2] = {1, MyYSlices - 2};
-                for (int idx = 0; idx < 2; idx++) {
-                    int j = j_loc[idx];
-                    int CellCoordinate1D = k * nx * MyYSlices + i * MyYSlices + j;
-                    if (CellType(CellCoordinate1D) == LoadActiveType) {
-                        int GhostGID = GrainID(CellCoordinate1D);
-                        float GhostDOCX = DOCenter(3 * CellCoordinate1D);
-                        float GhostDOCY = DOCenter(3 * CellCoordinate1D + 1);
-                        float GhostDOCZ = DOCenter(3 * CellCoordinate1D + 2);
-                        float GhostDL = DiagonalLength(CellCoordinate1D);
-                        // Data loaded into the ghost nodes is for the cell that was just captured
-                        bool DataFitsInBuffer =
-                            load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth,
-                                                SendSizeSouth, MyYSlices, i, j, k, AtNorthBoundary, AtSouthBoundary,
-                                                BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
-                        if (!(DataFitsInBuffer)) {
-                            // This cell's data did not fit in the buffer with current size BufSize - mark with
-                            // temporary type for future reloading or warn of potential data loss at MPI processor
-                            // boundaries
-                            if (loading_from_failed)
-                                printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
-                                       "results at MPI processor boundaries may be inaccurate\n");
-                            else
-                                CellType(CellCoordinate1D) = ActiveFailedBufferLoad;
-                        }
-                        else {
-                            // Cell activation is now finished - cell type can be changed to Active
-                            CellType(CellCoordinate1D) = Active;
-                        }
+        "FillBuffers", numSteerComm_Host(0), KOKKOS_LAMBDA(const int &num) {
+            numSteerComm(0) = 0;
+            int CellCoordinate1D = SteeringVectorComm(num);
+            // Cells of interest for the CA - marked cells at edge of halos in Y
+            int RankZ = CellCoordinate1D / (nx * MyYSlices);
+            int Rem = CellCoordinate1D % (nx * MyYSlices);
+            int RankX = Rem / MyYSlices;
+            int RankY = Rem % MyYSlices;
+            if ((RankY == 1) || (RankY == MyYSlices - 2)) {
+                if (CellType(CellCoordinate1D) == LoadActiveType) {
+                    int GhostGID = GrainID(CellCoordinate1D);
+                    float GhostDOCX = DOCenter(3 * CellCoordinate1D);
+                    float GhostDOCY = DOCenter(3 * CellCoordinate1D + 1);
+                    float GhostDOCZ = DOCenter(3 * CellCoordinate1D + 2);
+                    float GhostDL = DiagonalLength(CellCoordinate1D);
+                    // Data loaded into the ghost nodes is for the cell that was just captured
+                    bool DataFitsInBuffer = load_cell_into_halo(
+                        GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, MyYSlices,
+                        RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
+                        NGrainOrientations, BufSize);
+                    if (!(DataFitsInBuffer)) {
+                        // This cell's data did not fit in the buffer with current size BufSize - mark with
+                        // temporary type for future reloading or warn of potential data loss at MPI processor
+                        // boundaries
+                        if (loading_from_failed)
+                            printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
+                                   "results at MPI processor boundaries may be inaccurate\n");
+                        else
+                            CellType(CellCoordinate1D) = ActiveFailedBufferLoad;
                     }
-                    else if (CellType(CellCoordinate1D) == LoadLiquidType) {
-                        // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
-                        // diagonal length
-                        bool DataFitsInBuffer =
-                            load_cell_into_halo(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, MyYSlices, i,
-                                                j, k, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                                BufferNorthSend, NGrainOrientations, BufSize);
-                        if (!(DataFitsInBuffer)) {
-                            // This cell's data did not fit in the buffer with current size BufSize - mark with
-                            // temporary type for future reloading or warn of potential data loss at MPI processor
-                            // boundaries
-                            if (loading_from_failed)
-                                printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
-                                       "results at MPI processor boundaries may be inaccurate\n");
-                            else
-                                CellType(CellCoordinate1D) = LiquidFailedBufferLoad;
-                        }
-                        else {
-                            // Cell melting is now finished - cell type can be changed to Liquid
-                            CellType(CellCoordinate1D) = Liquid;
-                        }
+                    else {
+                        // Cell activation is now finished - cell type can be changed to Active
+                        CellType(CellCoordinate1D) = Active;
+                    }
+                }
+                else if (CellType(CellCoordinate1D) == LoadLiquidType) {
+                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
+                    // diagonal length
+                    bool DataFitsInBuffer =
+                        load_cell_into_halo(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, MyYSlices, RankX,
+                                            RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
+                                            BufferNorthSend, NGrainOrientations, BufSize);
+                    if (!(DataFitsInBuffer)) {
+                        // This cell's data did not fit in the buffer with current size BufSize - mark with
+                        // temporary type for future reloading or warn of potential data loss at MPI processor
+                        // boundaries
+                        if (loading_from_failed)
+                            printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
+                                   "results at MPI processor boundaries may be inaccurate\n");
+                        else
+                            CellType(CellCoordinate1D) = LiquidFailedBufferLoad;
+                    }
+                    else {
+                        // Cell melting is now finished - cell type can be changed to Liquid
+                        CellType(CellCoordinate1D) = Liquid;
                     }
                 }
             }
@@ -162,15 +164,16 @@ void FillBuffers(int nx, int nzActive, int MyYSlices, int, CellData<device_memor
     Kokkos::fence();
 }
 
-void LoadGhostNodes(int nx, int nzActive, int MyYSlices, int id, CellData<device_memory_space> &cellData,
-                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host,
-                    ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host, Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv,
-                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                    int NGrainOrientations, int BufSize) {
+void LoadGhostNodes(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices,
+                    int id, CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                    ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host, ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host,
+                    Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv, bool AtNorthBoundary, bool AtSouthBoundary,
+                    ViewF DOCenter, ViewF DiagonalLength, int NGrainOrientations, int BufSize) {
 
     // First, attempt to fill the send buffers using cells marked with ghost types in CellCapture
-    FillBuffers(nx, nzActive, MyYSlices, id, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth,
-                AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations, BufSize, false);
+    FillBuffers(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData, BufferNorthSend,
+                BufferSouthSend, SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter,
+                DiagonalLength, NGrainOrientations, BufSize, false);
 
     // Count the number of cells' in halo regions where the data did not fit into the send buffers
     // Reduce across all ranks, as the same BufSize should be maintained across all ranks
@@ -183,9 +186,9 @@ void LoadGhostNodes(int nx, int nzActive, int MyYSlices, int id, CellData<device
             std::cout << "Resized number of cells stored in send/recv buffers from " << OldBufSize << " to " << BufSize
                       << std::endl;
         // Attempt to fill buffers again, starting from the failed state
-        FillBuffers(nx, nzActive, MyYSlices, id, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
-                    SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations,
-                    BufSize, true);
+        FillBuffers(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData, BufferNorthSend,
+                    BufferSouthSend, SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter,
+                    DiagonalLength, NGrainOrientations, BufSize, true);
     }
 }
 //*****************************************************************************/

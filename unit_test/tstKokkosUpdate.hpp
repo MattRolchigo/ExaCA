@@ -217,8 +217,13 @@ void testFillSteeringVector_Remelt() {
     ViewI SteeringVector(Kokkos::ViewAllocateWithoutInitializing("SteeringVector"), LocalActiveDomainSize);
     ViewI_H numSteer_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
     numSteer_Host(0) = 0;
+    // Comm steering Vector
+    ViewI SteeringVectorComm(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorComm"), 2 * nx * nzActive);
+    ViewI_H numSteerComm_Host(Kokkos::ViewAllocateWithoutInitializing("CommSteeringVectorSize"), 1);
+    numSteerComm_Host(0) = 0;
     // Copy views to device for test
     ViewI numSteer = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteer_Host);
+    ViewI numSteerComm = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerComm_Host);
     GrainID = Kokkos::create_mirror_view_and_copy(device_memory_space(), GrainID_Host);
     CellType = Kokkos::create_mirror_view_and_copy(device_memory_space(), CellType_Host);
     ViewI MeltTimeStep = Kokkos::create_mirror_view_and_copy(device_memory_space(), MeltTimeStep_Host);
@@ -239,7 +244,7 @@ void testFillSteeringVector_Remelt() {
         FillSteeringVector_Remelt(cycle, 1, LocalActiveDomainSize, nx, MyYSlices, NeighborX, NeighborY, NeighborZ,
                                   CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData, ZBound_Low, nzActive,
                                   SteeringVector, numSteer, numSteer_Host, MeltTimeStep, SolidificationEventCounter,
-                                  NumberOfSolidificationEvents, LayerTimeTempHistory);
+                                  NumberOfSolidificationEvents, LayerTimeTempHistory, numSteerComm, SteeringVectorComm);
     }
 
     // Copy CellType, SteeringVector, numSteer, UndercoolingCurrent, Buffers back to host to check steering vector

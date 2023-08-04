@@ -63,15 +63,15 @@ int ResizeBuffers(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D
                   ViewI_H SendSizeSouth_Host, int OldBufSize, int NumCellsBufferPadding = 25);
 void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D &BufferNorthRecv,
                          Buffer2D &BufferSouthRecv, int NewBufSize);
-void FillBuffers(int nx, int nzActive, int MyYSlices, int, CellData<device_memory_space> &cellData,
-                 Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
-                 bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                 int NGrainOrientations, int BufSize, bool loading_from_failed);
-void LoadGhostNodes(int nx, int nzActive, int MyYSlices, int id, CellData<device_memory_space> &cellData,
-                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host,
-                    ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host, Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv,
-                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                    int NGrainOrientations, int BufSize);
+void FillBuffers(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices, int,
+                 CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                 ViewI SendSizeNorth, ViewI SendSizeSouth, bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter,
+                 ViewF DiagonalLength, int NGrainOrientations, int BufSize, bool loading_from_failed);
+void LoadGhostNodes(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices,
+                    int id, CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
+                    ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host, ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host,
+                    Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv, bool AtNorthBoundary, bool AtSouthBoundary,
+                    ViewF DOCenter, ViewF DiagonalLength, int NGrainOrientations, int BufSize);
 void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int MyYSlices, int MyYOffset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,

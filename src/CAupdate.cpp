@@ -65,7 +65,7 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                                ViewF UndercoolingChange, CellData<device_memory_space> &cellData, int ZBound_Low,
                                int nzActive, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
                                ViewI MeltTimeStep, ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents,
-                               ViewF3D LayerTimeTempHistory) {
+                               ViewF3D LayerTimeTempHistory, ViewI numSteerComm, ViewI SteeringVectorComm) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
@@ -131,8 +131,10 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                             // This cell should become liquid - if it is located at a border of a halo region based on
                             // the Y coordinate on the local grid, load the cell into the steering vector and mark this
                             // cell as one that should be loaded into the send buffer during CellCapture
-                            if ((np > 1) && ((RankY == 1) || (RankY = MyYSlices - 2)))
+                            if ((np > 1) && ((RankY == 1) || (RankY = MyYSlices - 2))) {
                                 CellType(NeighborD3D1ConvPosition) = GhostLiquid;
+                                SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) = D3D1ConvPosition;
+                            }
                             else
                                 CellType(NeighborD3D1ConvPosition) = Liquid;
                         }
@@ -185,7 +187,8 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                  ViewF UndercoolingChange, ViewF GrainUnitVector, ViewF CritDiagonalLength, ViewF DiagonalLength,
                  CellData<device_memory_space> &cellData, ViewF DOCenter, int NGrainOrientations, int ZBound_Low,
                  int nzActive, int, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
-                 ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents) {
+                 ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents,
+                 ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -415,8 +418,11 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                                                        CritDiagonalLength);
                                 // Mark the newly captured cell as one that needs to be loaded into the ghost nodes, if
                                 // needed
-                                if ((np > 1) && ((MyNeighborY == 1) || (MyNeighborY == MyYSlices - 2)))
+                                if ((np > 1) && ((MyNeighborY == 1) || (MyNeighborY == MyYSlices - 2))) {
                                     CellType(NeighborD3D1ConvPosition) = GhostActive;
+                                    SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) =
+                                        NeighborD3D1ConvPosition;
+                                }
                                 else
                                     CellType(NeighborD3D1ConvPosition) = Active;
                             } // End if statement within locked capture loop
@@ -469,12 +475,17 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                 // needed
                 if ((np > 1) && ((RankY == 1) || (RankY == MyYSlices - 2))) {
                     CellType(D3D1ConvPosition) = GhostActive;
+                    SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) = D3D1ConvPosition;
                 }
                 else
                     CellType(D3D1ConvPosition) = Active;
             }
         });
     Kokkos::fence();
+
+    // Copy size of comm steering vector (containing positions of updated cells to be communicated across ranks) to the
+    // host
+    Kokkos::deep_copy(numSteerComm_Host, numSteerComm);
 }
 
 //*****************************************************************************/
