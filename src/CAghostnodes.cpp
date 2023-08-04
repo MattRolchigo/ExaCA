@@ -14,50 +14,27 @@
 
 // Set first index in send buffers to -1 (placeholder) for all cells in the buffer, and reset the counts of number of
 // cells contained in buffers to 0s
-void ResetSendBuffers(int BufSize, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth,
-                      ViewI SendSizeSouth) {
+void ResetSendBuffers(int BufSize, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend) {
 
     Kokkos::parallel_for(
         "BufferReset", BufSize, KOKKOS_LAMBDA(const int &i) {
             BufferNorthSend(i, 0) = -1.0;
             BufferSouthSend(i, 0) = -1.0;
         });
-    Kokkos::parallel_for(
-        "HaloCountReset", 1, KOKKOS_LAMBDA(const int) {
-            SendSizeNorth(0) = 0;
-            SendSizeSouth(0) = 0;
-        });
 }
 
-// Count the number of cells' in halo regions where the data did not fit into the send buffers, and resize the buffers
+// Resize the send/recv buffers resize the buffers
 // if necessary, returning the new buffer size
 int ResizeBuffers(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D &BufferNorthRecv,
-                  Buffer2D &BufferSouthRecv, ViewI SendSizeNorth, ViewI SendSizeSouth, ViewI_H SendSizeNorth_Host,
-                  ViewI_H SendSizeSouth_Host, int OldBufSize, int NumCellsBufferPadding) {
+                  Buffer2D &BufferSouthRecv, int required_buffer_size_global, int NumCellsBufferPadding) {
 
-    int NewBufSize;
-    SendSizeNorth_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), SendSizeNorth);
-    SendSizeSouth_Host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), SendSizeSouth);
-    int max_count_local = max(SendSizeNorth_Host(0), SendSizeSouth_Host(0));
-    int max_count_global;
-    MPI_Allreduce(&max_count_local, &max_count_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-    if (max_count_global > OldBufSize) {
-        // Increase buffer size to fit all data
-        // Add numcells_buffer_padding (defaults to 25) cells as additional padding
-        NewBufSize = max_count_global + NumCellsBufferPadding;
-        Kokkos::resize(BufferNorthSend, NewBufSize, 8);
-        Kokkos::resize(BufferSouthSend, NewBufSize, 8);
-        Kokkos::resize(BufferNorthRecv, NewBufSize, 8);
-        Kokkos::resize(BufferSouthRecv, NewBufSize, 8);
-        // Reset count variables on device to the old buffer size
-        Kokkos::parallel_for(
-            "ResetCounts", 1, KOKKOS_LAMBDA(const int &) {
-                SendSizeNorth(0) = OldBufSize;
-                SendSizeSouth(0) = OldBufSize;
-            });
-    }
-    else
-        NewBufSize = OldBufSize;
+    // Increase buffer size to fit all data
+    // Add numcells_buffer_padding (defaults to 25) cells as additional padding
+    int NewBufSize = required_buffer_size_global + NumCellsBufferPadding;
+    Kokkos::realloc(BufferNorthSend, NewBufSize, 8);
+    Kokkos::realloc(BufferSouthSend, NewBufSize, 8);
+    Kokkos::realloc(BufferNorthRecv, NewBufSize, 8);
+    Kokkos::realloc(BufferSouthRecv, NewBufSize, 8);
     return NewBufSize;
 }
 
@@ -70,126 +47,106 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
     Kokkos::resize(BufferSouthRecv, NewBufSize, 8);
 }
 
-// Fill the buffers as necessary starting from the old count size
-// This is called either for refilling the buffers starting after CellCapture, or starting from a failed loading state
-// due to buffer capacity
-
-// If NOT being called from the failed loading state:
+// Fill the buffers as necessary
 // GhostLiquid cells - loaded with "empty"/zeros for values to indicate that the cell has no grain data
 // GhostActive cells - loaded with grain ID, octahedron center, diagonal length
-// If the buffer load event was successful, change cell type to Liquid or Active
-// If the buffer load event was unsuccessful, change cell type to LiquidFailedBufferLoad or ActiveFailedBufferLoad
 
-// If being called from the failed loading state (the buffer capacity now being larger):
-// LiquidFailedBufferLoad cells - attempt again to load with "empty"/zeros for values to indicate that the cell has no
-// grain data ActiveFailedBufferLoad cells - attempt again to load with grain ID, octahedron center, diagonal length If
-// the buffer load event was successful, change cell type to Liquid or Active If the buffer load event was unsuccessful,
-// throw an error: the buffer should've been large enough to hold this event
-void FillBuffers(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices, int,
+void FillBuffers(ViewI numSteerCommNorth, ViewI SteeringVectorCommNorth, ViewI numSteerCommSouth,
+                 ViewI SteeringVectorCommSouth, int numSteerCommMax, int nx, int MyYSlices, int,
                  CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
-                 ViewI SendSizeNorth, ViewI SendSizeSouth, bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter,
-                 ViewF DiagonalLength, int NGrainOrientations, int BufSize, bool loading_from_failed) {
+                 bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
+                 int NGrainOrientations) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
-    int LoadActiveType, LoadLiquidType;
-    if (loading_from_failed) {
-        LoadActiveType = ActiveFailedBufferLoad;
-        LoadLiquidType = LiquidFailedBufferLoad;
-    }
-    else {
-        LoadActiveType = GhostActive;
-        LoadLiquidType = GhostLiquid;
-    }
     Kokkos::parallel_for(
-        "FillBuffers", numSteerComm_Host(0), KOKKOS_LAMBDA(const int &num) {
-            numSteerComm(0) = 0;
-            int CellCoordinate1D = SteeringVectorComm(num);
-            // Cells of interest for the CA - marked cells at edge of halos in Y
-            int RankZ = CellCoordinate1D / (nx * MyYSlices);
-            int Rem = CellCoordinate1D % (nx * MyYSlices);
-            int RankX = Rem / MyYSlices;
-            int RankY = Rem % MyYSlices;
-            if ((RankY == 1) || (RankY == MyYSlices - 2)) {
-                if (CellType(CellCoordinate1D) == LoadActiveType) {
+        "FillBuffers", numSteerCommMax, KOKKOS_LAMBDA(const int &num) {
+            if (num < numSteerCommNorth(0)) {
+                int CellCoordinate1D = SteeringVectorCommNorth(num);
+                // Cells of interest for the CA - marked cells at edge of halos in Y
+                int RankZ = CellCoordinate1D / (nx * MyYSlices);
+                int Rem = CellCoordinate1D % (nx * MyYSlices);
+                int RankX = Rem / MyYSlices;
+                if (CellType(CellCoordinate1D) == GhostActive) {
                     int GhostGID = GrainID(CellCoordinate1D);
                     float GhostDOCX = DOCenter(3 * CellCoordinate1D);
                     float GhostDOCY = DOCenter(3 * CellCoordinate1D + 1);
                     float GhostDOCZ = DOCenter(3 * CellCoordinate1D + 2);
                     float GhostDL = DiagonalLength(CellCoordinate1D);
                     // Data loaded into the ghost nodes is for the cell that was just captured
-                    bool DataFitsInBuffer = load_cell_into_halo(
-                        GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, MyYSlices,
-                        RankX, RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                        NGrainOrientations, BufSize);
-                    if (!(DataFitsInBuffer)) {
-                        // This cell's data did not fit in the buffer with current size BufSize - mark with
-                        // temporary type for future reloading or warn of potential data loss at MPI processor
-                        // boundaries
-                        if (loading_from_failed)
-                            printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
-                                   "results at MPI processor boundaries may be inaccurate\n");
-                        else
-                            CellType(CellCoordinate1D) = ActiveFailedBufferLoad;
-                    }
-                    else {
-                        // Cell activation is now finished - cell type can be changed to Active
-                        CellType(CellCoordinate1D) = Active;
-                    }
+                    load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, RankX, RankZ,
+                                        AtNorthBoundary, BufferNorthSend, NGrainOrientations, num);
+                    // Cell activation is now finished - cell type can be changed to Active
+                    CellType(CellCoordinate1D) = Active;
                 }
-                else if (CellType(CellCoordinate1D) == LoadLiquidType) {
+                else {
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
-                    bool DataFitsInBuffer =
-                        load_cell_into_halo(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, MyYSlices, RankX,
-                                            RankY, RankZ, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                            BufferNorthSend, NGrainOrientations, BufSize);
-                    if (!(DataFitsInBuffer)) {
-                        // This cell's data did not fit in the buffer with current size BufSize - mark with
-                        // temporary type for future reloading or warn of potential data loss at MPI processor
-                        // boundaries
-                        if (loading_from_failed)
-                            printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
-                                   "results at MPI processor boundaries may be inaccurate\n");
-                        else
-                            CellType(CellCoordinate1D) = LiquidFailedBufferLoad;
-                    }
-                    else {
-                        // Cell melting is now finished - cell type can be changed to Liquid
-                        CellType(CellCoordinate1D) = Liquid;
-                    }
+                    load_cell_into_halo(-1, -1.0, -1.0, -1.0, 0.0, RankX, RankZ, AtNorthBoundary, BufferNorthSend,
+                                        NGrainOrientations, num);
+                    // Cell melting is now finished - cell type can be changed to Liquid
+                    CellType(CellCoordinate1D) = Liquid;
+                }
+            }
+            if (num < numSteerCommSouth(0)) {
+                int CellCoordinate1D = SteeringVectorCommSouth(num);
+                // Cells of interest for the CA - marked cells at edge of halos in Y
+                int RankZ = CellCoordinate1D / (nx * MyYSlices);
+                int Rem = CellCoordinate1D % (nx * MyYSlices);
+                int RankX = Rem / MyYSlices;
+                if (CellType(CellCoordinate1D) == GhostActive) {
+                    int GhostGID = GrainID(CellCoordinate1D);
+                    float GhostDOCX = DOCenter(3 * CellCoordinate1D);
+                    float GhostDOCY = DOCenter(3 * CellCoordinate1D + 1);
+                    float GhostDOCZ = DOCenter(3 * CellCoordinate1D + 2);
+                    float GhostDL = DiagonalLength(CellCoordinate1D);
+                    // Data loaded into the ghost nodes is for the cell that was just captured
+                    load_cell_into_halo(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, RankX, RankZ,
+                                        AtSouthBoundary, BufferSouthSend, NGrainOrientations, num);
+                    // Cell activation is now finished - cell type can be changed to Active
+                    CellType(CellCoordinate1D) = Active;
+                }
+                else {
+                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
+                    // diagonal length
+                    load_cell_into_halo(-1, -1.0, -1.0, -1.0, 0.0, RankX, RankZ, AtSouthBoundary, BufferSouthSend,
+                                        NGrainOrientations, num);
+                    // Cell melting is now finished - cell type can be changed to Liquid
+                    CellType(CellCoordinate1D) = Liquid;
                 }
             }
         });
     Kokkos::fence();
 }
 
-void LoadGhostNodes(ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm, int nx, int MyYSlices,
-                    int id, CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend,
-                    ViewI SendSizeNorth, ViewI_H SendSizeNorth_Host, ViewI SendSizeSouth, ViewI_H SendSizeSouth_Host,
-                    Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv, bool AtNorthBoundary, bool AtSouthBoundary,
-                    ViewF DOCenter, ViewF DiagonalLength, int NGrainOrientations, int BufSize) {
+void LoadGhostNodes(ViewI_H numSteerCommNorth_Host, ViewI numSteerCommNorth, ViewI SteeringVectorCommNorth,
+                    ViewI_H numSteerCommSouth_Host, ViewI numSteerCommSouth, ViewI SteeringVectorCommSouth, int nx,
+                    int MyYSlices, int id, CellData<device_memory_space> &cellData, Buffer2D BufferNorthSend,
+                    Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv, Buffer2D BufferSouthRecv, bool AtNorthBoundary,
+                    bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength, int NGrainOrientations, int BufSize) {
 
-    // First, attempt to fill the send buffers using cells marked with ghost types in CellCapture
-    FillBuffers(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData, BufferNorthSend,
-                BufferSouthSend, SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter,
-                DiagonalLength, NGrainOrientations, BufSize, false);
-
-    // Count the number of cells' in halo regions where the data did not fit into the send buffers
-    // Reduce across all ranks, as the same BufSize should be maintained across all ranks
-    // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding
-    int OldBufSize = BufSize;
-    BufSize = ResizeBuffers(BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, SendSizeNorth,
-                            SendSizeSouth, SendSizeNorth_Host, SendSizeSouth_Host, OldBufSize);
-    if (OldBufSize != BufSize) {
+    // Check if buffers are large enough to store the comm steering vector data, resizing them if needed
+    int required_buffer_size_local = max(numSteerCommNorth_Host(0), numSteerCommSouth_Host(0));
+    int required_buffer_size_global;
+    MPI_Allreduce(&required_buffer_size_local, &required_buffer_size_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
+    if (required_buffer_size_global > BufSize) {
+        int OldBufSize = BufSize;
+        BufSize = ResizeBuffers(BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv,
+                                required_buffer_size_global);
         if (id == 0)
             std::cout << "Resized number of cells stored in send/recv buffers from " << OldBufSize << " to " << BufSize
                       << std::endl;
-        // Attempt to fill buffers again, starting from the failed state
-        FillBuffers(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData, BufferNorthSend,
-                    BufferSouthSend, SendSizeNorth, SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter,
-                    DiagonalLength, NGrainOrientations, BufSize, true);
     }
+
+    // Fill the send buffers using cells marked with ghost types in CellCapture
+    FillBuffers(numSteerCommNorth, SteeringVectorCommNorth, numSteerCommSouth, SteeringVectorCommSouth,
+                required_buffer_size_local, nx, MyYSlices, id, cellData, BufferNorthSend, BufferSouthSend,
+                AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations);
+
+    numSteerCommNorth_Host(0) = 0;
+    numSteerCommSouth_Host(0) = 0;
+    Kokkos::deep_copy(numSteerCommNorth, numSteerCommNorth_Host);
+    Kokkos::deep_copy(numSteerCommSouth, numSteerCommSouth_Host);
 }
 //*****************************************************************************/
 // 1D domain decomposition: update ghost nodes with new cell data from Nucleation and CellCapture routines
@@ -197,7 +154,7 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSize, int ZBound_Low, ViewI SendSizeNorth, ViewI SendSizeSouth) {
+                  Buffer2D BufferSouthRecv, int BufSize, int ZBound_Low) {
 
     std::vector<MPI_Request> SendRequests(2, MPI_REQUEST_NULL);
     std::vector<MPI_Request> RecvRequests(2, MPI_REQUEST_NULL);
@@ -304,9 +261,11 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
         }
     }
 
-    // Reset send buffer data to -1 (used as placeholder) and reset the number of cells stored in the buffers to 0
-    ResetSendBuffers(BufSize, BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth);
     // Wait on send requests
     MPI_Waitall(2, SendRequests.data(), MPI_STATUSES_IGNORE);
     Kokkos::fence();
+
+    // Reset send buffer data to -1 (used as placeholder)
+    // Reset comm steering vector sizes to 0
+    ResetSendBuffers(BufSize, BufferNorthSend, BufferSouthSend);
 }

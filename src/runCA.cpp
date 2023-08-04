@@ -171,13 +171,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 8);
     Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 8);
     Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 8);
-    ViewI SendSizeSouth(Kokkos::ViewAllocateWithoutInitializing("SendSizeSouth"), 1);
-    ViewI SendSizeNorth(Kokkos::ViewAllocateWithoutInitializing("SendSizeNorth"), 1);
-    ViewI_H SendSizeSouth_Host(Kokkos::ViewAllocateWithoutInitializing("SendSizeSouth_Host"), 1);
-    ViewI_H SendSizeNorth_Host(Kokkos::ViewAllocateWithoutInitializing("SendSizeNorth_Host"), 1);
     // Send/recv buffers for ghost node data should be initialized with -1s in the first index as placeholders for empty
-    // positions in the buffer, and with send size counts of 0
-    ResetSendBuffers(BufSize, BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth);
+    // positions in the buffer
+    ResetSendBuffers(BufSize, BufferNorthSend, BufferSouthSend);
 
     // Initialize cell types, grain IDs, and layer IDs
     CellData<device_memory_space> cellData(LocalDomainSize, LocalActiveDomainSize, nx, MyYSlices, ZBound_Low);
@@ -212,12 +208,17 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewI_H numSteer_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
     numSteer_Host(0) = 0;
     ViewI numSteer = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteer_Host);
-    // Comm steering vector - at most is the size of all cells that can be communicated to each of the max of two
+
+    // Comm steering vectors - at most is the size of all cells that can be communicated to each of the max of two
     // neighboring MPI ranks
-    ViewI SteeringVectorComm(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorComm"), 2 * nx * nzActive);
-    ViewI_H numSteerComm_Host(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorSize"), 1);
-    numSteerComm_Host(0) = 0;
-    ViewI numSteerComm = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerComm_Host);
+    ViewI SteeringVectorCommNorth(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorCommNorth"), nx * nzActive);
+    ViewI_H numSteerCommNorth_Host(Kokkos::ViewAllocateWithoutInitializing("CommSteeringVectorSizeNorth"), 1);
+    numSteerCommNorth_Host(0) = 0;
+    ViewI numSteerCommNorth = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerCommNorth_Host);
+    ViewI SteeringVectorCommSouth(Kokkos::ViewAllocateWithoutInitializing("SteeringVectorCommSouth"), nx * nzActive);
+    ViewI_H numSteerCommSouth_Host(Kokkos::ViewAllocateWithoutInitializing("CommSteeringVectorSizeSouth"), 1);
+    numSteerCommSouth_Host(0) = 0;
+    ViewI numSteerCommSouth = Kokkos::create_mirror_view_and_copy(device_memory_space(), numSteerCommSouth_Host);
 
     // Get the size of buffer data for sending/receiving print information before printing any fields
     print.getSendRecvDataSizes(nx, ny, nz, MyYSlices, MyYOffset, np);
@@ -268,7 +269,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                           NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, cellData,
                                           ZBound_Low, nzActive, SteeringVector, numSteer, numSteer_Host, MeltTimeStep,
                                           SolidificationEventCounter, NumberOfSolidificationEvents,
-                                          LayerTimeTempHistory, numSteerComm, SteeringVectorComm);
+                                          LayerTimeTempHistory, numSteerCommNorth, SteeringVectorCommNorth,
+                                          numSteerCommSouth, SteeringVectorCommSouth);
             else
                 FillSteeringVector_NoRemelt(cycle, LocalActiveDomainSize, nx, MyYSlices, CritTimeStep,
                                             UndercoolingCurrent, UndercoolingChange, cellData, ZBound_Low, layernumber,
@@ -280,21 +282,21 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                         NeighborY, NeighborZ, CritTimeStep, UndercoolingCurrent, UndercoolingChange, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, DOCenter, NGrainOrientations, ZBound_Low,
                         nzActive, nz, SteeringVector, numSteer, numSteer_Host, SolidificationEventCounter,
-                        LayerTimeTempHistory, NumberOfSolidificationEvents, numSteerComm_Host, numSteerComm,
-                        SteeringVectorComm);
+                        LayerTimeTempHistory, NumberOfSolidificationEvents, numSteerCommNorth_Host, numSteerCommNorth,
+                        SteeringVectorCommNorth, numSteerCommSouth_Host, numSteerCommSouth, SteeringVectorCommSouth);
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
             if (np > 1) {
                 // Update ghost nodes
                 StartGhostTime = MPI_Wtime();
-                LoadGhostNodes(numSteerComm_Host, numSteerComm, SteeringVectorComm, nx, MyYSlices, id, cellData,
-                               BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeNorth_Host, SendSizeSouth,
-                               SendSizeSouth_Host, BufferNorthRecv, BufferSouthRecv, AtNorthBoundary, AtSouthBoundary,
-                               DOCenter, DiagonalLength, NGrainOrientations, BufSize);
+                LoadGhostNodes(numSteerCommNorth_Host, numSteerCommNorth, SteeringVectorCommNorth,
+                               numSteerCommSouth_Host, numSteerCommSouth, SteeringVectorCommSouth, nx, MyYSlices, id,
+                               cellData, BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv,
+                               AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength, NGrainOrientations, BufSize);
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, MyYSlices, MyYOffset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSize, ZBound_Low, SendSizeNorth, SendSizeSouth);
+                             BufferSouthRecv, BufSize, ZBound_Low);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 

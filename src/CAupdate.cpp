@@ -65,7 +65,8 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                                ViewF UndercoolingChange, CellData<device_memory_space> &cellData, int ZBound_Low,
                                int nzActive, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
                                ViewI MeltTimeStep, ViewI SolidificationEventCounter, ViewI NumberOfSolidificationEvents,
-                               ViewF3D LayerTimeTempHistory, ViewI numSteerComm, ViewI SteeringVectorComm) {
+                               ViewF3D LayerTimeTempHistory, ViewI numSteerCommNorth, ViewI SteeringVectorCommNorth,
+                               ViewI numSteerCommSouth, ViewI SteeringVectorCommSouth) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
@@ -115,8 +116,7 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                         LayerTimeTempHistory(D3D1ConvPosition, SolidificationEventCounter(D3D1ConvPosition) + 1, 0));
                 }
                 // Any adjacent active cells should also be remelted, as these cells are more likely heating up than
-                // cooling down These are converted to the temporary FutureLiquid state, to be later iterated over and
-                // loaded into the steering vector as necessary
+                // cooling down These are converted to Liquid and loaded into the comm steering vector as necessary
                 for (int l = 0; l < 26; l++) {
                     // "l" correpsponds to the specific neighboring cell
                     // Local coordinates of adjacent cell center
@@ -131,9 +131,19 @@ void FillSteeringVector_Remelt(int cycle, int np, int LocalActiveDomainSize, int
                             // This cell should become liquid - if it is located at a border of a halo region based on
                             // the Y coordinate on the local grid, load the cell into the steering vector and mark this
                             // cell as one that should be loaded into the send buffer during CellCapture
-                            if ((np > 1) && ((RankY == 1) || (RankY = MyYSlices - 2))) {
-                                CellType(NeighborD3D1ConvPosition) = GhostLiquid;
-                                SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) = D3D1ConvPosition;
+                            if (np > 1) {
+                                if (MyNeighborY == 1) {
+                                    CellType(NeighborD3D1ConvPosition) = GhostLiquid;
+                                    SteeringVectorCommSouth(Kokkos::atomic_fetch_add(&numSteerCommSouth(0), 1)) =
+                                        NeighborD3D1ConvPosition;
+                                }
+                                else if (MyNeighborY == MyYSlices - 2) {
+                                    CellType(NeighborD3D1ConvPosition) = GhostLiquid;
+                                    SteeringVectorCommNorth(Kokkos::atomic_fetch_add(&numSteerCommNorth(0), 1)) =
+                                        NeighborD3D1ConvPosition;
+                                }
+                                else
+                                    CellType(NeighborD3D1ConvPosition) = Liquid;
                             }
                             else
                                 CellType(NeighborD3D1ConvPosition) = Liquid;
@@ -188,7 +198,8 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                  CellData<device_memory_space> &cellData, ViewF DOCenter, int NGrainOrientations, int ZBound_Low,
                  int nzActive, int, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host,
                  ViewI SolidificationEventCounter, ViewF3D LayerTimeTempHistory, ViewI NumberOfSolidificationEvents,
-                 ViewI_H numSteerComm_Host, ViewI numSteerComm, ViewI SteeringVectorComm) {
+                 ViewI_H numSteerCommNorth_Host, ViewI numSteerCommNorth, ViewI SteeringVectorCommNorth,
+                 ViewI_H numSteerCommSouth_Host, ViewI numSteerCommSouth, ViewI SteeringVectorCommSouth) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -418,10 +429,19 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                                                        CritDiagonalLength);
                                 // Mark the newly captured cell as one that needs to be loaded into the ghost nodes, if
                                 // needed
-                                if ((np > 1) && ((MyNeighborY == 1) || (MyNeighborY == MyYSlices - 2))) {
-                                    CellType(NeighborD3D1ConvPosition) = GhostActive;
-                                    SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) =
-                                        NeighborD3D1ConvPosition;
+                                if (np > 1) {
+                                    if (MyNeighborY == 1) {
+                                        CellType(NeighborD3D1ConvPosition) = GhostActive;
+                                        SteeringVectorCommSouth(Kokkos::atomic_fetch_add(&numSteerCommSouth(0), 1)) =
+                                            NeighborD3D1ConvPosition;
+                                    }
+                                    else if (MyNeighborY == MyYSlices - 2) {
+                                        CellType(NeighborD3D1ConvPosition) = GhostActive;
+                                        SteeringVectorCommNorth(Kokkos::atomic_fetch_add(&numSteerCommNorth(0), 1)) =
+                                            NeighborD3D1ConvPosition;
+                                    }
+                                    else
+                                        CellType(NeighborD3D1ConvPosition) = Active;
                                 }
                                 else
                                     CellType(NeighborD3D1ConvPosition) = Active;
@@ -473,9 +493,17 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
                                        MyOrientation, GrainUnitVector, CritDiagonalLength);
                 // Mark the newly nucleated/activated cell as one that needs to be loaded into the ghost nodes, if
                 // needed
-                if ((np > 1) && ((RankY == 1) || (RankY == MyYSlices - 2))) {
-                    CellType(D3D1ConvPosition) = GhostActive;
-                    SteeringVectorComm(Kokkos::atomic_fetch_add(&numSteerComm(0), 1)) = D3D1ConvPosition;
+                if (np > 1) {
+                    if (RankY == 1) {
+                        CellType(D3D1ConvPosition) = GhostActive;
+                        SteeringVectorCommSouth(Kokkos::atomic_fetch_add(&numSteerCommSouth(0), 1)) = D3D1ConvPosition;
+                    }
+                    else if (RankY == MyYSlices - 2) {
+                        CellType(D3D1ConvPosition) = GhostActive;
+                        SteeringVectorCommNorth(Kokkos::atomic_fetch_add(&numSteerCommNorth(0), 1)) = D3D1ConvPosition;
+                    }
+                    else
+                        CellType(D3D1ConvPosition) = Active;
                 }
                 else
                     CellType(D3D1ConvPosition) = Active;
@@ -483,9 +511,10 @@ void CellCapture(int, int np, int, int, int, int nx, int MyYSlices, InterfacialR
         });
     Kokkos::fence();
 
-    // Copy size of comm steering vector (containing positions of updated cells to be communicated across ranks) to the
+    // Copy size of comm steering vectors (containing positions of updated cells to be communicated across ranks) to the
     // host
-    Kokkos::deep_copy(numSteerComm_Host, numSteerComm);
+    Kokkos::deep_copy(numSteerCommNorth_Host, numSteerCommNorth);
+    Kokkos::deep_copy(numSteerCommSouth_Host, numSteerCommSouth);
 }
 
 //*****************************************************************************/
