@@ -20,7 +20,7 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
                                            ViewI SendSizeSouth, const int ny_local, const int coord_x,
                                            const int coord_y, const int coord_z, const bool AtNorthBoundary,
                                            const bool AtSouthBoundary, Buffer2D BufferSouthSend,
-                                           Buffer2D BufferNorthSend, int NGrainOrientations, int BufSize) {
+                                           Buffer2D BufferNorthSend, int NGrainOrientations, int BufSize, int GrainCenter) {
     bool DataFitsInBuffer = true;
     if ((coord_y == 1) && (!(AtSouthBoundary))) {
         int GNPositionSouth = Kokkos::atomic_fetch_add(&SendSizeSouth(0), 1);
@@ -36,6 +36,7 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
             BufferSouthSend(GNPositionSouth, 5) = GhostDOCY;
             BufferSouthSend(GNPositionSouth, 6) = GhostDOCZ;
             BufferSouthSend(GNPositionSouth, 7) = GhostDL;
+            BufferSouthSend(GNPositionSouth, 8) = GrainCenter;
         }
     }
     else if ((coord_y == ny_local - 2) && (!(AtNorthBoundary))) {
@@ -52,6 +53,8 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
             BufferNorthSend(GNPositionNorth, 5) = GhostDOCY;
             BufferNorthSend(GNPositionNorth, 6) = GhostDOCZ;
             BufferNorthSend(GNPositionNorth, 7) = GhostDL;
+            BufferNorthSend(GNPositionNorth, 8) = GrainCenter;
+
         }
     }
     return DataFitsInBuffer;
@@ -67,7 +70,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
                    int NGrainOrientations, int BufSize);
-void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int y_offset,
+void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int ny, int y_offset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,

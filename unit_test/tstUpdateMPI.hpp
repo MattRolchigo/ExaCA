@@ -56,6 +56,7 @@ void testGhostNodes1D() {
     // Domain is a 4 by (3 * np) by 10 region
     // The top half of the domain is the current layer and the portion of it of interest of this test
     int nx = 4;
+    int ny = 3 * np;
     int nz_layer = 5;
     int nz = 10;
     int z_layer_bottom = 5;
@@ -164,15 +165,15 @@ void testGhostNodes1D() {
 
     // Send/recv buffers for ghost node data should be initialized with -1s in the first index as placeholders for empty
     // positions in the buffer
-    Buffer2D BufferSouthSend("BufferSouthSend", BufSize, 8);
-    Buffer2D BufferNorthSend("BufferNorthSend", BufSize, 8);
+    Buffer2D BufferSouthSend("BufferSouthSend", BufSize, 9);
+    Buffer2D BufferNorthSend("BufferNorthSend", BufSize, 9);
     Kokkos::parallel_for(
         "BufferReset", BufSize, KOKKOS_LAMBDA(const int &i) {
             BufferNorthSend(i, 0) = -1.0;
             BufferSouthSend(i, 0) = -1.0;
         });
-    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 8);
-    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 8);
+    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 9);
+    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 9);
     // Init to zero
     ViewI SendSizeSouth("SendSizeSouth", 1);
     ViewI SendSizeNorth("SendSizeNorth", 1);
@@ -192,11 +193,11 @@ void testGhostNodes1D() {
                 float GhostDL = DiagonalLength(index);
                 loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                               BufferNorthSend, NGrainOrientations, BufSize, -1);
             }
         });
 
-    GhostNodes1D(0, id, NeighborRank_North, NeighborRank_South, nx, ny_local, y_offset, NeighborX, NeighborY, NeighborZ,
+    GhostNodes1D(0, id, NeighborRank_North, NeighborRank_South, nx, ny_local, ny, y_offset, NeighborX, NeighborY, NeighborZ,
                  cellData, DOCenter, GrainUnitVector, DiagonalLength, CritDiagonalLength, NGrainOrientations,
                  BufferNorthSend, BufferSouthSend, BufferNorthRecv, BufferSouthRecv, BufSize, SendSizeNorth,
                  SendSizeSouth);
@@ -294,10 +295,10 @@ void testResizeRefillBuffers() {
 
     // Create send/receive buffers with a buffer size too small to hold all of the active cell data
     int BufSize = 1;
-    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 8);
-    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 8);
-    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 8);
-    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 8);
+    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 9);
+    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 9);
+    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 9);
+    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 9);
     // Init counts to 0 on device
     ViewI SendSizeSouth("SendSizeSouth", 1);
     ViewI SendSizeNorth("SendSizeNorth", 1);
@@ -327,7 +328,7 @@ void testResizeRefillBuffers() {
             // Load into appropriate buffers
             loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, ny_local,
                            coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                           BufferNorthSend, NGrainOrientations, BufSize);
+                           BufferNorthSend, NGrainOrientations, BufSize, -1);
         });
     Kokkos::parallel_for(
         "InitDomainActiveCellsSouth", 1, KOKKOS_LAMBDA(const int &) {
@@ -349,7 +350,7 @@ void testResizeRefillBuffers() {
             // Load into appropriate buffers
             loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth, ny_local,
                            coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                           BufferNorthSend, NGrainOrientations, BufSize);
+                           BufferNorthSend, NGrainOrientations, BufSize, -1);
         });
 
     // Each rank will have "id % 4" cells of additional data to send to the south, and 1 cell of additional data to send
@@ -377,7 +378,7 @@ void testResizeRefillBuffers() {
             bool DataFitsInBuffer =
                 loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                               BufferNorthSend, NGrainOrientations, BufSize, -1);
             if (!(DataFitsInBuffer)) {
                 // This cell's data did not fit in the buffer with current size BufSize - mark with temporary type
                 CellType(index) = ActiveFailedBufferLoad;
@@ -404,7 +405,7 @@ void testResizeRefillBuffers() {
             bool DataFitsInBuffer =
                 loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                               BufferNorthSend, NGrainOrientations, BufSize);
+                               BufferNorthSend, NGrainOrientations, BufSize, -1);
             if (!(DataFitsInBuffer)) {
                 // This cell's data did not fit in the buffer with current size BufSize - mark with temporary type
                 CellType(index) = ActiveFailedBufferLoad;
@@ -470,10 +471,10 @@ void testResetBufferCapacity() {
 
     // Init buffers to large size
     int BufSize = 50;
-    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 8);
-    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 8);
-    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 8);
-    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 8);
+    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 9);
+    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 9);
+    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 9);
+    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 9);
 
     // Fill buffers with test data
     Kokkos::parallel_for(

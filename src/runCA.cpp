@@ -120,10 +120,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // Buffers for ghost node data (fixed size)
     int BufSizeInitialEstimate = 25;
     int BufSize = BufSizeInitialEstimate; // set to initial estimate
-    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 8);
-    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 8);
-    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 8);
-    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 8);
+    Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, 9);
+    Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, 9);
+    Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, 9);
+    Buffer2D BufferNorthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferNorthRecv"), BufSize, 9);
     ViewI SendSizeSouth(Kokkos::ViewAllocateWithoutInitializing("SendSizeSouth"), 1);
     ViewI SendSizeNorth(Kokkos::ViewAllocateWithoutInitializing("SendSizeNorth"), 1);
     ViewI_H SendSizeSouth_Host(Kokkos::ViewAllocateWithoutInitializing("SendSizeSouth_Host"), 1);
@@ -216,7 +216,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CreateSVTime += MPI_Wtime() - StartCreateSVTime;
 
             StartCaptureTime = MPI_Wtime();
-            CellCapture(id, np, cycle, nx, ny_local, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
+            CellCapture(id, np, cycle, nx, ny_local, ny, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, temperature, DOCenter, NGrainOrientations,
                         BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth, nz_layer, SteeringVector,
                         numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize);
@@ -239,7 +239,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             if (np > 1) {
                 // Update ghost nodes
                 StartGhostTime = MPI_Wtime();
-                GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, ny_local, y_offset, NeighborX,
+                GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, ny_local, ny, y_offset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
                              BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth);

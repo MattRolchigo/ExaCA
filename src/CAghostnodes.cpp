@@ -44,10 +44,10 @@ int ResizeBuffers(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D
         // Increase buffer size to fit all data
         // Add numcells_buffer_padding (defaults to 25) cells as additional padding
         NewBufSize = max_count_global + NumCellsBufferPadding;
-        Kokkos::resize(BufferNorthSend, NewBufSize, 8);
-        Kokkos::resize(BufferSouthSend, NewBufSize, 8);
-        Kokkos::resize(BufferNorthRecv, NewBufSize, 8);
-        Kokkos::resize(BufferSouthRecv, NewBufSize, 8);
+        Kokkos::resize(BufferNorthSend, NewBufSize, 9);
+        Kokkos::resize(BufferSouthSend, NewBufSize, 9);
+        Kokkos::resize(BufferNorthRecv, NewBufSize, 9);
+        Kokkos::resize(BufferSouthRecv, NewBufSize, 9);
         // Reset count variables on device to the old buffer size
         Kokkos::parallel_for(
             "ResetCounts", 1, KOKKOS_LAMBDA(const int &) {
@@ -71,10 +71,10 @@ int ResizeBuffers(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D
 // Reset the buffer sizes to a set value (defaulting to 25, which was the initial size) preserving the existing values
 void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, Buffer2D &BufferNorthRecv,
                          Buffer2D &BufferSouthRecv, int NewBufSize) {
-    Kokkos::resize(BufferNorthSend, NewBufSize, 8);
-    Kokkos::resize(BufferSouthSend, NewBufSize, 8);
-    Kokkos::resize(BufferNorthRecv, NewBufSize, 8);
-    Kokkos::resize(BufferSouthRecv, NewBufSize, 8);
+    Kokkos::resize(BufferNorthSend, NewBufSize, 9);
+    Kokkos::resize(BufferSouthSend, NewBufSize, 9);
+    Kokkos::resize(BufferNorthRecv, NewBufSize, 9);
+    Kokkos::resize(BufferSouthRecv, NewBufSize, 9);
 }
 
 // Refill the buffers as necessary starting from the old count size, using the data from cells marked with type
@@ -102,7 +102,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, 1, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferNorthSend, NGrainOrientations, BufSize, cellData.GrainCenterCell(CellCoordinateSouth));
                     CellType(CellCoordinateSouth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -110,12 +110,12 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                                "results at MPI processor boundaries may be inaccurate\n");
                 }
                 else if (CellType(CellCoordinateSouth) == LiquidFailedBufferLoad) {
-                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
+                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates) and grain center, 0 for diagonal
                     // length
                     bool DataFitsInBuffer =
                         loadghostnodes(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, 1,
                                        coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                                       NGrainOrientations, BufSize);
+                                       NGrainOrientations, BufSize, -1);
                     CellType(CellCoordinateSouth) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -133,7 +133,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, ny_local - 2, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, cellData.GrainCenterCell(CellCoordinateNorth));
                     CellType(CellCoordinateNorth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -141,12 +141,12 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                                "results at MPI processor boundaries may be inaccurate\n");
                 }
                 else if (CellType(CellCoordinateNorth) == LiquidFailedBufferLoad) {
-                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
+                    // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates) and grain center, 0 for diagonal
                     // length
                     bool DataFitsInBuffer =
                         loadghostnodes(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x,
                                        ny_local - 2, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferNorthSend, NGrainOrientations, BufSize, -1);
                     CellType(CellCoordinateNorth) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -160,7 +160,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
 
 //*****************************************************************************/
 // 1D domain decomposition: update ghost nodes with new cell data from Nucleation and CellCapture routines
-void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int y_offset,
+void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int ny, int y_offset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
@@ -170,12 +170,12 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
     std::vector<MPI_Request> RecvRequests(2, MPI_REQUEST_NULL);
 
     // Send data to each other rank (MPI_Isend)
-    MPI_Isend(BufferSouthSend.data(), 8 * BufSize, MPI_FLOAT, NeighborRank_South, 0, MPI_COMM_WORLD, &SendRequests[0]);
-    MPI_Isend(BufferNorthSend.data(), 8 * BufSize, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD, &SendRequests[1]);
+    MPI_Isend(BufferSouthSend.data(), 9 * BufSize, MPI_FLOAT, NeighborRank_South, 0, MPI_COMM_WORLD, &SendRequests[0]);
+    MPI_Isend(BufferNorthSend.data(), 9 * BufSize, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD, &SendRequests[1]);
 
     // Receive buffers for all neighbors (MPI_Irecv)
-    MPI_Irecv(BufferSouthRecv.data(), 8 * BufSize, MPI_FLOAT, NeighborRank_South, 0, MPI_COMM_WORLD, &RecvRequests[0]);
-    MPI_Irecv(BufferNorthRecv.data(), 8 * BufSize, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD, &RecvRequests[1]);
+    MPI_Irecv(BufferSouthRecv.data(), 9 * BufSize, MPI_FLOAT, NeighborRank_South, 0, MPI_COMM_WORLD, &RecvRequests[0]);
+    MPI_Irecv(BufferNorthRecv.data(), 9 * BufSize, MPI_FLOAT, NeighborRank_North, 0, MPI_COMM_WORLD, &RecvRequests[1]);
 
     // unpack in any order
     bool unpack_complete = false;
@@ -193,7 +193,7 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
         else {
             Kokkos::parallel_for(
                 "BufferUnpack", BufSize, KOKKOS_LAMBDA(const int &BufPosition) {
-                    int coord_x, coord_y, coord_z, index, NewGrainID;
+                    int coord_x, coord_y, coord_z, index, NewGrainID, GrainCenter;
                     float DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength;
                     bool Place = false;
                     // Which rank was the data received from? Is there valid data at this position in the buffer (i.e.,
@@ -217,6 +217,7 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                             DOCenterY = BufferSouthRecv(BufPosition, 5);
                             DOCenterZ = BufferSouthRecv(BufPosition, 6);
                             NewDiagonalLength = BufferSouthRecv(BufPosition, 7);
+                            GrainCenter = BufferSouthRecv(BufPosition, 8);
                         }
                         else if ((CellType(index) == Active) && (BufferSouthRecv(BufPosition, 7) == 0.0)) {
                             CellType(index) = Liquid;
@@ -241,6 +242,8 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                             DOCenterY = BufferNorthRecv(BufPosition, 5);
                             DOCenterZ = BufferNorthRecv(BufPosition, 6);
                             NewDiagonalLength = BufferNorthRecv(BufPosition, 7);
+                            GrainCenter = BufferNorthRecv(BufPosition, 8);
+
                         }
                         else if ((CellType(index) == Active) && (BufferNorthRecv(BufPosition, 7) == 0.0)) {
                             CellType(index) = Liquid;
@@ -259,6 +262,9 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                         double xp = coord_x + 0.5;
                         double yp = coord_y + y_offset + 0.5;
                         double zp = coord_z + 0.5;
+                        // Grain center
+                        cellData.GrainCenterCell(index) = GrainCenter;
+                        cellData.FractMaxTipVelo(index) = cellData.calcFractMaxTipVelo(xp, yp, zp, MyOrientation, GrainUnitVector, nx, ny, GrainCenter);
                         // Calculate critical values at which this active cell leads to the activation of a neighboring
                         // liquid cell
                         calcCritDiagonalLength(index, xp, yp, zp, DOCenterX, DOCenterY, DOCenterZ, NeighborX, NeighborY,

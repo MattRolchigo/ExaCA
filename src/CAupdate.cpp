@@ -142,7 +142,7 @@ void FillSteeringVector_Remelt(int cycle, int DomainSize, int nx, int ny_local, 
 }
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
-void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
+void CellCapture(int, int np, int, int nx, int ny_local, int ny, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
                  NList NeighborY, NList NeighborZ, ViewF GrainUnitVector, ViewF CritDiagonalLength,
                  ViewF DiagonalLength, CellData<device_memory_space> &cellData,
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
@@ -167,7 +167,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // Update local diagonal length of active cell
                 double LocU = temperature.UndercoolingCurrent(index);
                 LocU = min(210.0, LocU);
-                double V = irf.compute(LocU);
+                double V = cellData.FractMaxTipVelo(index) * irf.compute(LocU);
                 DiagonalLength(index) += min(0.045, V); // Max amount the diagonal can grow per time step
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
@@ -220,6 +220,12 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                 float xp = coord_x + NeighborX[l] + 0.5;
                                 float yp = coord_y + y_offset + NeighborY[l] + 0.5;
                                 float zp = coord_z + NeighborZ[l] + 0.5;
+                                
+                                // Get the 1D coordinate of the cell that originally spawned this chain of capture events (considered to be the grain center), and assign it to this newly captured cell
+                                int GrainCenterCapturedCell = cellData.GrainCenterCell(index);
+                                cellData.GrainCenterCell(neighbor_index) = GrainCenterCapturedCell;
+
+                                cellData.FractMaxTipVelo(neighbor_index) = cellData.calcFractMaxTipVelo(xp, yp, zp, MyOrientation, GrainUnitVector, nx, ny, GrainCenterCapturedCell);
 
                                 // (x0,y0,z0) is a vector pointing from this decentered octahedron center to the image
                                 // of the center of the new cell
@@ -389,7 +395,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                         GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth,
                                         SendSizeSouth, ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z,
                                         AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                                        NGrainOrientations, BufSize);
+                                        NGrainOrientations, BufSize, GrainCenterCapturedCell);
                                     if (!(DataFitsInBuffer)) {
                                         // This cell's data did not fit in the buffer with current size BufSize - mark
                                         // with temporary type
@@ -432,6 +438,12 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                                    // associated octahedron data is initialized
                 int MyGrainID = GrainID(index);    // GrainID was assigned as part of Nucleation
 
+                // Center of grain - 1D coordinate with respect to the overall domain origin
+                int GrainCenterActivatedCell = get1Dindex(coord_x, coord_y + y_offset, coord_z, nx, ny);
+                cellData.GrainCenterCell(index) = GrainCenterActivatedCell;
+                // Start grain with no penalty for off-100 growth
+                cellData.FractMaxTipVelo(index) = 1;
+
                 // Initialize new octahedron
                 createNewOctahedron(index, DiagonalLength, DOCenter, coord_x, coord_y, y_offset, coord_z);
                 // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative GrainID
@@ -458,7 +470,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, GrainCenterActivatedCell);
                     if (!(DataFitsInBuffer)) {
                         // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                         // type
@@ -477,11 +489,11 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
             else if (CellType(index) == FutureLiquid) {
                 // This type was assigned to a cell that was recently transformed from active to liquid, due to its
                 // bordering of a cell above the liquidus. This information may need to be sent to other MPI ranks
-                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
+                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates) and grain center, 0 for diagonal
                 // length
                 bool DataFitsInBuffer = loadghostnodes(
                     -1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, coord_y, coord_z,
-                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, -1.0);
                 if (!(DataFitsInBuffer)) {
                     // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                     // type

@@ -38,7 +38,8 @@ struct CellData {
 
     int NextLayer_FirstEpitaxialGrainID, BottomOfCurrentLayer, TopOfCurrentLayer;
     std::pair<int, int> LayerRange;
-    view_type_int GrainID_AllLayers, CellType_AllLayers;
+    view_type_int GrainID_AllLayers, CellType_AllLayers, GrainCenterCell;
+    view_type_float FractMaxTipVelo;
     view_type_short LayerID_AllLayers;
     // Substrate inputs from file
     SubstrateInputs _inputs;
@@ -50,6 +51,7 @@ struct CellData {
     CellData(int DomainSize_AllLayers, int DomainSize, int nx, int ny_local, int z_layer_bottom, SubstrateInputs inputs)
         : GrainID_AllLayers(view_type_int("GrainID", DomainSize_AllLayers))
         , CellType_AllLayers(view_type_int(Kokkos::ViewAllocateWithoutInitializing("CellType"), DomainSize_AllLayers))
+        , FractMaxTipVelo(view_type_float(Kokkos::ViewAllocateWithoutInitializing("FractMaxTipVelo"), DomainSize)) {
         , LayerID_AllLayers(view_type_short(Kokkos::ViewAllocateWithoutInitializing("LayerID"), DomainSize_AllLayers))
         , _inputs(inputs) {
 
@@ -487,6 +489,10 @@ struct CellData {
         // Initialize active cell data structures and nuclei locations for the next layer "layernumber + 1"
         init_celltype_layerid(nextlayernumber, nx, ny_local, DomainSize, NumberOfSolidificationEvents, id,
                               z_layer_bottom);
+        
+        // Resize views for next layer's domain size
+        Kokkos::realloc(FractMaxTipVelo, DomainSize);
+        Kokkos::realloc(GrainCenterCell, DomainSize);
     }
 
     //*****************************************************************************/
@@ -527,6 +533,42 @@ struct CellData {
     auto getGrainIDSubview() { return Kokkos::subview(GrainID_AllLayers, LayerRange); }
     auto getLayerIDSubview() { return Kokkos::subview(LayerID_AllLayers, LayerRange); }
     auto getCellTypeSubview() { return Kokkos::subview(CellType_AllLayers, LayerRange); }
+    
+    // For a cell with center at xp, yp, zp, calculate the misorientation of the nearest 100 direction of the grain with the vector connecting the cell center to the grain center for the captured cell
+    KOKKOS_INLINE_FUNCTION
+    float calcFractMaxTipVelo(const double xp, const double yp, const double zp, int MyOrientation, ViewF GrainUnitVector, const int nx, const int ny, const int GrainCenterCapturedCell) const {
+        // Get the x,y,z coordinates of the cell that originally spawned this chain of capture events (considered to be the grain center)
+        // Note that this 1D value is relative to the domain's original to keep the coordinate system continuous across ranks
+        float grain_center_x = getCoordX(GrainCenterCapturedCell, nx, ny) + 0.5;
+        float grain_center_y = getCoordY(GrainCenterCapturedCell, nx, ny) + 0.5;
+        float grain_center_z = getCoordZ(GrainCenterCapturedCell, nx, ny) + 0.5;
+        
+        // Orientation of this portion of the solid-liquid interface with respect to the grain center
+        float envelope_orientation_x = xp - grain_center_x;
+        float envelope_orientation_y = yp - grain_center_y;
+        float envelope_orientation_z = zp - grain_center_z;
+        float envelope_orientation_mag = sqrtf(envelope_orientation_x * envelope_orientation_x + envelope_orientation_y * envelope_orientation_y + envelope_orientation_z * envelope_orientation_z);
+        float envelope_orientation_x_norm = envelope_orientation_x / envelope_orientation_mag;
+        float envelope_orientation_y_norm = envelope_orientation_y / envelope_orientation_mag;
+        float envelope_orientation_z_norm = envelope_orientation_z / envelope_orientation_mag;
+
+        // Determine the closest 100 direction to the envelope orientation
+        float Angle1_envelope = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
+        float Angle2_envelope = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
+        float Angle3_envelope = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
+        float Angle4_envelope = 3.14159 - Angle1_envelope;
+        float Angle5_envelope = 3.14159 - Angle2_envelope;
+        float Angle6_envelope = 3.14159 - Angle3_envelope;
+        float tempmin = fmin(abs(Angle1_envelope),abs(Angle2_envelope));
+        tempmin = fmin(tempmin,abs(Angle3_envelope));
+        tempmin = fmin(tempmin,abs(Angle4_envelope));
+        tempmin = fmin(tempmin,abs(Angle5_envelope));
+        tempmin = fmin(tempmin,abs(Angle6_envelope));
+        
+        // Use this minimum angle (converted to radians and normalized by 62.8, the max possible misorientation) to calculate the fraction of the tip velocity applied to this portion of the interface
+        float fractMaxTipVelo_this_cell = 1.0 - sqrt(57.2958 * tempmin / 62.8);
+        return fractMaxTipVelo_this_cell;
+    }
 };
 
 #endif

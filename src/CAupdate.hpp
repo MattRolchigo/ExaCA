@@ -25,7 +25,7 @@ void FillSteeringVector_Remelt(int cycle, int DomainSize, int nx, int ny_local, 
                                NList NeighborZ, Temperature<device_memory_space> &temperature,
                                CellData<device_memory_space> &cellData, int nz_layer, ViewI SteeringVector,
                                ViewI numSteer, ViewI_H numSteer_Host);
-void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
+void CellCapture(int, int np, int, int nx, int ny_local, int ny, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
                  NList NeighborY, NList NeighborZ, ViewF GrainUnitVector, ViewF CritDiagonalLength,
                  ViewF DiagonalLength, CellData<device_memory_space> &cellData,
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
