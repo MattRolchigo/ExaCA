@@ -178,8 +178,8 @@ std::vector<bool> getPrintFieldValues(nlohmann::json inputdata, std::string Fiel
 }
 
 // Read x, y, z coordinates in tempfile_thislayer (temperature file in either an ASCII or binary format) and return the
-// min and max values
-std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_thislayer, bool BinaryInputData) {
+// min and max values. Also store the estimated starting/ending time steps for the layer
+std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_thislayer, bool BinaryInputData, double deltat, double FreezingRange, int* StartTimeStep, int* FinishTimeStep, int layernumber) {
 
     std::array<double, 6> XYZMinMax;
     std::ifstream TemperatureFilestream;
@@ -198,6 +198,9 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
     std::vector<double> XCoordinates(XYZPointCount_Estimate), YCoordinates(XYZPointCount_Estimate),
         ZCoordinates(XYZPointCount_Estimate);
     long unsigned int XYZPointCounter = 0;
+    double tm_min = DBL_MAX;
+    double tl_max = DBL_MIN;
+    double stored_cr = 0.0;
     if (BinaryInputData) {
         while (!TemperatureFilestream.eof()) {
             // Get x from the binary string, or, if no data is left, exit the file read
@@ -208,9 +211,17 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
             XCoordinates[XYZPointCounter] = XValue;
             YCoordinates[XYZPointCounter] = ReadBinaryData<double>(TemperatureFilestream);
             ZCoordinates[XYZPointCounter] = ReadBinaryData<double>(TemperatureFilestream);
-            // Ignore the tm, tl, cr values associated with this x, y, z
-            unsigned char temp[3 * sizeof(double)];
-            TemperatureFilestream.read(reinterpret_cast<char *>(temp), 3 * sizeof(double));
+            // Get tm and tl values, ignored the cr value associated with this x, y, z
+            double tmelt = ReadBinaryData<double>(TemperatureFilestream);
+            double tl = ReadBinaryData<double>(TemperatureFilestream);
+            double cr = ReadBinaryData<double>(TemperatureFilestream);
+            // Store smallest tm and largest tl
+            if (tmelt < tm_min)
+                tm_min = tmelt;
+            if (tl > tl_max) {
+                tl_max = tl;
+                stored_cr = cr;
+            }
             XYZPointCounter++;
             if (XYZPointCounter == XCoordinates.size()) {
                 XCoordinates.resize(XYZPointCounter + XYZPointCount_Estimate);
@@ -221,15 +232,25 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
     }
     else {
         while (!TemperatureFilestream.eof()) {
-            std::vector<std::string> ParsedLine(3); // Get x, y, z - ignore tm, tl, cr
+            std::vector<std::string> ParsedLine(6); // Get x, y, z - ignore tm, tl, cr
             std::string ReadLine;
             if (!getline(TemperatureFilestream, ReadLine))
                 break;
             splitString(ReadLine, ParsedLine, 6);
-            // Only get x, y, and z values from ParsedLine
+            // Get values from ParsedLine
             XCoordinates[XYZPointCounter] = getInputDouble(ParsedLine[0]);
             YCoordinates[XYZPointCounter] = getInputDouble(ParsedLine[1]);
             ZCoordinates[XYZPointCounter] = getInputDouble(ParsedLine[2]);
+            double tmelt = getInputDouble(ParsedLine[3]);
+            double tl = getInputDouble(ParsedLine[4]);
+            double cr = getInputDouble(ParsedLine[5]);
+            // Store smallest tm and largest tl
+            if (tmelt < tm_min)
+                tm_min = tmelt;
+            if (tl > tl_max) {
+                tl_max = tl;
+                stored_cr = cr;
+            }
             XYZPointCounter++;
             if (XYZPointCounter == XCoordinates.size()) {
                 XCoordinates.resize(XYZPointCounter + XYZPointCount_Estimate);
@@ -242,6 +263,8 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
     XCoordinates.resize(XYZPointCounter);
     YCoordinates.resize(XYZPointCounter);
     ZCoordinates.resize(XYZPointCounter);
+    StartTimeStep[layernumber] = round(tm_min / deltat);
+    FinishTimeStep[layernumber] = round((tl_max + (FreezingRange / stored_cr)) / deltat);
     TemperatureFilestream.close();
 
     // Min/max x, y, and z coordinates from this layer's data
@@ -252,4 +275,47 @@ std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_this
     XYZMinMax[4] = *min_element(ZCoordinates.begin(), ZCoordinates.end());
     XYZMinMax[5] = *max_element(ZCoordinates.begin(), ZCoordinates.end());
     return XYZMinMax;
+}
+
+// Determine the shift in the data in X or Y for LineToRaster problems
+double shiftTemperatureCoordinateMinMax(std::array<double, 6> &XYZMinMax, double deltax, std::string scan_direction, std::string shift_direction) {
+    // If calculating shift in X, shifting XYZMinMax[0] and XYZMinMax[1]
+    // If calculating shift in Y, shifting XYZMinMax[2] and XYZMinMax[3]
+    int shift_direction_upper_index, shift_direction_lower_index;
+    if (shift_direction == "X") {
+        shift_direction_lower_index = 0;
+        shift_direction_upper_index = 1;
+    }
+    else if (shift_direction == "Y") {
+        shift_direction_lower_index = 2;
+        shift_direction_upper_index = 3;
+    }
+    else
+        throw std::runtime_error("Error: Invalid shift direction encountered in shiftTemperatureCoordinateMinMax - should be X or Y");
+    double raster_shift;
+    if (scan_direction == shift_direction) {
+        // Data starts at X or Y = 0, determine the offset to XYZMinMax associated with this shift
+        double zero_loc = XYZMinMax[shift_direction_lower_index];
+        // Ensure that the shift is an integer multiple of the cell size, to center the data as close to X or Y = 0 as possible
+        int raster_shift_cells = - round(zero_loc / deltax);
+        raster_shift = raster_shift_cells * deltax;
+        XYZMinMax[shift_direction_upper_index] += raster_shift;
+        XYZMinMax[shift_direction_lower_index] += raster_shift;
+    }
+    else {
+        // The data should be centered at X or Y = 0, determine the offset to XYZMinMax associated with this shift
+        double centerline = (XYZMinMax[shift_direction_upper_index] + XYZMinMax[shift_direction_lower_index]) / 2.0;
+        // Ensure that the shift is an integer multiple of the cell size, to center the data as close to X or Y = centerline as possible
+        int raster_shift_cells = - round(centerline / deltax);
+        raster_shift = raster_shift_cells * deltax;
+        XYZMinMax[shift_direction_upper_index] += raster_shift;
+        XYZMinMax[shift_direction_lower_index] += raster_shift;
+    }
+    return raster_shift;
+}
+
+// Get the value for which the line melting/soldification times should be offset to ensure they solidify in succession
+double shiftTmeltTliquidus(int StartTimeStep, int FinishTimeStep, double deltat) {
+    double time_shift = deltat * (FinishTimeStep - StartTimeStep);
+    return time_shift;
 }

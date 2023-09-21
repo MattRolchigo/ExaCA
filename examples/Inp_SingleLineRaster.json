@@ -1,0 +1,40 @@
+{
+   "SimulationType": "LineToRasterFromFile",
+   "MaterialFileName": "Inconel625.json",
+   "GrainOrientationFile": "GrainOrientationVectors.csv",
+   "RandomSeed": 0.0,
+   "Domain": {
+       "CellSize": 2.5,
+       "TimeStep": 0.0825,
+       "NumberOfLayers": 1,
+       "LayerOffset": 8
+   },
+   "Nucleation": {
+      "Density": 100,
+      "MeanUndercooling": 5,
+      "StDev": 0.5
+   },
+   "TemperatureData": {
+       "ScanDirection": "X",
+       "LineOffset": 10,
+       "NumberOfLines": 3,
+       "TemperatureFiles": ["examples/Temperatures/Line.txt"]
+   },
+   "Substrate": {
+      "MeanSize": 25,
+      "PowderDensity": 64000,
+      "PowderFirstLayer": true
+   },
+   "Printing": {
+      "PathToOutput": "./",
+      "OutputFile": "TestProblemSingleLineRaster",
+      "PrintBinary": false,
+      "PrintExaConstitSize": 0,
+      "PrintFieldsInit": ["CritTimeStep"],
+      "PrintFieldsFinal": ["GrainID", "LayerID", "GrainMisorientation"],
+      "PrintIntermediateOutput": {
+          "Frequency": 0,
+          "PrintIdleFrames": false
+      }
+   }
+}

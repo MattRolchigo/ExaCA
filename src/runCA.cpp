@@ -24,13 +24,13 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     double StartNuclTime, StartCreateSVTime, StartCaptureTime, StartGhostTime;
     double StartInitTime = MPI_Wtime();
 
-    int nx, ny, nz, NumberOfLayers, LayerHeight, TempFilesInSeries;
+    int nx, ny, nz, NumberOfLayers, NumberOfLines, LayerHeight, TempFilesInSeries;
     int NSpotsX, NSpotsY, SpotOffset, SpotRadius, HTtoCAratio, singleGrainOrientation;
     bool UseSubstrateFile, BaseplateThroughPowder, LayerwiseTempRead;
     float SubstrateGrainSpacing;
     double HT_deltax, deltax, deltat, FractSurfaceSitesActive, G, R, NMax, dTN, dTsigma, RNGSeed, PowderActiveFraction,
-        initUndercooling, BaseplateTopZ;
-    std::string SubstrateFileName, MaterialFileName, SimulationType, GrainOrientationFile;
+        initUndercooling, BaseplateTopZ, line_offset, raster_shift_x, raster_shift_y;
+    std::string SubstrateFileName, MaterialFileName, SimulationType, GrainOrientationFile, scan_direction;
     std::vector<std::string> temp_paths;
 
     // Data printing structure - contains print options (false by default) and functions
@@ -42,7 +42,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                       SubstrateFileName, SubstrateGrainSpacing, UseSubstrateFile, G, R, nx, ny, nz,
                       FractSurfaceSitesActive, NSpotsX, NSpotsY, SpotOffset, SpotRadius, RNGSeed,
                       BaseplateThroughPowder, PowderActiveFraction, LayerwiseTempRead, BaseplateTopZ, print,
-                      initUndercooling, singleGrainOrientation);
+                      initUndercooling, singleGrainOrientation, scan_direction, line_offset, NumberOfLines);
     InterfacialResponseFunction irf(id, MaterialFileName, deltat, deltax);
 
     // Variables characterizing local processor grids relative to global domain
@@ -60,7 +60,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     double XMin, YMin, ZMin, XMax, YMax, ZMax; // OpenFOAM simulation bounds (if using OpenFOAM data)
     double *ZMinLayer = new double[NumberOfLayers];
     double *ZMaxLayer = new double[NumberOfLayers];
+    int *StartTimeStep = new int[NumberOfLayers];
     int *FinishTimeStep = new int[NumberOfLayers];
+    double time_shift;
 
     // Intialize neighbor list structures (NeighborX, NeighborY, NeighborZ)
     NeighborListInit(NeighborX, NeighborY, NeighborZ);
@@ -70,7 +72,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // For simulations using input temperature data with remelting: even if only LayerwiseTempRead is true, all files
     // need to be read to determine the domain bounds
     FindXYZBounds(SimulationType, id, deltax, nx, ny, nz, temp_paths, XMin, XMax, YMin, YMax, ZMin, ZMax, LayerHeight,
-                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, SpotRadius);
+                  NumberOfLayers, TempFilesInSeries, ZMinLayer, ZMaxLayer, SpotRadius, line_offset, NumberOfLines, scan_direction, raster_shift_x, raster_shift_y, StartTimeStep, FinishTimeStep, deltat, irf.FreezingRange, time_shift);
 
     // Ensure that input powder layer init options are compatible with this domain size, if needed for this problem type
     if ((SimulationType == "R") || (SimulationType == "S"))
@@ -92,10 +94,14 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
 
     // Temperature fields characterized by data in this structure
     Temperature<device_memory_space> temperature(DomainSize, NumberOfLayers);
-    // Read temperature data if necessary
+    // Read temperature data if necessary - duplicating points if creating a raster from line scan data
     if (SimulationType == "R")
-        temperature.readTemperatureData(id, deltax, HT_deltax, HTtoCAratio, y_offset, ny_local, YMin, temp_paths,
+        temperature.readTemperatureData(id, deltax, HT_deltax, HTtoCAratio, y_offset, ny_local, XMax, YMin, YMax, temp_paths,
                                         NumberOfLayers, TempFilesInSeries, LayerwiseTempRead, 0);
+    else if (SimulationType == "LineToRasterFromFile")
+        temperature.readTemperatureData(id, deltax, HT_deltax, HTtoCAratio, y_offset, ny_local, XMax, YMin, YMax, temp_paths,
+                                             NumberOfLayers, TempFilesInSeries, LayerwiseTempRead, 0, scan_direction, line_offset, NumberOfLines, SimulationType, raster_shift_x, raster_shift_y, time_shift);
+
     // Initialize the temperature fields for the simualtion type of interest
     if ((SimulationType == "C") || (SimulationType == "SingleGrain")) {
         if (G == 0)
@@ -107,9 +113,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     else if (SimulationType == "S")
         temperature.initialize(G, R, id, nx, ny_local, y_offset, deltax, deltat, DomainSize, irf.FreezingRange, NSpotsX,
                                NSpotsY, SpotRadius, SpotOffset, NumberOfLayers);
-    else if (SimulationType == "R")
-        temperature.initialize(0, id, nx, ny_local, DomainSize, y_offset, deltax, deltat, irf.FreezingRange, XMin, YMin,
-                               ZMinLayer, LayerHeight, nz_layer, z_layer_bottom, FinishTimeStep, TempFilesInSeries);
+    else if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile"))
+        temperature.initialize(0, id, nx, ny_local, DomainSize, y_offset, deltax, deltat, XMin, YMin,
+                               ZMinLayer, LayerHeight, nz_layer, z_layer_bottom, TempFilesInSeries);
     MPI_Barrier(MPI_COMM_WORLD);
     if (id == 0)
         std::cout << "Done with temperature field initialization" << std::endl;
@@ -291,16 +297,14 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             DomainSize = calcLayerDomainSize(nx, ny_local, nz_layer);
             // Determine the bounds of the next layer: Z coordinates span z_layer_bottom-z_layer_top, inclusive
             // For simulation type R, need to initialize new temperature field data for layer "layernumber + 1"
-            if (SimulationType == "R") {
+            if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile")) {
                 // If the next layer's temperature data isn't already stored, it should be read
                 if (LayerwiseTempRead)
-                    temperature.readTemperatureData(id, deltax, HT_deltax, HTtoCAratio, y_offset, ny_local, YMin,
+                    temperature.readTemperatureData(id, deltax, HT_deltax, HTtoCAratio, y_offset, ny_local, XMax, YMin, YMax,
                                                     temp_paths, NumberOfLayers, TempFilesInSeries, LayerwiseTempRead,
                                                     layernumber + 1);
                 // Initialize next layer's temperature data
-                temperature.initialize(layernumber + 1, id, nx, ny_local, DomainSize, y_offset, deltax, deltat,
-                                       irf.FreezingRange, XMin, YMin, ZMinLayer, LayerHeight, nz_layer, z_layer_bottom,
-                                       FinishTimeStep, TempFilesInSeries);
+                temperature.initialize(layernumber + 1, id, nx, ny_local, DomainSize, y_offset, deltax, deltat, XMin, YMin, ZMinLayer, LayerHeight, nz_layer, z_layer_bottom, TempFilesInSeries);
             }
 
             // Reset initial undercooling/solidification event counter of all cells to zeros for the next layer,

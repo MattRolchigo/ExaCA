@@ -80,9 +80,10 @@ struct Temperature {
 
     // Read in temperature data from files, stored in the host view "RawData", with the appropriate MPI ranks storing
     // the appropriate data
-    void readTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAratio, int y_offset, int ny_local,
-                             double YMin, std::vector<std::string> &temp_paths, int NumberOfLayers,
-                             int TempFilesInSeries, bool LayerwiseTempRead, int layernumber) {
+    // Optional inputs for LineToRasterFromFile problem type
+    void readTemperatureData(int id, double &deltax, double HT_deltax, int &HTtoCAratio, int y_offset, int ny_local, double XMax,
+                             double YMin, double YMax, std::vector<std::string> &temp_paths, int NumberOfLayers,
+                             int TempFilesInSeries, bool LayerwiseTempRead, int layernumber, std::string scan_direction = "", double line_offset = 0.0, int NumberOfLines = 0, std::string SimulationType = "R", double raster_shift_x = 0.0, double raster_shift_y = 0.0, double time_shift = 0.0) {
 
         double HTtoCAratio_unrounded = HT_deltax / deltax;
         double HTtoCAratio_floor = floor(HTtoCAratio_unrounded);
@@ -142,9 +143,14 @@ struct Temperature {
             FirstValue(LayerReadCount) = NumberOfTemperatureDataPoints;
             // Read and parse temperature file for either binary or ASCII, storing the appropriate values on each MPI
             // rank within RawData and incrementing NumberOfTemperatureDataPoints appropriately
+            // Option to translate each point in a single line scan to make a raster dataset
             bool BinaryInputData = checkTemperatureFileFormat(tempfile_thislayer);
-            parseTemperatureData(tempfile_thislayer, YMin, deltax, LowerYBound, UpperYBound,
-                                 NumberOfTemperatureDataPoints, BinaryInputData, RawTemperatureData);
+            if (SimulationType == "R")
+                parseTemperatureData(tempfile_thislayer, YMin, deltax, LowerYBound, UpperYBound,
+                                     NumberOfTemperatureDataPoints, BinaryInputData, RawTemperatureData);
+            else
+                parseTemperatureData(tempfile_thislayer, XMax, YMin, YMax, deltax, LowerYBound, UpperYBound,
+                                     NumberOfTemperatureDataPoints, BinaryInputData, RawTemperatureData, scan_direction, line_offset, NumberOfLines, raster_shift_x, raster_shift_y, time_shift);
             LastValue(LayerReadCount) = NumberOfTemperatureDataPoints;
         } // End loop over all files read for all layers
         Kokkos::resize(RawTemperatureData, NumberOfTemperatureDataPoints);
@@ -451,8 +457,8 @@ struct Temperature {
     // Initialize temperature fields for layer "layernumber" in case where temperature data comes from file(s)
     // TODO: This can be performed on the device as the dirS problem is
     void initialize(int layernumber, int id, int nx, int ny_local, int DomainSize, int y_offset, double deltax,
-                    double deltat, double FreezingRange, double XMin, double YMin, double *ZMinLayer, int LayerHeight,
-                    int nz_layer, int z_layer_bottom, int *FinishTimeStep, int TempFilesInSeries) {
+                    double deltat, double XMin, double YMin, double *ZMinLayer, int LayerHeight,
+                    int nz_layer, int z_layer_bottom, int TempFilesInSeries) {
 
         // Data was already read into the "RawTemperatureData" data structure
         // Determine which section of "RawTemperatureData" is relevant for this layer of the overall domain
@@ -477,8 +483,6 @@ struct Temperature {
                                                           3);
         view_type_int_host NumberOfSolidificationEvents_Host("NumSEvents_H", DomainSize);
 
-        double LargestTime = 0;
-        double LargestTime_Global = 0;
         if (id == 0)
             std::cout << "Range of raw data for layer " << layernumber << " on rank 0 is " << StartRange << " to "
                       << EndRange << std::endl;
@@ -507,20 +511,7 @@ struct Temperature {
                 std::abs(CoolingRate) * deltat;
             // Increment number of solidification events for this cell
             NumberOfSolidificationEvents_Host(index)++;
-            // Estimate of the time step where the last possible solidification is expected to occur
-            double SolidusTime = TLiquidus + FreezingRange / CoolingRate;
-            if (SolidusTime > LargestTime)
-                LargestTime = SolidusTime;
         }
-        MPI_Allreduce(&LargestTime, &LargestTime_Global, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-        if (id == 0)
-            std::cout << "Largest time globally for layer " << layernumber << " is " << LargestTime_Global << std::endl;
-        FinishTimeStep[layernumber] = round((LargestTime_Global) / deltat);
-        if (id == 0)
-            std::cout << " Layer " << layernumber << " FINISH TIME STEP IS " << FinishTimeStep[layernumber]
-                      << std::endl;
-        if (id == 0)
-            std::cout << "Layer " << layernumber << " temperatures read" << std::endl;
 
         // Reorder solidification events in LayerTimeTempHistory(location,event number,component) so that they are in
         // order based on the melting time values (component = 0)
@@ -554,6 +545,7 @@ struct Temperature {
                     if (LayerTimeTempHistory_Host(index, i + 1, 0) < LayerTimeTempHistory_Host(index, i, 1)) {
                         std::cout << "Cell " << index << " removing anomalous event " << i + 1 << " out of "
                                   << NSolidificationEvents_cell - 1 << std::endl;
+                        std::cout << LayerTimeTempHistory_Host(index, i, 0) << " " << LayerTimeTempHistory_Host(index, i, 1) << " and " << LayerTimeTempHistory_Host(index, i+1, 0) << " " << LayerTimeTempHistory_Host(index, i+1, 1) << std::endl;
                         // Keep whichever event has the larger liquidus time
                         if (LayerTimeTempHistory_Host(index, i + 1, 1) > LayerTimeTempHistory_Host(index, i, 1)) {
                             LayerTimeTempHistory_Host(index, i, 0) = LayerTimeTempHistory_Host(index, i + 1, 0);

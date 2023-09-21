@@ -10,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <float.h>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -56,7 +57,7 @@ ReadType ParseASCIIData(std::istringstream &ss) {
     ss >> readValue;
     return readValue;
 }
-std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_thislayer, bool BinaryInputData);
+std::array<double, 6> parseTemperatureCoordinateMinMax(std::string tempfile_thislayer, bool BinaryInputData, double deltat, double FreezingRange, int* StartTimeStep, int* FinishTimeStep, int layernumber);
 // Read and parse the temperature file (double precision values in a comma-separated, ASCII format with a header line -
 // or a binary string of double precision values), storing the x, y, z, tm, tl, cr values in the RawData vector. Each
 // rank only contains the points corresponding to cells within the associated Y bounds. NumberOfTemperatureDataPoints is
@@ -135,5 +136,122 @@ void parseTemperatureData(std::string tempfile_thislayer, double YMin, double de
         }
     }
 }
+
+// Read and parse the temperature file (double precision values in a comma-separated, ASCII format with a header line -
+// or a binary string of double precision values), storing the x, y, z, tm, tl, cr values in the RawData vector. Each
+// rank only contains the points corresponding to cells within the associated Y bounds. NumberOfTemperatureDataPoints is
+// incremented on each rank as data is added to RawData. This version of the function takes single line data and creates new points from translation of the line
+template <typename view_type_double_host>
+void parseTemperatureData(std::string tempfile_thislayer, double XMax, double YMin, double YMax, double deltax, int LowerYBound, int UpperYBound,
+                          int &NumberOfTemperatureDataPoints, bool BinaryInputData,
+                          view_type_double_host &RawTemperatureData, std::string scan_direction, double line_offset, int NumberOfLines, double raster_shift_x, double raster_shift_y, double time_shift) {
+
+    int translate_x, translate_y; // translate lines in perpendicular to scan direction
+    if (scan_direction == "X") {
+        translate_x = 0;
+        translate_y = 1;
+    }
+    else if (scan_direction == "Y") {
+        translate_x = 1;
+        translate_y = 0;
+    }
+    else
+        throw std::runtime_error("Error: Invalid scan direction encountered in parseTemperatureData - should be X or Y");
+    std::ifstream TemperatureFilestream;
+    TemperatureFilestream.open(tempfile_thislayer);
+    if (BinaryInputData) {
+        while (!TemperatureFilestream.eof()) {
+            double XTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double YTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double ZTemperaturePoint = ReadBinaryData<double>(TemperatureFilestream);
+            double TMelting = ReadBinaryData<double>(TemperatureFilestream);
+            double TLiquidus = ReadBinaryData<double>(TemperatureFilestream);
+            double CoolingRate = ReadBinaryData<double>(TemperatureFilestream);
+            // If no data was extracted from the stream, the end of the file was reached
+            if (!(TemperatureFilestream))
+                break;
+            // Check the y value from ParsedLine, to check if this point is stored on this rank
+            // If translating single line data, check each translated X or Y value for the point
+            for (int line=0; line<NumberOfLines; line++) {
+                double XTemperaturePoint_Translated = XTemperaturePoint + line * line_offset * translate_x + raster_shift_x;
+                double YTemperaturePoint_Translated = YTemperaturePoint + line * line_offset * translate_y + raster_shift_y;
+                // Every other line, mirror the coordinate in the scan direction to create a bidirectional raster
+                if (line % 2 == 1) {
+                    if (scan_direction == "X")
+                        XTemperaturePoint_Translated = XMax - XTemperaturePoint_Translated;
+                    else
+                        YTemperaturePoint_Translated = YMax - YTemperaturePoint_Translated;
+                }
+                // Check the CA grid positions of the data point to see which rank(s) should store it
+                int YInt = round((YTemperaturePoint_Translated - YMin) / deltax);
+                if ((YInt >= LowerYBound) && (YInt <= UpperYBound)) {
+                    // This data point is inside the bounds of interest for this MPI rank
+                    // Store the translated x and y values, along with time values offset for each line
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = XTemperaturePoint_Translated;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 1) = YTemperaturePoint_Translated;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 2) = ZTemperaturePoint;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 3) = TMelting + line * time_shift;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 4) = TLiquidus + line * time_shift;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 5) = CoolingRate;
+                    NumberOfTemperatureDataPoints += 6;
+                    int RawTemperatureData_extent = RawTemperatureData.extent(0);
+                    // Adjust size of RawData if it is near full
+                    if (NumberOfTemperatureDataPoints >= RawTemperatureData_extent - 6) {
+                        Kokkos::resize(RawTemperatureData, RawTemperatureData_extent + 1000000);
+                    }
+                }
+            }
+        }
+    }
+    else {
+        std::string DummyLine;
+        // ignore header line
+        getline(TemperatureFilestream, DummyLine);
+        while (!TemperatureFilestream.eof()) {
+            std::vector<std::string> ParsedLine(6); // Each line has an x, y, z, tm, tl, cr
+            std::string ReadLine;
+            if (!getline(TemperatureFilestream, ReadLine))
+                break;
+            splitString(ReadLine, ParsedLine, 6);
+            // Check the y value from ParsedLine, to check if this point is stored on this rank
+            // Check the y value from ParsedLine, to check if this point is stored on this rank
+            // If translating single line data, check each translated X or Y value for the point
+            double XTemperaturePoint = getInputDouble(ParsedLine[0]);
+            double YTemperaturePoint = getInputDouble(ParsedLine[1]);
+            for (int line=0; line<NumberOfLines; line++) {
+                double XTemperaturePoint_Translated = XTemperaturePoint + line * line_offset * translate_x + raster_shift_x;
+                double YTemperaturePoint_Translated = YTemperaturePoint + line * line_offset * translate_y + raster_shift_y;
+                // Every other line, mirror the coordinate in the scan direction to create a bidirectional raster
+                if (line % 2 == 1) {
+                    if (scan_direction == "X")
+                        XTemperaturePoint_Translated = XMax - XTemperaturePoint_Translated;
+                    else
+                        YTemperaturePoint_Translated = YMax - YTemperaturePoint_Translated;
+                }
+                // Check the CA grid positions of the data point to see which rank(s) should store it
+                int YInt = round((YTemperaturePoint_Translated - YMin) / deltax);
+                if ((YInt >= LowerYBound) && (YInt <= UpperYBound)) {
+                    // This data point is inside the bounds of interest for this MPI rank: Store the x, z, tm, tl, and cr
+                    // vals inside of RawData, incrementing with each value added
+                    RawTemperatureData(NumberOfTemperatureDataPoints) = XTemperaturePoint_Translated;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 1) = YTemperaturePoint_Translated;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 2) = getInputDouble(ParsedLine[2]);
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 3) = getInputDouble(ParsedLine[3]) + line * time_shift;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 4) = getInputDouble(ParsedLine[4]) + line * time_shift;
+                    RawTemperatureData(NumberOfTemperatureDataPoints + 5) = getInputDouble(ParsedLine[5]) + line * time_shift;
+                    NumberOfTemperatureDataPoints += 6;
+                    // Adjust size of RawData if it is near full
+                    int RawTemperatureData_extent = RawTemperatureData.extent(0);
+                    // Adjust size of RawData if it is near full
+                    if (NumberOfTemperatureDataPoints >= RawTemperatureData_extent - 6) {
+                        Kokkos::resize(RawTemperatureData, RawTemperatureData_extent + 1000000);
+                    }
+                }
+            }
+        }
+    }
+}
+double shiftTemperatureCoordinateMinMax(std::array<double, 6> &XYZMinMax, double deltax, std::string scan_direction, std::string shift_direction);
+double shiftTmeltTliquidus(int StartTimeStep, int FinishTimeStep, double deltat);
 
 #endif

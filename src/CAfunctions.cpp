@@ -100,6 +100,41 @@ void InitialDecomposition(int id, int np, int &NeighborRank_North, int &Neighbor
         AtSouthBoundary = false;
 }
 
+// Given data spanning from 0 to domain_scan_high in the scan direction, determine how many lines offset in the transverse are needed to fill a domain with equal sizes in X and Y
+int getNumberOfLines(std::array<double, 6> &XYZMinMax, double line_offset, double deltax, std::string scan_direction) {
+    int domain_scan_high_index, domain_transverse_high_index;
+    if (scan_direction == "X") {
+        domain_scan_high_index = 1;
+        domain_transverse_high_index = 3;
+    }
+    else if (scan_direction == "Y") {
+        domain_scan_high_index = 3;
+        domain_transverse_high_index = 1;
+    }
+    else
+        throw std::runtime_error("Error: Invalid scan direction encountered in getNumberOfLines - should be X or Y");
+    double domain_scan_high = XYZMinMax[domain_scan_high_index];
+    double line_offset_meters = line_offset * deltax;
+    int NumberOfLines = ceil(domain_scan_high / line_offset_meters);
+    // Set upper bound in transverse direction to equal upper bound in scan direction
+    XYZMinMax[domain_transverse_high_index] = domain_scan_high;
+    // Set lower bound in transverse direction to zero
+    XYZMinMax[domain_transverse_high_index - 1] = 0.0;
+    return NumberOfLines;
+}
+
+// Given the number of lines to simulate in the transverse direction, determine the upper bound in the transverse direction
+void updateTransverseUpperBound(std::array<double, 6> &XYZMinMax, double line_offset, int NumberOfLines, std::string scan_direction) {
+    int domain_transverse_high_index;
+    if (scan_direction == "X")
+        domain_transverse_high_index = 3;
+    else if (scan_direction == "Y")
+        domain_transverse_high_index = 1;
+    else
+        throw std::runtime_error("Error: Invalid scan direction encountered in updateTransverseUpperBound - should be X or Y");
+    XYZMinMax[domain_transverse_high_index] += line_offset * (NumberOfLines - 1);
+}
+
 // Create a view of size "NumberOfOrientation" of the misorientation of each possible grain orientation with the X, Y,
 // or Z directions (dir = 0, 1, or 2, respectively)
 ViewF_H MisorientationCalc(int NumberOfOrientations, ViewF_H GrainUnitVector, int dir) {

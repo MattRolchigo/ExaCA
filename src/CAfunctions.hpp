@@ -137,6 +137,8 @@ KOKKOS_INLINE_FUNCTION int getCoordX(const int index, const int nx, const int ny
 int get_nylocal(int p, int ny, int np);
 int get_yoffset(int p, int ny, int np);
 void AddGhostNodes(int NeighborRank_North, int NeighborRank_South, int &ny_local, int &y_offset);
+int getNumberOfLines(std::array<double, 6> &XYZMinMax, double line_offset, double delta_x, std::string scan_direction);
+void updateTransverseUpperBound(std::array<double, 6> &XYZMinMax, double line_offset, int NumberOfLines, std::string scan_direction);
 double MaxVal(double TestVec3[6], int NVals);
 void InitialDecomposition(int id, int np, int &NeighborRank_North, int &NeighborRank_South, bool &AtNorthBoundary,
                           bool &AtSouthBoundary);

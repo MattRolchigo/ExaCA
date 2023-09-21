@@ -33,7 +33,7 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
                        int &nz, double &FractSurfaceSitesActive, int &NSpotsX, int &NSpotsY, int &SpotOffset,
                        int &SpotRadius, double &RNGSeed, bool &BaseplateThroughPowder, double &PowderActiveFraction,
                        bool &LayerwiseTempRead, double &BaseplateTopZ, Print &print, double &initUndercooling,
-                       int &singleGrainOrientation) {
+                       int &singleGrainOrientation, std::string &scan_direction, double &line_offset, int &NumberOfLines) {
 
     std::ifstream InputData(InputFile);
     nlohmann::json inputdata = nlohmann::json::parse(InputData);
@@ -126,7 +126,7 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
     }
 
     // Temperature inputs:
-    if (SimulationType == "R") {
+    if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile")) {
         // Temperature data resolution - default to using CA cell size if the assumed temperature data resolution if not
         // given
         if (inputdata["TemperatureData"].contains("HeatTransferCellSize")) {
@@ -147,10 +147,26 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
         // Get the paths/number of/names of the temperature data files used
         TempFilesInSeries = inputdata["TemperatureData"]["TemperatureFiles"].size();
         if (TempFilesInSeries == 0)
-            throw std::runtime_error("Error: No temperature files listed in the temperature instructions file");
+            throw std::runtime_error("Error: No temperature files listed in the input file");
         else {
+            if ((SimulationType == "LineToRasterFromFile") && (TempFilesInSeries != 1))
+                throw std::runtime_error("Error: problem type LineToRasterFromFile requires exactly 1 input temperature filename");
             for (int filename = 0; filename < TempFilesInSeries; filename++)
                 temp_paths.push_back(inputdata["TemperatureData"]["TemperatureFiles"][filename]);
+        }
+        if (SimulationType == "LineToRasterFromFile") {
+            // Scan direction and line offset are required inputs
+            // NumberOfLines is optional - can either print a specified number of lines or, if not given, determine the number of lines from the number needed to create a domain with equal scan and transverse dimensions
+            scan_direction = inputdata["TemperatureData"]["ScanDirection"];
+            line_offset = inputdata["TemperatureData"]["LineOffset"];
+            // Convert line offset to meters (is given in cells for consistency with LayerHeight)
+            line_offset = line_offset * deltax;
+            if (inputdata["TemperatureData"].contains("NumberOfLines"))
+                NumberOfLines = inputdata["TemperatureData"]["NumberOfLines"];
+            else
+                NumberOfLines = 0;
+            if (LayerwiseTempRead)
+                throw std::runtime_error("Error: LayerwiseTempRead cannot be true for problem type LineToRasterFromFile");
         }
     }
     else {
@@ -296,9 +312,9 @@ bool checkTemperatureFileFormat(std::string tempfile_thislayer) {
 void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, int &ny, int &nz,
                    std::vector<std::string> &temp_paths, double &XMin, double &XMax, double &YMin, double &YMax,
                    double &ZMin, double &ZMax, int &LayerHeight, int NumberOfLayers, int TempFilesInSeries,
-                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius) {
+                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius, double line_offset, int &NumberOfLines, std::string scan_direction, double &raster_shift_x, double &raster_shift_y, int *StartTimeStep, int *FinishTimeStep, double deltat, double FreezingRange, double &time_shift) {
 
-    if (SimulationType == "R") {
+    if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile")) {
         // Two passes through reading temperature data files- the first pass only reads the headers to
         // determine units and X/Y/Z bounds of the simulaton domain. Using the X/Y/Z bounds of the simulation domain,
         // nx, ny, and nz can be calculated and the domain decomposed among MPI processes. The maximum number of
@@ -335,9 +351,34 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
             // Get min and max x coordinates in this file, which can be a binary or ASCII input file
             // binary file type uses extension .catemp, all other file types assumed to be comma-separated ASCII input
             bool BinaryInputData = checkTemperatureFileFormat(tempfile_thislayer);
-            // { Xmin, Xmax, Ymin, Ymax, Zmin, Zmax }
+            // { Xmin, Xmax, Ymin, Ymax, Zmin, Zmax }, also updating values for the smallest melting time and latest estimated time when the last cell finishes solidification
             std::array<double, 6> XYZMinMax_ThisLayer =
-                parseTemperatureCoordinateMinMax(tempfile_thislayer, BinaryInputData);
+                parseTemperatureCoordinateMinMax(tempfile_thislayer, BinaryInputData, deltat, FreezingRange, StartTimeStep, FinishTimeStep, LayerReadCount-1);
+
+            // Shift x and y coordinates so that the line data is centered in the domain for future translation
+            // Shift time values so that lines melt/solidify in succession
+            if (SimulationType == "LineToRasterFromFile") {
+                raster_shift_x = shiftTemperatureCoordinateMinMax(XYZMinMax_ThisLayer, deltax, scan_direction, "X");
+                raster_shift_y = shiftTemperatureCoordinateMinMax(XYZMinMax_ThisLayer, deltax, scan_direction, "Y");
+                time_shift = shiftTmeltTliquidus(StartTimeStep[LayerReadCount-1], FinishTimeStep[LayerReadCount-1], deltat);
+                if (id == 0) {
+                    std::cout << "Shifting line data by " << raster_shift_x << " m in X, " << raster_shift_y << " m in Y" << std::endl;
+                    std::cout << "Each line's melting/solidification to be offset by " << time_shift << " seconds (or " << round(time_shift/deltat) << " time steps)" << std::endl;
+                }
+                // If number of lines was given, extend domain in the transverse direction to accomodate them
+                // If number of lines wasn't given (defaulted to 0), get the number of lines needed to fill the domain given the length in the scan direction, then trim the domain so that it has equal X and Y dimensions
+                if (NumberOfLines == 0)
+                    NumberOfLines = getNumberOfLines(XYZMinMax_ThisLayer, line_offset, deltax, scan_direction);
+                else
+                    updateTransverseUpperBound(XYZMinMax_ThisLayer, line_offset, NumberOfLines, scan_direction);
+                FinishTimeStep[LayerReadCount-1] += (NumberOfLines-1) * 2 * round(time_shift/deltat);
+                if (id == 0) {
+                    std::cout << "Simulating a total of " << NumberOfLines << " lines scanning in the +/- " << scan_direction << " directions" << std::endl;
+                    std::cout << "Solidification for all lines expected to be complete at time step " << FinishTimeStep[LayerReadCount-1] << std::endl;
+                }
+            }
+            else if (id == 0)
+                std::cout << "Layer " << LayerReadCount-1 << " estimated to begin melting at time step " << StartTimeStep[LayerReadCount-1] << ", finish solidification at time step " << FinishTimeStep[LayerReadCount-1] << std::endl;
 
             // Based on the input file's layer offset, adjust ZMin/ZMax from the temperature data coordinate
             // system to the multilayer CA coordinate system Check to see in the XYZ bounds for this layer are
@@ -373,6 +414,8 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
                     ZMinLayer[LayerReadCount] = ZMinLayer[LayerReadCount - 1] + deltax * LayerHeight;
                     ZMaxLayer[LayerReadCount] = ZMaxLayer[LayerReadCount - 1] + deltax * LayerHeight;
                     ZMax += deltax * LayerHeight;
+                    StartTimeStep[LayerReadCount] = StartTimeStep[LayerReadCount-1];
+                    FinishTimeStep[LayerReadCount] = FinishTimeStep[LayerReadCount-1];
                 }
                 else {
                     // "TempFilesInSeries" temperature files was read, so the upper Z bound should account for
@@ -384,6 +427,8 @@ void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, 
                     ZMaxLayer[LayerReadCount] =
                         ZMaxLayer[RepeatedFile] + RepeatUnit * TempFilesInSeries * deltax * LayerHeight;
                     ZMax += deltax * LayerHeight;
+                    StartTimeStep[LayerReadCount] = StartTimeStep[RepeatedFile];
+                    FinishTimeStep[LayerReadCount] = FinishTimeStep[RepeatedFile];
                 }
             }
         }
@@ -459,7 +504,7 @@ int calc_z_layer_bottom(std::string SimulationType, int LayerHeight, int layernu
         // same for every layer
         z_layer_bottom = LayerHeight * layernumber;
     }
-    else if (SimulationType == "R") {
+    else if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile")) {
         // lower bound of domain is based on the data read from the file(s)
         z_layer_bottom = round((ZMinLayer[layernumber] - ZMin) / deltax);
     }
@@ -482,7 +527,7 @@ int calc_z_layer_top(std::string SimulationType, int SpotRadius, int LayerHeight
         // depending on the layer number
         z_layer_top = SpotRadius + LayerHeight * layernumber;
     }
-    else if (SimulationType == "R") {
+    else if ((SimulationType == "R") || (SimulationType == "LineToRasterFromFile")) {
         // Top of layer comes from the layer's file data (implicitly assumes bottom of layer 0 is the bottom of the
         // overall domain - this should be fixed in the future for edge cases where this isn't true)
         z_layer_top = round((ZMaxLayer[layernumber] - ZMin) / deltax);

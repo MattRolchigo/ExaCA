@@ -23,14 +23,14 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
                        int &nz, double &FractSurfaceSitesActive, int &NSpotsX, int &NSpotsY, int &SpotOffset,
                        int &SpotRadius, double &RNGSeed, bool &BaseplateThroughPowder, double &PowderActiveFraction,
                        bool &LayerwiseTempRead, double &BaseplateTopZ, Print &print, double &InitUndercooling,
-                       int &SingleGrainOrientation);
+                       int &SingleGrainOrientation, std::string &scan_direction, double &line_offset, int &NumberOfLines);
 void checkPowderOverflow(int nx, int ny, int LayerHeight, int NumberOfLayers, bool BaseplateThroughPowder,
                          double PowderDensity);
 void NeighborListInit(NList &NeighborX, NList &NeighborY, NList &NeighborZ);
 void FindXYZBounds(std::string SimulationType, int id, double &deltax, int &nx, int &ny, int &nz,
                    std::vector<std::string> &temp_paths, double &XMin, double &XMax, double &YMin, double &YMax,
                    double &ZMin, double &ZMax, int &LayerHeight, int NumberOfLayers, int TempFilesInSeries,
-                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius);
+                   double *ZMinLayer, double *ZMaxLayer, int SpotRadius, double line_offset, int &NumberOfLines, std::string scan_direction, double &raster_shift_x, double &raster_shift_y, int *StartTimeStep, int *FinishTimeStep, double deltat, double FreezingRange, double &time_shift);
 void DomainDecomposition(int id, int np, int &MyYSlices, int &MyYOffset, int &NeighborRank_North,
                          int &NeighborRank_South, int &nx, int &ny, int &nz, int &DomainSize_AllLayers,
                          bool &AtNorthBoundary, bool &AtSouthBoundary);

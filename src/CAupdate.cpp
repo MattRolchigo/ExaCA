@@ -618,7 +618,7 @@ void IntermediateOutputAndCheck(int id, int np, int &cycle, int ny_local, int Do
     MPI_Bcast(&XSwitch, 1, MPI_INT, 0, MPI_COMM_WORLD);
     // Cells of interest are those currently undergoing a melting-solidification cycle
     unsigned long int RemainingCellsOfInterest = GlobalActiveCells + GlobalSuperheatedCells + GlobalUndercooledCells;
-    if ((XSwitch == 0) && ((SimulationType == "R") || (SimulationType == "S")))
+    if ((XSwitch == 0) && (SimulationType != "C"))
         JumpTimeStep(cycle, RemainingCellsOfInterest, LocalTempSolidCells, temperature, DomainSize, ny_local,
                      z_layer_bottom, cellData, id, layernumber, np, nx, ny, GrainUnitVector, print, NGrainOrientations,
                      nz_layer, nz, deltax, XMin, YMin, ZMin);
