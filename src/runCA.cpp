@@ -329,7 +329,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     MPI_Barrier(MPI_COMM_WORLD);
     // Collect and print specified final fields to output files
     print.printFinalExaCAData(id, np, nx, ny, nz, ny_local, NumberOfLayers, DomainSize, cellData.LayerID_AllLayers,
-                              cellData.CellType_AllLayers, cellData.GrainID_AllLayers, temperature, GrainUnitVector,
+                              cellData.CellType_AllLayers, cellData.GrainID_AllLayers, temperature, GrainUnitVector, cellData.FractMaxTipVelo,
                               NGrainOrientations, deltax, XMin, YMin, ZMin);
 
     // Calculate volume fraction of solidified domain consisting of nucleated grains

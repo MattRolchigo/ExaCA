@@ -246,7 +246,7 @@ struct Print {
     template <typename ViewTypeGrainID, typename ViewTypeLayerID, typename ViewTypeCell, typename ViewTypeGrainUnit>
     void printFinalExaCAData(int id, int np, int nx, int ny, int nz, int ny_local, int NumberOfLayers, int DomainSize,
                              ViewTypeLayerID LayerID, ViewTypeCell CellType, ViewTypeGrainID GrainID,
-                             Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector,
+                             Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector, ViewF Penalization,
                              int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin) {
 
         if (id == 0)
@@ -279,6 +279,8 @@ struct Print {
                                               GrainUnitVector_Host, NGrainOrientations, deltax, XMin, YMin, ZMin,
                                               false);
                 }
+//                auto Penalization_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, Penalization);
+//                printViewData(id, Grainplot, nx, ny, nz, "float", "PenalizationAngle", Penalization_WholeDomain);
                 if ((id == 0) && (_inputs.PrintDefaultRVE))
                     printExaConstitDefaultRVE(nx, ny, nz, LayerID_WholeDomain, GrainID_WholeDomain, deltax,
                                               NumberOfLayers);
