@@ -553,24 +553,32 @@ struct CellData {
         float envelope_orientation_z_norm = envelope_orientation_z / envelope_orientation_mag;
 
         // Determine the closest 100 direction to the envelope orientation
-//        float Angle1_envelope = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
-//        float Angle2_envelope = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
-//        float Angle3_envelope = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
-        float Angle1_envelope = 1.570795 - acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
-        float Angle2_envelope = 1.570795 - acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
-        float Angle3_envelope = 1.570795 - acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
+        float Angle1_envelope = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
+        float Angle2_envelope = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
+        float Angle3_envelope = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
+        float Angle1_envelope_p = 1.570795 - Angle1_envelope;
+        float Angle2_envelope_p = 1.570795 - Angle2_envelope;
+        float Angle3_envelope_p = 1.570795 - Angle3_envelope;
         float Angle4_envelope = 3.14159 - Angle1_envelope;
         float Angle5_envelope = 3.14159 - Angle2_envelope;
         float Angle6_envelope = 3.14159 - Angle3_envelope;
+        float Angle4_envelope_p = 3.14159 - Angle1_envelope_p;
+        float Angle5_envelope_p = 3.14159 - Angle2_envelope_p;
+        float Angle6_envelope_p = 3.14159 - Angle3_envelope_p;
         float tempmin = fmin(abs(Angle1_envelope),abs(Angle2_envelope));
         tempmin = fmin(tempmin,abs(Angle3_envelope));
         tempmin = fmin(tempmin,abs(Angle4_envelope));
         tempmin = fmin(tempmin,abs(Angle5_envelope));
         tempmin = fmin(tempmin,abs(Angle6_envelope));
-        
+        float tempmin_p = fmin(abs(Angle1_envelope_p),abs(Angle2_envelope_p));
+        tempmin_p = fmin(tempmin_p,abs(Angle3_envelope_p));
+        tempmin_p = fmin(tempmin_p,abs(Angle4_envelope_p));
+        tempmin_p = fmin(tempmin_p,abs(Angle5_envelope_p));
+        tempmin_p = fmin(tempmin_p,abs(Angle6_envelope_p));
         // Use this minimum angle (converted to radians and normalized by the max possible misorientation) to calculate the fraction of the tip velocity applied to this portion of the interface
-        float fractMaxTipVelo_this_cell = 1.0 - sqrt(57.295780 * tempmin / 35.264390);
-//        float fractMaxTipVelo_this_cell = 1.0 - (57.295780 * tempmin / 54.7) * (57.295780 * tempmin / 54.7);
+        float pcomp = 1.0 - sqrt(57.295780 * tempmin_p / 35.264390);
+        float dcomp = 1.0 - (57.295780 * tempmin / 54.7) * (57.295780 * tempmin / 54.7);
+        float fractMaxTipVelo_this_cell = dcomp * pcomp;
         return fractMaxTipVelo_this_cell;
     }
 };
