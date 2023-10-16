@@ -164,7 +164,7 @@ void InputReadFromFile(int id, std::string InputFile, std::string &SimulationTyp
         if (SimulationType == "SingleGrain")
             initUndercooling = inputdata["TemperatureData"]["InitUndercooling"];
         else
-            initUndercooling = 0.0;
+            initUndercooling = 10.0;
     }
 
     // Substrate inputs:

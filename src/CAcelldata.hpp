@@ -82,19 +82,19 @@ struct CellData {
 
     // Initializes cell types and epitaxial Grain ID values where substrate grains are future active cells on the bottom
     // surface of the constrained domain
-    void init_substrate(int id, double FractSurfaceSitesActive, int ny_local, int nx, int ny, int y_offset,
-                        double RNGSeed) {
+    void init_substrate(int id, double, int ny_local, int nx, int ny, int y_offset,
+                        double) {
 
         // Calls to Xdist(gen) and Y dist(gen) return random locations for grain seeds
         // Since X = 0 and X = nx-1 are the cell centers of the last cells in X, locations are evenly scattered between
         // X = -0.49999 and X = nx - 0.5, as the cells have a half width of 0.5
-        std::mt19937_64 gen(RNGSeed);
-        std::uniform_real_distribution<double> Xdist(-0.49999, nx - 0.5);
-        std::uniform_real_distribution<double> Ydist(-0.49999, ny - 0.5);
+//        std::mt19937_64 gen(RNGSeed);
+//        std::uniform_real_distribution<double> Xdist(-0.49999, nx - 0.5);
+//        std::uniform_real_distribution<double> Ydist(-0.49999, ny - 0.5);
 
         // Determine number of active cells from the fraction of sites active and the number of sites on the bottom
         // domain surface
-        int SubstrateActCells = std::round(FractSurfaceSitesActive * nx * ny);
+        int SubstrateActCells = 2;
 
         // On all ranks, generate active site locations - same list on every rank
         // TODO: Generate random numbers on GPU, instead of using host view and copying over - ensure that locations are
@@ -102,15 +102,21 @@ struct CellData {
         view_type_int_host ActCellX_Host(Kokkos::ViewAllocateWithoutInitializing("ActCellX_Host"), SubstrateActCells);
         view_type_int_host ActCellY_Host(Kokkos::ViewAllocateWithoutInitializing("ActCellY_Host"), SubstrateActCells);
 
+        int center_x = round(nx/2);
+        int center_y = round(ny/2);
+        ActCellX_Host(0) = center_x + round(nx/4);
+        ActCellY_Host(0) = center_y;
+        ActCellX_Host(1) = center_x - round(nx/4);
+        ActCellY_Host(1) = center_y;
         // Randomly locate substrate grain seeds for cells in the interior of this subdomain (at the k = 0 bottom
         // surface)
-        for (int n = 0; n < SubstrateActCells; n++) {
-            double XLocation = Xdist(gen);
-            double YLocation = Ydist(gen);
-            // Randomly select integer coordinates between 0 and nx-1 or ny-1
-            ActCellX_Host(n) = round(XLocation);
-            ActCellY_Host(n) = round(YLocation);
-        }
+//        for (int n = 0; n < SubstrateActCells; n++) {
+//            double XLocation = Xdist(gen);
+//            double YLocation = Ydist(gen);
+//            // Randomly select integer coordinates between 0 and nx-1 or ny-1
+//            ActCellX_Host(n) = round(XLocation);
+//            ActCellY_Host(n) = round(YLocation);
+//        }
 
         // Copy views of substrate grain locations back to the device
         auto ActCellX_Device = Kokkos::create_mirror_view_and_copy(memory_space(), ActCellX_Host);
@@ -136,7 +142,10 @@ struct CellData {
                     int coord_z = 0;
                     int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
                     CellType_AllLayers_local(index) = FutureActive;
-                    GrainID_AllLayers_local(index) = n + 1; // assign GrainID > 0 to epitaxial seeds
+                    if (n == 0)
+                        GrainID_AllLayers_local(index) = 25; // assign GrainID > 0 to epitaxial seeds            
+                    else if (n == 1)
+                        GrainID_AllLayers_local(index) = 9936; // assign GrainID > 0 to epitaxial seeds
                 }
             });
         if (id == 0)
