@@ -20,7 +20,7 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
                                            ViewI SendSizeSouth, const int ny_local, const int coord_x,
                                            const int coord_y, const int coord_z, const bool AtNorthBoundary,
                                            const bool AtSouthBoundary, Buffer2D BufferSouthSend,
-                                           Buffer2D BufferNorthSend, int NGrainOrientations, int BufSize) {
+                                           Buffer2D BufferNorthSend, int NGrainOrientations, int BufSize, const float  GhostFractTipV, const float GhostGrainX, const float GhostGrainY, const float GhostGrainZ, const short GhostSpawnDirection) {
     bool DataFitsInBuffer = true;
     if ((coord_y == 1) && (!(AtSouthBoundary))) {
         int GNPositionSouth = Kokkos::atomic_fetch_add(&SendSizeSouth(0), 1);
@@ -36,6 +36,11 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
             BufferSouthSend(GNPositionSouth, 5) = GhostDOCY;
             BufferSouthSend(GNPositionSouth, 6) = GhostDOCZ;
             BufferSouthSend(GNPositionSouth, 7) = GhostDL;
+            BufferSouthSend(GNPositionSouth, 8) = GhostFractTipV;
+            BufferSouthSend(GNPositionSouth, 9) = GhostGrainX;
+            BufferSouthSend(GNPositionSouth, 10) = GhostGrainY;
+            BufferSouthSend(GNPositionSouth, 11) = GhostGrainZ;
+            BufferSouthSend(GNPositionSouth, 12) = static_cast<float>(GhostSpawnDirection);
         }
     }
     else if ((coord_y == ny_local - 2) && (!(AtNorthBoundary))) {
@@ -52,6 +57,11 @@ KOKKOS_INLINE_FUNCTION bool loadghostnodes(const int GhostGID, const float Ghost
             BufferNorthSend(GNPositionNorth, 5) = GhostDOCY;
             BufferNorthSend(GNPositionNorth, 6) = GhostDOCZ;
             BufferNorthSend(GNPositionNorth, 7) = GhostDL;
+            BufferNorthSend(GNPositionNorth, 8) = GhostFractTipV;
+            BufferNorthSend(GNPositionNorth, 9) = GhostGrainX;
+            BufferNorthSend(GNPositionNorth, 10) = GhostGrainY;
+            BufferNorthSend(GNPositionNorth, 11) = GhostGrainZ;
+            BufferNorthSend(GNPositionNorth, 12) = static_cast<float>(GhostSpawnDirection);
         }
     }
     return DataFitsInBuffer;
@@ -66,11 +76,11 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
 void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_space> &cellData,
                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                   int NGrainOrientations, int BufSize);
+                   int NGrainOrientations, int BufSize, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity);
 void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int y_offset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents);
+                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity);
 
 #endif

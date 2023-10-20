@@ -31,7 +31,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
                  Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                  int nz_layer, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
-                 bool AtSouthBoundary, int &BufSize);
+                 bool AtSouthBoundary, int &BufSize, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity);
 void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, unsigned long int LocalTempSolidCells,
                   Temperature<device_memory_space> &temperature, int DomainSize, int ny_local, int z_layer_bottom,
                   CellData<device_memory_space> &cellData, int id, int layernumber, int np, int nx, int ny,

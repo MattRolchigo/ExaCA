@@ -90,6 +90,7 @@ struct PrintInputs {
     bool PrintFinalCritTimeStep = false;
     bool PrintFinalUndercoolingChange = false;
     bool PrintFinalCellType = false;
+    bool PrintFinalFractMaxTipVelocity = true;
 
     // Print intermediate output of grain misorientation in time
     bool PrintTimeSeries = false;

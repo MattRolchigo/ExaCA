@@ -1,0 +1,41 @@
+{
+   "SimulationType": "C",
+   "MaterialFileName": "examples/Materials/Inconel625KGT.json",
+   "GrainOrientationFile": "GrainOrientationVectors.csv",
+   "RandomSeed": 0.0,
+   "Domain": {
+       "CellSize": 1.25,
+       "TimeStep": 0.0625,
+       "Nx": 400,
+       "Ny": 400,
+       "Nz": 400
+   },
+   "Nucleation": {
+      "Density": 0,
+      "MeanUndercooling": 5,
+      "StDev": 0.5
+   },
+   "TemperatureData": {
+      "InitUndercooling": 0,
+      "G": 5000000,
+      "R": 1000000
+   },
+   "Substrate": {
+      "GrainLocationsX": [100, 100],
+      "GrainLocationsY": [150, 250],
+      "GrainIDs": [25, 9936],
+      "FillBottomSurface": false
+   },
+   "Printing": {
+      "PathToOutput": "./",
+      "OutputFile": "BicrystalPenalized",
+      "PrintBinary": true,
+      "PrintExaConstitSize": 0,
+      "PrintFieldsInit": [""],
+      "PrintFieldsFinal": ["GrainMisorientation", "UndercoolingCurrent"],
+      "PrintIntermediateOutput": {
+          "Frequency": 100,
+          "PrintIdleFrames": false
+      }
+   }
+}

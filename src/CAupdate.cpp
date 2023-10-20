@@ -148,7 +148,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
                  Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                  int nz_layer, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
-                 bool AtSouthBoundary, int &BufSize) {
+                 bool AtSouthBoundary, int &BufSize, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -167,7 +167,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // Update local diagonal length of active cell
                 double LocU = temperature.UndercoolingCurrent(index);
                 LocU = min(210.0, LocU);
-                double V = irf.compute(LocU);
+                double V = FractMaxTipVelocity(index) * irf.compute(LocU);
                 DiagonalLength(index) += min(0.045, V); // Max amount the diagonal can grow per time step
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
@@ -370,6 +370,9 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                 DOCenter(3 * neighbor_index + 1) = cy;
                                 DOCenter(3 * neighbor_index + 2) = cz;
 
+                                // calculate parameters used to penalize octahedron growth and govern branching of the grain
+                                calcOctahedronPenalization(xp, yp, zp, MyOrientation, GrainUnitVector, index, neighbor_index, SpawnDirection, GrainCenterLocation, FractMaxTipVelocity);
+
                                 // Get new critical diagonal length values for the newly activated cell (at array
                                 // position "neighbor_index")
                                 calcCritDiagonalLength(neighbor_index, xp, yp, zp, cx, cy, cz, NeighborX, NeighborY,
@@ -383,13 +386,19 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                     float GhostDOCY = cy;
                                     float GhostDOCZ = cz;
                                     float GhostDL = NewODiagL;
+                                    float GhostFractTipV = FractMaxTipVelocity(neighbor_index);
+                                    // Grain center = octahedron center for just-activated cell
+                                    float GhostGrainX = GrainCenterLocation(3 * neighbor_index);
+                                    float GhostGrainY = GrainCenterLocation(3 * neighbor_index + 1);
+                                    float GhostGrainZ = GrainCenterLocation(3 * neighbor_index + 2);
+                                    short GhostSpawnDirection = SpawnDirection(neighbor_index);
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     bool DataFitsInBuffer = loadghostnodes(
                                         GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth,
                                         SendSizeSouth, ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z,
                                         AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                                        NGrainOrientations, BufSize);
+                                        NGrainOrientations, BufSize, GhostFractTipV, GhostGrainX, GhostGrainY, GhostGrainZ, GhostSpawnDirection);
                                     if (!(DataFitsInBuffer)) {
                                         // This cell's data did not fit in the buffer with current size BufSize - mark
                                         // with temporary type
@@ -433,7 +442,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 int MyGrainID = GrainID(index);    // GrainID was assigned as part of Nucleation
 
                 // Initialize new octahedron
-                createNewOctahedron(index, DiagonalLength, DOCenter, coord_x, coord_y, y_offset, coord_z);
+                createNewOctahedron(index, DiagonalLength, DOCenter, coord_x, coord_y, y_offset, coord_z, SpawnDirection, GrainCenterLocation, FractMaxTipVelocity);
                 // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative GrainID
                 // values)
                 int MyOrientation = getGrainOrientation(MyGrainID, NGrainOrientations);
@@ -454,11 +463,17 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                     float GhostDOCY = cy;
                     float GhostDOCZ = cz;
                     float GhostDL = 0.01;
+                    float GhostFractTipV = 1.0;
+                    // Grain center = octahedron center for just-activated cell
+                    float GhostGrainX = cx;
+                    float GhostGrainY = cy;
+                    float GhostGrainZ = cz;
+                    short GhostSpawnDirection = -1;
                     // Collect data for the ghost nodes, if necessary
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, GhostFractTipV, GhostGrainX, GhostGrainY, GhostGrainZ, GhostSpawnDirection);
                     if (!(DataFitsInBuffer)) {
                         // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                         // type
@@ -481,7 +496,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // length
                 bool DataFitsInBuffer = loadghostnodes(
                     -1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, coord_y, coord_z,
-                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, -1.0, -1.0, -1.0, -1.0, -1);
                 if (!(DataFitsInBuffer)) {
                     // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                     // type

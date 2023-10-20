@@ -82,7 +82,7 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
 void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_space> &cellData,
                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                   int NGrainOrientations, int BufSize) {
+                   int NGrainOrientations, int BufSize, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
@@ -97,12 +97,17 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     float GhostDOCY = DOCenter(3 * CellCoordinateSouth + 1);
                     float GhostDOCZ = DOCenter(3 * CellCoordinateSouth + 2);
                     float GhostDL = DiagonalLength(CellCoordinateSouth);
+                    float GhostFractTipV = FractMaxTipVelocity(CellCoordinateSouth);
+                    float GhostGrainX = GrainCenterLocation(3*CellCoordinateSouth);
+                    float GhostGrainY = GrainCenterLocation(3*CellCoordinateSouth + 1);
+                    float GhostGrainZ = GrainCenterLocation(3*CellCoordinateSouth + 2);
+                    short GhostSpawnDirection = SpawnDirection(CellCoordinateSouth);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, 1, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferNorthSend, NGrainOrientations, BufSize, GhostFractTipV, GhostGrainX, GhostGrainY, GhostGrainZ, GhostSpawnDirection);
                     CellType(CellCoordinateSouth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -115,7 +120,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     bool DataFitsInBuffer =
                         loadghostnodes(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, 1,
                                        coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                                       NGrainOrientations, BufSize);
+                                       NGrainOrientations, BufSize, -1.0, -1.0, -1.0, -1.0, -1);
                     CellType(CellCoordinateSouth) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -128,12 +133,17 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     float GhostDOCY = DOCenter(3 * CellCoordinateNorth + 1);
                     float GhostDOCZ = DOCenter(3 * CellCoordinateNorth + 2);
                     float GhostDL = DiagonalLength(CellCoordinateNorth);
+                    float GhostFractTipV = FractMaxTipVelocity(CellCoordinateNorth);
+                    float GhostGrainX = GrainCenterLocation(3*CellCoordinateNorth );
+                    float GhostGrainY = GrainCenterLocation(3*CellCoordinateNorth + 1);
+                    float GhostGrainZ = GrainCenterLocation(3*CellCoordinateNorth + 2);
+                    short GhostSpawnDirection = SpawnDirection(CellCoordinateNorth);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, ny_local - 2, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, GhostFractTipV, GhostGrainX, GhostGrainY, GhostGrainZ, GhostSpawnDirection);
                     CellType(CellCoordinateNorth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -146,7 +156,7 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     bool DataFitsInBuffer =
                         loadghostnodes(-1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x,
                                        ny_local - 2, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferNorthSend, NGrainOrientations, BufSize, -1.0, -1.0, -1.0, -1.0, -1);
                     CellType(CellCoordinateNorth) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -164,7 +174,7 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents) {
+                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewS SpawnDirection, ViewF GrainCenterLocation, ViewF FractMaxTipVelocity) {
 
     std::vector<MPI_Request> SendRequests(2, MPI_REQUEST_NULL);
     std::vector<MPI_Request> RecvRequests(2, MPI_REQUEST_NULL);
@@ -198,7 +208,8 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
             Kokkos::parallel_for(
                 "BufferUnpack", BufSize, KOKKOS_LAMBDA(const int &BufPosition) {
                     int coord_x, coord_y, coord_z, index, NewGrainID;
-                    float DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength;
+                    short SpawnDir;
+                    float DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength, GrainCenterX, GrainCenterY, GrainCenterZ, FractMaxTipV;
                     bool Place = false;
                     // Which rank was the data received from? Is there valid data at this position in the buffer (i.e.,
                     // not set to -1.0)?
@@ -221,6 +232,11 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                             DOCenterY = BufferSouthRecv(BufPosition, 5);
                             DOCenterZ = BufferSouthRecv(BufPosition, 6);
                             NewDiagonalLength = BufferSouthRecv(BufPosition, 7);
+                            FractMaxTipV = BufferSouthRecv(BufPosition, 8);
+                            GrainCenterX = BufferSouthRecv(BufPosition, 9);
+                            GrainCenterY = BufferSouthRecv(BufPosition, 10);
+                            GrainCenterZ = BufferSouthRecv(BufPosition, 11);
+                            SpawnDir = static_cast<short>(BufferSouthRecv(BufPosition, 12));
                         }
                         else if ((CellType(index) == Active) && (BufferSouthRecv(BufPosition, 7) == 0.0)) {
                             CellType(index) = Liquid;
@@ -245,6 +261,11 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                             DOCenterY = BufferNorthRecv(BufPosition, 5);
                             DOCenterZ = BufferNorthRecv(BufPosition, 6);
                             NewDiagonalLength = BufferNorthRecv(BufPosition, 7);
+                            FractMaxTipV = BufferNorthRecv(BufPosition, 8);
+                            GrainCenterX = BufferNorthRecv(BufPosition, 9);
+                            GrainCenterY = BufferNorthRecv(BufPosition, 10);
+                            GrainCenterZ = BufferNorthRecv(BufPosition, 11);
+                            SpawnDir = static_cast<short>(BufferNorthRecv(BufPosition, 12));
                         }
                         else if ((CellType(index) == Active) && (BufferNorthRecv(BufPosition, 7) == 0.0)) {
                             CellType(index) = Liquid;
@@ -258,6 +279,11 @@ void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int 
                         DOCenter(3 * index + 2) = DOCenterZ;
                         int MyOrientation = getGrainOrientation(GrainID(index), NGrainOrientations);
                         DiagonalLength(index) = static_cast<float>(NewDiagonalLength);
+                        FractMaxTipVelocity(index) = FractMaxTipV;
+                        GrainCenterLocation(3 * index) = GrainCenterX;
+                        GrainCenterLocation(3 * index + 1) = GrainCenterY;
+                        GrainCenterLocation(3 * index + 2) = GrainCenterZ;
+                        SpawnDirection(index) = SpawnDir;
                         // Cell center - note that the Y coordinate is relative to the domain origin to keep the
                         // coordinate system continuous across ranks
                         double xp = coord_x + 0.5;
