@@ -246,7 +246,7 @@ struct Print {
     template <typename ViewTypeGrainID, typename ViewTypeLayerID, typename ViewTypeCell, typename ViewTypeGrainUnit>
     void printFinalExaCAData(int id, int np, int nx, int ny, int nz, int ny_local, int NumberOfLayers, int DomainSize,
                              ViewTypeLayerID LayerID, ViewTypeCell CellType, ViewTypeGrainID GrainID,
-                             Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector, ViewF Penalization,
+                             Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector, ViewF,
                              int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin) {
 
         if (id == 0)

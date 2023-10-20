@@ -51,7 +51,7 @@ struct CellData {
     CellData(int DomainSize_AllLayers, int DomainSize, int nx, int ny_local, int z_layer_bottom, SubstrateInputs inputs)
         : GrainID_AllLayers(view_type_int("GrainID", DomainSize_AllLayers))
         , CellType_AllLayers(view_type_int(Kokkos::ViewAllocateWithoutInitializing("CellType"), DomainSize_AllLayers))
-        , FractMaxTipVelo(view_type_float(Kokkos::ViewAllocateWithoutInitializing("FractMaxTipVelo"), DomainSize)) {
+        , FractMaxTipVelo(view_type_float(Kokkos::ViewAllocateWithoutInitializing("FractMaxTipVelo"), DomainSize))
         , LayerID_AllLayers(view_type_short(Kokkos::ViewAllocateWithoutInitializing("LayerID"), DomainSize_AllLayers))
         , _inputs(inputs) {
 
