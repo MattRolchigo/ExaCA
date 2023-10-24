@@ -247,7 +247,7 @@ struct Print {
     void printFinalExaCAData(int id, int np, int nx, int ny, int nz, int ny_local, int NumberOfLayers, int DomainSize,
                              ViewTypeLayerID LayerID, ViewTypeCell CellType, ViewTypeGrainID GrainID,
                              Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector,
-                             int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin, ViewTypeGrainUnit FractMaxTipVelocity) {
+                             int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin, ViewTypeGrainUnit FractMaxTipVelocity, ViewS SpawnDirection) {
 
         if (id == 0)
             std::cout << "Printing final data structures to vtk files" << std::endl;
@@ -324,6 +324,10 @@ struct Print {
             if (_inputs.PrintFinalFractMaxTipVelocity) {
                 auto FractMaxTipVelocity_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, FractMaxTipVelocity);
                 printViewData(id, GrainplotF, nx, ny, nz, "float", "FractMaxTipVelocity", FractMaxTipVelocity_WholeDomain);
+            }
+            if (_inputs.PrintFinalSpawnDirection) {
+                auto SpawnDirection_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_SHORT, SpawnDirection);
+                printViewData(id, GrainplotF, nx, ny, nz, "short", "SpawnDirection", SpawnDirection_WholeDomain);
             }
             if (id == 0)
                 GrainplotF.close();

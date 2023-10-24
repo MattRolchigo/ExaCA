@@ -30,7 +30,7 @@ KOKKOS_INLINE_FUNCTION void createNewOctahedron(const int index, ViewTypeFloat D
 
 template <typename ViewTypeFloat, typename ViewTypeShort>
 KOKKOS_INLINE_FUNCTION
-void calcOctahedronPenalization(const double xp, const double yp, const double zp, int MyOrientation, ViewF GrainUnitVector, const int old_cell_index, const int new_cell_index, ViewTypeShort SpawnDirection, ViewTypeFloat GrainCenterLocation, ViewTypeFloat FractMaxTipVelocity) {
+void calcOctahedronPenalization(const double xp, const double yp, const double zp, int MyOrientation, ViewF GrainUnitVector, const int old_cell_index, const int new_cell_index, ViewTypeShort SpawnDirection, ViewTypeFloat GrainCenterLocation, ViewTypeFloat FractMaxTipVelocity, float arm_spacing = 45.0) {
 
     // Get the x,y,z coordinates of the cell that originally spawned this chain of capture events (considered to be the grain center)
     // Note that this 1D value is relative to the domain's original to keep the coordinate system continuous across ranks
@@ -43,30 +43,102 @@ void calcOctahedronPenalization(const double xp, const double yp, const double z
     float envelope_orientation_y = yp - grain_center_y;
     float envelope_orientation_z = zp - grain_center_z;
     float envelope_orientation_mag = sqrtf(envelope_orientation_x * envelope_orientation_x + envelope_orientation_y * envelope_orientation_y + envelope_orientation_z * envelope_orientation_z);
-    float envelope_orientation_x_norm = envelope_orientation_x / envelope_orientation_mag;
-    float envelope_orientation_y_norm = envelope_orientation_y / envelope_orientation_mag;
-    float envelope_orientation_z_norm = envelope_orientation_z / envelope_orientation_mag;
-
-    // Determine the closest 100 direction to the envelope orientation and the index of said angle
-    float Angle_envelope[6];
-    Angle_envelope[0] = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
-    Angle_envelope[1] = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
-    Angle_envelope[2] = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
-    Angle_envelope[3] = 3.14159 - Angle_envelope[0];
-    Angle_envelope[4] = 3.14159 - Angle_envelope[1];
-    Angle_envelope[5] = 3.14159 - Angle_envelope[2];
-    float min_misorientation = abs(Angle_envelope[0]);
-    short spawn_dir_min_misorientation = 0;
-    for (short dir=1; dir<6; dir++) {
-        if (abs(Angle_envelope[dir]) < min_misorientation) {
-            min_misorientation = abs(Angle_envelope[dir]);
-            spawn_dir_min_misorientation = dir;
+    if (envelope_orientation_mag <= 3) {
+        // Envelope not large enough to apply penalization without significant error due to the grid
+        FractMaxTipVelocity(new_cell_index) = 1.0;
+        SpawnDirection(new_cell_index) = -1;
+    }
+    else {
+        float envelope_orientation_x_norm = envelope_orientation_x / envelope_orientation_mag;
+        float envelope_orientation_y_norm = envelope_orientation_y / envelope_orientation_mag;
+        float envelope_orientation_z_norm = envelope_orientation_z / envelope_orientation_mag;
+        
+        // Determine the closest 100 direction to the envelope orientation and the index of said angle
+        float Angle_envelope[6];
+        Angle_envelope[0] = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
+        Angle_envelope[1] = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
+        Angle_envelope[2] = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
+        Angle_envelope[3] = 3.14159 - Angle_envelope[0];
+        Angle_envelope[4] = 3.14159 - Angle_envelope[1];
+        Angle_envelope[5] = 3.14159 - Angle_envelope[2];
+        short spawn_dir_min_misorientation = 0;
+        float min_misorientation = abs(Angle_envelope[0]);
+        for (short dir=1; dir<6; dir++) {
+            if (abs(Angle_envelope[dir]) < min_misorientation) {
+                min_misorientation = abs(Angle_envelope[dir]);
+                spawn_dir_min_misorientation = dir;
+            }
+        }
+        
+        // Check if the captured cell center is closer to the original grain center (grain_center_x,grain_center_y,grain_center_z) or to another grain center along unit vector direction "spawn_dir_min_misorientation"
+        int dx = spawn_dir_min_misorientation % 3;
+        float uv_x = (1 - 2 * (spawn_dir_min_misorientation > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx);
+        float uv_y = (1 - 2 * (spawn_dir_min_misorientation > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx + 1);
+        float uv_z = (1 - 2 * (spawn_dir_min_misorientation > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx + 2);
+        float dist_to_potential_center_x = xp - (grain_center_x + arm_spacing * uv_x);
+        float dist_to_potential_center_y = yp - (grain_center_y + arm_spacing * uv_y);
+        float dist_to_potential_center_z = zp - (grain_center_z + arm_spacing * uv_z);
+        float dist_to_potential_center = sqrtf(dist_to_potential_center_x * dist_to_potential_center_x + dist_to_potential_center_y * dist_to_potential_center_y + dist_to_potential_center_z * dist_to_potential_center_z);
+        if (envelope_orientation_mag > dist_to_potential_center) {
+            // Closer to new branch nexus than original grain center - create new grain "center"
+            grain_center_x += arm_spacing * uv_x;
+            grain_center_y += arm_spacing * uv_y;
+            grain_center_z += arm_spacing * uv_z;
+    
+            // Orientation of this portion of the solid-liquid interface with respect to the new grain center
+            envelope_orientation_x = xp - grain_center_x;
+            envelope_orientation_y = yp - grain_center_y;
+            envelope_orientation_z = zp - grain_center_z;
+            envelope_orientation_mag = sqrtf(envelope_orientation_x * envelope_orientation_x + envelope_orientation_y * envelope_orientation_y + envelope_orientation_z * envelope_orientation_z);
+            envelope_orientation_x_norm = envelope_orientation_x / envelope_orientation_mag;
+            envelope_orientation_y_norm = envelope_orientation_y / envelope_orientation_mag;
+            envelope_orientation_z_norm = envelope_orientation_z / envelope_orientation_mag;
+    
+            // Using the new grain center, determine the 100 direction to the envelope orientation and the index of said angle
+            spawn_dir_min_misorientation = 0;
+            Angle_envelope[0] = acos(GrainUnitVector(9 * MyOrientation) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 1) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 2) * envelope_orientation_z_norm);
+            Angle_envelope[1] = acos(GrainUnitVector(9 * MyOrientation + 3) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 4) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 5) * envelope_orientation_z_norm);
+            Angle_envelope[2] = acos(GrainUnitVector(9 * MyOrientation + 6) * envelope_orientation_x_norm + GrainUnitVector(9 * MyOrientation + 7) * envelope_orientation_y_norm + GrainUnitVector(9 * MyOrientation + 8) * envelope_orientation_z_norm);
+            Angle_envelope[3] = 3.14159 - Angle_envelope[0];
+            Angle_envelope[4] = 3.14159 - Angle_envelope[1];
+            Angle_envelope[5] = 3.14159 - Angle_envelope[2];
+            min_misorientation = abs(Angle_envelope[0]);
+            for (short dir=1; dir<6; dir++) {
+                if (abs(Angle_envelope[dir]) < min_misorientation) {
+                    min_misorientation = abs(Angle_envelope[dir]);
+                    spawn_dir_min_misorientation = dir;
+                }
+            }
+            // Use this minimum angle (converted to radians and normalized by the max possible misorientation) to calculate the fraction of the tip velocity applied to this portion of the interface
+            // Anything within 5 degrees of the grain unit vectors is not penalized, other orientations are penalized based on how far they are from the 5 degree cutoff
+            if (min_misorientation < 0.0872665) {
+                min_misorientation = 0;
+                FractMaxTipVelocity(new_cell_index) = 1.0;
+            }
+            else {
+                min_misorientation = min_misorientation - 0.0872665;
+                FractMaxTipVelocity(new_cell_index) = 1.0 - sqrt(57.295780 * min_misorientation / 49.7);
+            }
+            SpawnDirection(new_cell_index) = spawn_dir_min_misorientation;
+        }
+       else {
+            // Closer to original grain center than the next branch nexus
+            // Use this minimum angle (converted to radians and normalized by the max possible misorientation) to calculate the fraction of the tip velocity applied to this portion of the interface
+            // Anything within 5 degrees of the grain unit vectors is not penalized, other orientations are penalized based on how far they are from the 5 degree cutoff
+            if (min_misorientation < 0.0872665) {
+                min_misorientation = 0;
+                FractMaxTipVelocity(new_cell_index) = 1.0;
+            }
+            else {
+                min_misorientation = min_misorientation - 0.0872665;
+                FractMaxTipVelocity(new_cell_index) = 1.0 - sqrt(57.295780 * min_misorientation / 49.7);
+                if (FractMaxTipVelocity(new_cell_index) < 0.0)
+                    printf("Min misorientation = %f\n",min_misorientation);
+            }
+            SpawnDirection(new_cell_index) = spawn_dir_min_misorientation;
         }
     }
-    // Use this minimum angle (converted to radians and normalized by the max possible misorientation) to calculate the fraction of the tip velocity applied to this portion of the interface
-    FractMaxTipVelocity(new_cell_index) = 1.0 - sqrt(57.295780 * min_misorientation / 54.7);
-    SpawnDirection(new_cell_index) = spawn_dir_min_misorientation;
-    // Use old grain center
+    // Assign grain center for captured cell
     GrainCenterLocation(3 * new_cell_index) = grain_center_x;
     GrainCenterLocation(3 * new_cell_index + 1) = grain_center_y;
     GrainCenterLocation(3 * new_cell_index + 2) = grain_center_z;

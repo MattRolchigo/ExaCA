@@ -334,7 +334,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // Collect and print specified final fields to output files
     print.printFinalExaCAData(id, np, nx, ny, nz, ny_local, NumberOfLayers, DomainSize, cellData.LayerID_AllLayers,
                               cellData.CellType_AllLayers, cellData.GrainID_AllLayers, temperature, GrainUnitVector,
-                              NGrainOrientations, deltax, XMin, YMin, ZMin, FractMaxTipVelocity);
+                              NGrainOrientations, deltax, XMin, YMin, ZMin, FractMaxTipVelocity, SpawnDirection);
 
     // Calculate volume fraction of solidified domain consisting of nucleated grains
     float VolFractionNucleated = calcVolFractionNucleated(id, nx, ny_local, DomainSize, cellData.LayerID_AllLayers,
