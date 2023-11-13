@@ -142,13 +142,13 @@ void FillSteeringVector_Remelt(int cycle, int DomainSize, int nx, int ny_local, 
 }
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
-void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
+void CellCapture(int id, int np, int, int nx, int ny_local, InterfacialResponseFunction irf, int y_offset, NList NeighborX,
                  NList NeighborY, NList NeighborZ, ViewF GrainUnitVector, ViewF CritDiagonalLength,
                  ViewF DiagonalLength, CellData<device_memory_space> &cellData,
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
                  Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                  int nz_layer, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
-                 bool AtSouthBoundary, int &BufSize) {
+                 bool AtSouthBoundary, int &BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewF SecondBranchF, ViewS BranchDir, float c, float f_transient, float penalization_factor, float theta_min) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -167,8 +167,9 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // Update local diagonal length of active cell
                 double LocU = temperature.UndercoolingCurrent(index);
                 LocU = min(210.0, LocU);
-                double V = irf.compute(LocU);
-                DiagonalLength(index) += min(0.045, V); // Max amount the diagonal can grow per time step
+                double V = FractMaxTipVelocity(index) * irf.compute(LocU);
+                double VMax = 0.045 * FractMaxTipVelocity(index);
+                DiagonalLength(index) += min(V, VMax); // Max amount the diagonal can grow per time step
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
                 bool DeactivateCell = true; // switch that becomes false if the cell has at least 1 liquid type neighbor
@@ -374,6 +375,127 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                 // position "neighbor_index")
                                 calcCritDiagonalLength(neighbor_index, xp, yp, zp, cx, cy, cz, NeighborX, NeighborY,
                                                        NeighborZ, MyOrientation, GrainUnitVector, CritDiagonalLength);
+                                // The branch center for the captured cell and the penalization factor for the captured cell are computed using two fractions of the max tip velocity: one assuming this cell remains on the original branch (f_orig) and one assuming this cell spawned from a new branch with a new center location (f_new)
+                                // Step 1.1: calculate l_orig, the vector connecting the captured cell center (xp, yp, zp) to the branch nexus from the cell that triggered the capture event (B_orig)
+                                float B_orig_x = BranchCenterLocation(3 * index);
+                                float B_orig_y = BranchCenterLocation(3 * index + 1);
+                                float B_orig_z = BranchCenterLocation(3 * index + 2);
+                                float l_orig_x = xp - B_orig_x;
+                                float l_orig_y = yp - B_orig_y;
+                                float l_orig_z = zp - B_orig_z;
+                                float l_orig_mag = sqrtf(l_orig_x * l_orig_x + l_orig_y * l_orig_y + l_orig_z * l_orig_z);
+                                if ((l_orig_mag <= 3) && (SecondBranchF(index) == 1.0)) {
+                                    FractMaxTipVelocity(neighbor_index) = 1.0;
+                                    BranchCenterLocation(3 * neighbor_index) = BranchCenterLocation(3 * index);
+                                    BranchCenterLocation(3 * neighbor_index + 1) = BranchCenterLocation(3 * index + 1);
+                                    BranchCenterLocation(3 * neighbor_index + 2) = BranchCenterLocation(3 * index + 2);
+                                    SecondBranchF(neighbor_index) = 1.0;
+                                }
+                                else {
+                                    float f_orig, f_new;
+                                    
+                                    float Angle_envelope_orig[6];
+                                    float l_orig_x_norm = l_orig_x / l_orig_mag;
+                                    float l_orig_y_norm = l_orig_y / l_orig_mag;
+                                    float l_orig_z_norm = l_orig_z / l_orig_mag;
+                                    Angle_envelope_orig[0] = acos(GrainUnitVector(9 * MyOrientation) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_orig_z_norm);
+                                    Angle_envelope_orig[1] = acos(GrainUnitVector(9 * MyOrientation + 3) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_orig_z_norm);
+                                    Angle_envelope_orig[2] = acos(GrainUnitVector(9 * MyOrientation + 6) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_orig_z_norm);
+                                    Angle_envelope_orig[3] = 3.14159 - Angle_envelope_orig[0];
+                                    Angle_envelope_orig[4] = 3.14159 - Angle_envelope_orig[1];
+                                    Angle_envelope_orig[5] = 3.14159 - Angle_envelope_orig[2];
+                                    // Step 1.3: with l_orig and the six potential <100>, can calculate the penalization angle theta_orig. This is normalized between 0 and 1, where theta within some cutoff theta_min of 0 is set to 0, and the max misorientation is 1
+                                    float theta_orig = abs(Angle_envelope_orig[0]);
+                                    short theta_index_orig = 0;
+                                    for (short dir=1; dir<6; dir++) {
+                                        if (abs(Angle_envelope_orig[dir]) < theta_orig) {
+                                            theta_orig = abs(Angle_envelope_orig[dir]);
+                                            theta_index_orig = dir;
+                                        }
+                                    }
+                                    // This angle is in radians, and should be normalized by the max possible misorientation of 62.8 degrees (or 1.096067 radians) being equal to 1 and any value at or less than theta_min degrees being equal to 0
+                                    if (theta_orig < theta_min)
+                                        theta_orig = theta_min;
+                                    float theta_orig_norm = (theta_orig - theta_min) / (1.096067 - theta_min);
+                                    // Step 1.4: use the normalized angle theta_orig_norm to calculate f_orig
+                                    f_orig = 1.0 - pow(theta_orig_norm, penalization_factor);
+                                    
+                                    // Step 2.1: find new potential branch center B_new and l_new, the vector from the B_new to the captured cell center xp,yp,zp
+                                    // First project xp,yp,zp onto the <100> direction determined in step 1.3 (g_orig)
+                                    float projection_new_mag, B_new_x, B_new_y, B_new_z, g_orig_x, g_orig_y, g_orig_z, l_new_x, l_new_y, l_new_z, l_new_mag;
+                                    projection_new_mag = l_orig_mag * cos(theta_orig);
+                                    int dx = theta_index_orig % 3;
+                                    g_orig_x = (1 - 2 * (theta_index_orig > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx);
+                                    g_orig_y = (1 - 2 * (theta_index_orig > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx + 1);
+                                    g_orig_z = (1 - 2 * (theta_index_orig > 2)) * GrainUnitVector(9 * MyOrientation + 3 * dx + 2);
+                                    B_new_x = B_orig_x + projection_new_mag * g_orig_x;
+                                    B_new_y = B_orig_y + projection_new_mag * g_orig_y;
+                                    B_new_z = B_orig_z + projection_new_mag * g_orig_z;
+                                    l_new_x = xp - B_new_x;
+                                    l_new_y = yp - B_new_y;
+                                    l_new_z = zp - B_new_z;
+                                    l_new_mag = sqrtf(l_new_x * l_new_x + l_new_y * l_new_y + l_new_z * l_new_z);
+
+                                    // Step 2.2: if g_orig_mag is less than some distance c, fix f_new at some transient value f_trans. If g_orig_mag is greater than c, determine the closest of the grains <100> directions aligned with f_orig
+                                    if (l_new_mag <= c) {
+                                        FractMaxTipVelocity(neighbor_index) = f_orig;
+                                        BranchCenterLocation(3 * neighbor_index) = BranchCenterLocation(3 * index);
+                                        BranchCenterLocation(3 * neighbor_index + 1) = BranchCenterLocation(3 * index + 1);
+                                        BranchCenterLocation(3 * neighbor_index + 2) = BranchCenterLocation(3 * index + 2);
+                                        SecondBranchF(neighbor_index) = SecondBranchF(index);
+                                        BranchDir(neighbor_index) = theta_index_orig;
+                                    }
+                                    else {
+                                        float Angle_envelope_new[6];
+                                        float l_new_x_norm = l_new_x / l_new_mag;
+                                        float l_new_y_norm = l_new_y / l_new_mag;
+                                        float l_new_z_norm = l_new_z / l_new_mag;
+                                        Angle_envelope_new[0] = acos(GrainUnitVector(9 * MyOrientation) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_new_z_norm);
+                                        Angle_envelope_new[1] = acos(GrainUnitVector(9 * MyOrientation + 3) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_new_z_norm);
+                                        Angle_envelope_new[2] = acos(GrainUnitVector(9 * MyOrientation + 6) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_new_z_norm);
+                                        Angle_envelope_new[3] = 3.14159 - Angle_envelope_new[0];
+                                        Angle_envelope_new[4] = 3.14159 - Angle_envelope_new[1];
+                                        Angle_envelope_new[5] = 3.14159 - Angle_envelope_new[2];
+                                        
+                                        // Step 2.3: with l_orig and the six potential <100>, can calculate the penalization angle theta_new. This is normalized between 0 and 1, where theta within some cutoff theta_min of 0 is set to 0, and the max misorientation is 1
+                                        float theta_new = abs(Angle_envelope_new[0]);
+                                        short dir_new = 0;
+                                        for (short dir=1; dir<6; dir++) {
+                                            if (abs(Angle_envelope_new[dir]) < theta_new) {
+                                                theta_new = abs(Angle_envelope_new[dir]);
+                                                dir_new = dir;
+                                            }
+                                        }
+                                        // This angle is in radians, and should be normalized by the max possible misorientation of 62.8 degrees (or 1.096067 radians) being equal to 1 and any value at or less than theta_min degrees being equal to 0
+                                        float theta_new_norm;
+                                        if (theta_new < theta_min)
+                                            theta_new_norm = 0.0;
+                                        else
+                                            theta_new_norm = (theta_new - theta_min) / (1.096067 - theta_min);
+                                        // Step 2.4: use the normalized angle theta_new_norm to calculate f_new
+                                        f_new = 1.0 - pow(theta_new_norm, penalization_factor);
+                                        
+                                        // Step 3: Determine the larger of (f_orig, f_new), and set the captured cell's branch center appropriately (either B_orig or B_new)
+                                        if (f_orig >= f_new) { //} || (SecondBranchF(index) >= 2.0)) {
+                                            // Original branch is growing faster than a sidebranch
+                                            FractMaxTipVelocity(neighbor_index) = f_orig;
+                                            BranchCenterLocation(3 * neighbor_index) = BranchCenterLocation(3 * index);
+                                            BranchCenterLocation(3 * neighbor_index + 1) = BranchCenterLocation(3 * index + 1);
+                                            BranchCenterLocation(3 * neighbor_index + 2) = BranchCenterLocation(3 * index + 2);
+                                            SecondBranchF(neighbor_index) = SecondBranchF(index);
+                                            BranchDir(neighbor_index) = theta_index_orig;
+                                        }
+                                        else {
+                                            // Sidebranch is growing faster than the original branch
+                                            FractMaxTipVelocity(neighbor_index) = f_new;
+                                            BranchCenterLocation(3 * neighbor_index) = B_new_x;
+                                            BranchCenterLocation(3 * neighbor_index + 1) = B_new_y;
+                                            BranchCenterLocation(3 * neighbor_index + 2) = B_new_z;
+                                            SecondBranchF(neighbor_index) = SecondBranchF(index) + 1.0;
+                                            BranchDir(neighbor_index) = dir_new;
+                                        }
+                                    }
+                                }
 
                                 if (np > 1) {
                                     // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this
@@ -389,7 +511,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                         GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth,
                                         SendSizeSouth, ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z,
                                         AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
-                                        NGrainOrientations, BufSize);
+                                                                           NGrainOrientations, BufSize, FractMaxTipVelocity(neighbor_index), BranchCenterLocation(3 * neighbor_index), BranchCenterLocation(3 * neighbor_index + 1), BranchCenterLocation(3 * neighbor_index + 2), SecondBranchF(neighbor_index),BranchDir(neighbor_index));
                                     if (!(DataFitsInBuffer)) {
                                         // This cell's data did not fit in the buffer with current size BufSize - mark
                                         // with temporary type
@@ -446,6 +568,14 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // cell. Octahedron center and cell center overlap for octahedra created as part of a new grain
                 calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, NeighborX, NeighborY, NeighborZ, MyOrientation,
                                        GrainUnitVector, CritDiagonalLength);
+                
+                // Octahedron penalization variables
+                FractMaxTipVelocity(index) = 1.0;
+                BranchCenterLocation(3 * index) = coord_x + 0.5;
+                BranchCenterLocation(3 * index + 1) = coord_y + y_offset + 0.5;
+                BranchCenterLocation(3 * index + 2) = coord_z + 0.5;
+                SecondBranchF(index) = 1.0;
+                BranchDir(index) = -1;
                 if (np > 1) {
                     // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
                     // slowdown is minor
@@ -458,7 +588,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, FractMaxTipVelocity(index), BranchCenterLocation(3 * index), BranchCenterLocation(3 * index + 1), BranchCenterLocation(3 * index + 2), SecondBranchF(index), BranchDir(index));
                     if (!(DataFitsInBuffer)) {
                         // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                         // type
@@ -481,7 +611,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // length
                 bool DataFitsInBuffer = loadghostnodes(
                     -1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, coord_y, coord_z,
-                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
+                    AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, -1.0, -1.0, -1.0, -1.0, 0, -1.0);
                 if (!(DataFitsInBuffer)) {
                     // This cell's data did not fit in the buffer with current size BufSize - mark with temporary
                     // type

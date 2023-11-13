@@ -116,11 +116,15 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewF DiagonalLength("DiagonalLength", DomainSize);
     ViewF DOCenter(Kokkos::ViewAllocateWithoutInitializing("DOCenter"), 3 * DomainSize);
     ViewF CritDiagonalLength(Kokkos::ViewAllocateWithoutInitializing("CritDiagonalLength"), 26 * DomainSize);
+    ViewF FractMaxTipVelocity("FractMaxTipVelocity", DomainSize);
+    ViewF BranchCenterLocation(Kokkos::ViewAllocateWithoutInitializing("BranchCenterLocation"), 3 * DomainSize);
+    ViewF SecondBranchF("SecondBranchF", DomainSize);
+    ViewS BranchDir("BranchDir", DomainSize);
 
     // Buffers for ghost node data (fixed size)
     int BufSizeInitialEstimate = 25;
     int BufSize = BufSizeInitialEstimate; // set to initial estimate
-    int BufComponents = 8;
+    int BufComponents = 14;
     Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, BufComponents);
     Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, BufComponents);
     Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, BufComponents);
@@ -220,7 +224,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CellCapture(id, np, cycle, nx, ny_local, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, temperature, DOCenter, NGrainOrientations,
                         BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth, nz_layer, SteeringVector,
-                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize);
+                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
             // Count the number of cells' in halo regions where the data did not fit into the send buffers
             // Reduce across all ranks, as the same BufSize should be maintained across all ranks
             // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding
@@ -233,7 +237,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                               << BufSize << std::endl;
                 RefillBuffers(nx, nz_layer, ny_local, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
                               SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength,
-                              NGrainOrientations, BufSize);
+                              NGrainOrientations, BufSize, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
             }
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
@@ -243,7 +247,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, ny_local, y_offset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents);
+                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 
@@ -331,7 +335,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // Collect and print specified final fields to output files
     print.printFinalExaCAData(id, np, nx, ny, nz, ny_local, NumberOfLayers, DomainSize, cellData.LayerID_AllLayers,
                               cellData.CellType_AllLayers, cellData.GrainID_AllLayers, temperature, GrainUnitVector,
-                              NGrainOrientations, deltax, XMin, YMin, ZMin);
+                              NGrainOrientations, deltax, XMin, YMin, ZMin, SecondBranchF, FractMaxTipVelocity, BranchDir);
 
     // Calculate volume fraction of solidified domain consisting of nucleated grains
     float VolFractionNucleated = calcVolFractionNucleated(id, nx, ny_local, DomainSize, cellData.LayerID_AllLayers,
