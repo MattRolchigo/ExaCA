@@ -247,7 +247,7 @@ struct Print {
     void printFinalExaCAData(int id, int np, int nx, int ny, int nz, int ny_local, int NumberOfLayers, int DomainSize,
                              ViewTypeLayerID LayerID, ViewTypeCell CellType, ViewTypeGrainID GrainID,
                              Temperature<device_memory_space> &temperature, ViewTypeGrainUnit GrainUnitVector,
-                             int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin, ViewF SecondBranchF, ViewF FractMaxTipVelocity, ViewS BranchDir) {
+                             int NGrainOrientations, double deltax, double XMin, double YMin, double ZMin, ViewF, ViewF, ViewS) {
 
         if (id == 0)
             std::cout << "Printing final data structures to vtk files" << std::endl;
@@ -283,12 +283,12 @@ struct Print {
                     printExaConstitDefaultRVE(nx, ny, nz, LayerID_WholeDomain, GrainID_WholeDomain, deltax,
                                               NumberOfLayers);
             }
-            auto SecondBranchF_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, SecondBranchF);
-            printViewData(id, Grainplot, nx, ny, nz, "float", "SecondBranchF", SecondBranchF_WholeDomain);
-            auto FractMaxTipVelocity_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, FractMaxTipVelocity);
-            printViewData(id, Grainplot, nx, ny, nz, "float", "FractMaxTipVelocity", FractMaxTipVelocity_WholeDomain);
-            auto BranchDir_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_SHORT, BranchDir);
-            printViewData(id, Grainplot, nx, ny, nz, "float", "BranchDir", BranchDir_WholeDomain);
+//            auto SecondBranchF_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, SecondBranchF);
+//            printViewData(id, Grainplot, nx, ny, nz, "float", "SecondBranchF", SecondBranchF_WholeDomain);
+//            auto FractMaxTipVelocity_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, FractMaxTipVelocity);
+//            printViewData(id, Grainplot, nx, ny, nz, "float", "FractMaxTipVelocity", FractMaxTipVelocity_WholeDomain);
+//            auto BranchDir_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_SHORT, BranchDir);
+//            printViewData(id, Grainplot, nx, ny, nz, "float", "BranchDir", BranchDir_WholeDomain);
             if (id == 0)
                 Grainplot.close();
         }

@@ -279,6 +279,12 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                            layernumber + 1, ZMin, deltax, nz, ZMaxLayer);
             nz_layer = calc_nz_layer(z_layer_bottom, z_layer_top, id, layernumber + 1);
             DomainSize = calcLayerDomainSize(nx, ny_local, nz_layer);
+            
+            Kokkos::realloc(FractMaxTipVelocity, DomainSize);
+            Kokkos::realloc(BranchCenterLocation, 3 * DomainSize);
+            Kokkos::realloc(SecondBranchF, DomainSize);
+            Kokkos::realloc(BranchDir, DomainSize);
+
             // Determine the bounds of the next layer: Z coordinates span z_layer_bottom-z_layer_top, inclusive
             // For simulation type R, need to initialize new temperature field data for layer "layernumber + 1"
             if (simulation_type == "R") {
