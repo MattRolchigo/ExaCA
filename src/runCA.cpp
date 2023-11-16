@@ -79,7 +79,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                   << " total cells in the Z direction" << std::endl;
 
     // Temperature fields characterized by data in this structure
-    Temperature<device_memory_space> temperature(DomainSize, NumberOfLayers, inputs.temperature);
+    int BottomOfCurrentLayer = z_layer_bottom * nx * ny_local;
+    int TopOfCurrentLayer = BottomOfCurrentLayer + DomainSize;
+    std::pair<int, int> LayerRange = std::make_pair(BottomOfCurrentLayer, TopOfCurrentLayer);
+    Temperature<device_memory_space> temperature(DomainSize_AllLayers, DomainSize, NumberOfLayers, inputs.temperature, LayerRange);
     // Read temperature data if necessary
     if (simulation_type == "R")
         temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers, 0);
@@ -310,6 +313,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             // Sets up views, powder layer (if necessary), and cell types for the next layer of a multilayer problem
             cellData.init_next_layer(layernumber + 1, id, nx, ny, ny_local, y_offset, z_layer_bottom, DomainSize,
                                      inputs.RNGSeed, ZMin, ZMaxLayer, deltax, temperature.NumberOfSolidificationEvents);
+            
+            temperature.update_undercooling_current(cellData.LayerRange);
 
             // Initialize potential nucleation event data for next layer "layernumber + 1"
             // Views containing nucleation data will be resized to the possible number of nuclei on a given MPI rank for

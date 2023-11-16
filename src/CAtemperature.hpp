@@ -44,7 +44,7 @@ struct Temperature {
     // A counter for the number of times each CA cell has undergone solidification so far this layer
     view_type_int SolidificationEventCounter;
     // The current undercooling of a CA cell (if superheated liquid or hasn't undergone solidification yet, equals 0)
-    view_type_float UndercoolingCurrent;
+    view_type_float UndercoolingCurrent_AllLayers, UndercoolingCurrent;
     // Data structure for storing raw temperature data from file(s)
     // Store data as double - needed for small time steps to resolve local differences in solidification conditions
     // Each data point has 6 values (X, Y, Z coordinates, melting time, liquidus time, and cooling rate)
@@ -58,7 +58,7 @@ struct Temperature {
     // Constructor creates views with size based on the grid inputs - each cell assumed to solidify once by default,
     // LayerTimeTempHistory modified to account for multiple events if needed UndercoolingCurrent and
     // SolidificationEventCounter are default initialized to zeros
-    Temperature(const int DomainSize, const int NumberOfLayers, TemperatureInputs inputs,
+    Temperature(const int DomainSize_AllLayers, const int DomainSize, const int NumberOfLayers, TemperatureInputs inputs, std::pair<int, int> LayerRange,
                 const int EstNumTemperatureDataPoints = 1000000)
         : MaxSolidificationEvents(
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("NumberOfLayers"), NumberOfLayers))
@@ -67,12 +67,16 @@ struct Temperature {
         , NumberOfSolidificationEvents(
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("NumberOfSolidificationEvents"), DomainSize))
         , SolidificationEventCounter(view_type_int("SolidificationEventCounter", DomainSize))
+        , UndercoolingCurrent_AllLayers(view_type_float("UndercoolingCurrent_AllLayers", DomainSize_AllLayers))
         , UndercoolingCurrent(view_type_float("UndercoolingCurrent", DomainSize))
         , RawTemperatureData(view_type_double_host(Kokkos::ViewAllocateWithoutInitializing("RawTemperatureData"),
                                                    EstNumTemperatureDataPoints))
         , FirstValue(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("FirstValue"), NumberOfLayers))
         , LastValue(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("LastValue"), NumberOfLayers))
-        , _inputs(inputs) {}
+        , _inputs(inputs) {
+
+            update_undercooling_current(LayerRange);
+        }
 
     // Check if the temperature data is in ASCII or binary format
     bool checkTemperatureFileFormat(std::string tempfile_thislayer) {
@@ -604,6 +608,10 @@ struct Temperature {
             std::cout << "Layer " << layernumber << " temperature field is from Z = " << z_layer_bottom << " through "
                       << nz_layer + z_layer_bottom - 1 << " of the global domain" << std::endl;
     }
+    
+    void update_undercooling_current(std::pair<int, int> LayerRange) {
+        UndercoolingCurrent = Kokkos::subview(UndercoolingCurrent_AllLayers, LayerRange);
+    }
 
     // Reset local cell undercooling to 0
     KOKKOS_INLINE_FUNCTION
@@ -636,9 +644,9 @@ struct Temperature {
     // Reset solidification event counter and the undercooling to zero for all cells, resizing for the number of cells
     // associated with the next layer's domain
     void reset_layer_events_undercooling(const int DomainSize) {
-        Kokkos::realloc(UndercoolingCurrent, DomainSize);
+        //Kokkos::realloc(UndercoolingCurrent, DomainSize);
         Kokkos::realloc(SolidificationEventCounter, DomainSize);
-        Kokkos::deep_copy(UndercoolingCurrent, 0.0);
+        //Kokkos::deep_copy(UndercoolingCurrent, 0.0);
         Kokkos::deep_copy(SolidificationEventCounter, 0);
     }
 

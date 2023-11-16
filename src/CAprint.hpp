@@ -318,10 +318,10 @@ struct Print {
                 printViewData(id, GrainplotF, nx, ny, nz, "int", "UndercoolingChange", UndercoolingChange_WholeDomain);
             }
             if (_inputs.PrintFinalUndercoolingCurrent) {
-                auto UndercoolingCurrent_WholeDomain =
-                    collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, temperature.UndercoolingCurrent);
+                auto UndercoolingCurrent_WholeDomainAllLayers =
+                    collectViewData(id, np, nx, ny, nz, ny_local, MPI_FLOAT, temperature.UndercoolingCurrent_AllLayers);
                 printViewData(id, GrainplotF, nx, ny, nz, "float", "UndercoolingFinal",
-                              UndercoolingCurrent_WholeDomain);
+                              UndercoolingCurrent_WholeDomainAllLayers);
             }
             if (_inputs.PrintFinalCellType) {
                 auto CellType_WholeDomain = collectViewData(id, np, nx, ny, nz, ny_local, MPI_INT, CellType);

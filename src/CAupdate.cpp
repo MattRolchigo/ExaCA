@@ -401,9 +401,9 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                     float l_orig_x_norm = l_orig_x / l_orig_mag;
                                     float l_orig_y_norm = l_orig_y / l_orig_mag;
                                     float l_orig_z_norm = l_orig_z / l_orig_mag;
-                                    Angle_envelope_orig[0] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_orig_z_norm));
-                                    Angle_envelope_orig[1] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation + 3) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_orig_z_norm));
-                                    Angle_envelope_orig[2] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation + 6) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_orig_z_norm));
+                                    Angle_envelope_orig[0] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_orig_z_norm)));
+                                    Angle_envelope_orig[1] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation + 3) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_orig_z_norm)));
+                                    Angle_envelope_orig[2] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation + 6) * l_orig_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_orig_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_orig_z_norm)));
                                     Angle_envelope_orig[3] = 3.14159 - Angle_envelope_orig[0];
                                     Angle_envelope_orig[4] = 3.14159 - Angle_envelope_orig[1];
                                     Angle_envelope_orig[5] = 3.14159 - Angle_envelope_orig[2];
@@ -460,9 +460,9 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                         float l_new_x_norm = l_new_x / l_new_mag;
                                         float l_new_y_norm = l_new_y / l_new_mag;
                                         float l_new_z_norm = l_new_z / l_new_mag;
-                                        Angle_envelope_new[0] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_new_z_norm));
-                                        Angle_envelope_new[1] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation + 3) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_new_z_norm));
-                                        Angle_envelope_new[2] = acos(fmin(1.0,GrainUnitVector(9 * MyOrientation + 6) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_new_z_norm));
+                                        Angle_envelope_new[0] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 1) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 2) * l_new_z_norm)));
+                                        Angle_envelope_new[1] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation + 3) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 4) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 5) * l_new_z_norm)));
+                                        Angle_envelope_new[2] = acos(fmax(-1.0,fmin(1.0,GrainUnitVector(9 * MyOrientation + 6) * l_new_x_norm + GrainUnitVector(9 * MyOrientation + 7) * l_new_y_norm + GrainUnitVector(9 * MyOrientation + 8) * l_new_z_norm)));
                                         Angle_envelope_new[3] = 3.14159 - Angle_envelope_new[0];
                                         Angle_envelope_new[4] = 3.14159 - Angle_envelope_new[1];
                                         Angle_envelope_new[5] = 3.14159 - Angle_envelope_new[2];
