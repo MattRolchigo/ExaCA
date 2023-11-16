@@ -79,11 +79,11 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
 void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_space> &cellData,
                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                   int NGrainOrientations, int BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewF SecondBranchF, ViewS GhostBranchDir);
+                   int NGrainOrientations, int BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS GhostBranchDir);
 void GhostNodes1D(int, int, int NeighborRank_North, int NeighborRank_South, int nx, int ny_local, int y_offset,
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewF SecondBranchF, ViewS GhostBranchDir);
+                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS GhostBranchDir);
 
 #endif

@@ -286,8 +286,7 @@ struct Nucleation {
                     "NucleiUpdateLoop", policy,
                     KOKKOS_LAMBDA(const int NucleationCounter_Device, int &update) {
                         int NucleationEventLocation = NucleiLocations_local(NucleationCounter_Device);
-                        int update_val =
-                            FutureActive; // added to steering vector to become a new active cell as part of cellcapture
+                        int update_val = FutureActiveN; // added to steering vector to become a new active cell as part of cellcapture
                         int old_val = Liquid;
                         int OldCellTypeValue =
                             Kokkos::atomic_compare_exchange(&CellType(NucleationEventLocation), old_val, update_val);

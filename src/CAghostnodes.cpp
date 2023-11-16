@@ -82,7 +82,7 @@ void ResetBufferCapacity(Buffer2D &BufferNorthSend, Buffer2D &BufferSouthSend, B
 void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_space> &cellData,
                    Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                    bool AtNorthBoundary, bool AtSouthBoundary, ViewF DOCenter, ViewF DiagonalLength,
-                   int NGrainOrientations, int BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewF SecondBranchF, ViewS BranchDir) {
+                   int NGrainOrientations, int BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS BranchDir) {
 
     auto CellType = cellData.getCellTypeSubview();
     auto GrainID = cellData.getGrainIDSubview();
@@ -101,14 +101,14 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     float GhostBranchCenterX = BranchCenterLocation(3 * CellCoordinateSouth);
                     float GhostBranchCenterY = BranchCenterLocation(3 * CellCoordinateSouth + 1);
                     float GhostBranchCenterZ = BranchCenterLocation(3 * CellCoordinateSouth + 2);
-                    float GhostSecondB = SecondBranchF(CellCoordinateSouth);
+                    float GhostBranchID = BranchID(CellCoordinateSouth);
                     float GhostBranchDir = BranchDir(CellCoordinateSouth);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, 1, coord_z, AtNorthBoundary, AtSouthBoundary, BufferSouthSend,
-                                       BufferNorthSend, NGrainOrientations, BufSize, GhostFMaxTipV, GhostBranchCenterX, GhostBranchCenterY, GhostBranchCenterZ, GhostSecondB, GhostBranchDir);
+                                       BufferNorthSend, NGrainOrientations, BufSize, GhostFMaxTipV, GhostBranchCenterX, GhostBranchCenterY, GhostBranchCenterZ, GhostBranchID, GhostBranchDir);
                     CellType(CellCoordinateSouth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -138,14 +138,14 @@ void RefillBuffers(int nx, int nz_layer, int ny_local, CellData<device_memory_sp
                     float GhostBranchCenterX = BranchCenterLocation(3 * CellCoordinateNorth);
                     float GhostBranchCenterY = BranchCenterLocation(3 * CellCoordinateNorth + 1);
                     float GhostBranchCenterZ = BranchCenterLocation(3 * CellCoordinateNorth + 2);
-                    float GhostSecondB = SecondBranchF(CellCoordinateNorth);     
+                    float GhostBranchID = BranchID(CellCoordinateNorth);
                     float GhostBranchDir = BranchDir(CellCoordinateNorth);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool DataFitsInBuffer =
                         loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, ny_local - 2, coord_z, AtNorthBoundary, AtSouthBoundary,
-                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, GhostFMaxTipV, GhostBranchCenterX, GhostBranchCenterY, GhostBranchCenterZ, GhostSecondB, GhostBranchDir);
+                                       BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize, GhostFMaxTipV, GhostBranchCenterX, GhostBranchCenterY, GhostBranchCenterZ, GhostBranchID, GhostBranchDir);
                     CellType(CellCoordinateNorth) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
                     if (!(DataFitsInBuffer))
@@ -176,7 +176,7 @@ void GhostNodes1D(int, int id, int NeighborRank_North, int NeighborRank_South, i
                   NList NeighborX, NList NeighborY, NList NeighborZ, CellData<device_memory_space> &cellData,
                   ViewF DOCenter, ViewF GrainUnitVector, ViewF DiagonalLength, ViewF CritDiagonalLength,
                   int NGrainOrientations, Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, Buffer2D BufferNorthRecv,
-                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewF SecondBranchF, ViewS BranchDir) {
+                  Buffer2D BufferSouthRecv, int BufSize, ViewI SendSizeNorth, ViewI SendSizeSouth, int BufComponents, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS BranchDir) {
 
     std::vector<MPI_Request> SendRequests(2, MPI_REQUEST_NULL);
     std::vector<MPI_Request> RecvRequests(2, MPI_REQUEST_NULL);
@@ -211,7 +211,7 @@ void GhostNodes1D(int, int id, int NeighborRank_North, int NeighborRank_South, i
                 "BufferUnpack", BufSize, KOKKOS_LAMBDA(const int &BufPosition) {
                     short GhostBranchDir;
                     int coord_x, coord_y, coord_z, index, NewGrainID;
-                    float DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength, FMaxTipV, BranchCenterX, BranchCenterY, BranchCenterZ, GhostSecondB;
+                    float DOCenterX, DOCenterY, DOCenterZ, NewDiagonalLength, FMaxTipV, BranchCenterX, BranchCenterY, BranchCenterZ, GhostBranchID;
                     bool Place = false;
                     // Which rank was the data received from? Is there valid data at this position in the buffer (i.e.,
                     // not set to -1.0)?
@@ -238,7 +238,7 @@ void GhostNodes1D(int, int id, int NeighborRank_North, int NeighborRank_South, i
                             BranchCenterX = BufferSouthRecv(BufPosition, 9);
                             BranchCenterY = BufferSouthRecv(BufPosition, 10);
                             BranchCenterZ = BufferSouthRecv(BufPosition, 11);
-                            GhostSecondB = BufferSouthRecv(BufPosition, 12);
+                            GhostBranchID = BufferSouthRecv(BufPosition, 12);
                             GhostBranchDir = BufferSouthRecv(BufPosition, 13);
                         }
                         else if ((CellType(index) == Active) && (BufferSouthRecv(BufPosition, 7) == 0.0)) {
@@ -268,7 +268,7 @@ void GhostNodes1D(int, int id, int NeighborRank_North, int NeighborRank_South, i
                             BranchCenterX = BufferNorthRecv(BufPosition, 9);
                             BranchCenterY = BufferNorthRecv(BufPosition, 10);
                             BranchCenterZ = BufferNorthRecv(BufPosition, 11);
-                            GhostSecondB = BufferNorthRecv(BufPosition, 12);
+                            GhostBranchID = BufferNorthRecv(BufPosition, 12);
                             GhostBranchDir = BufferNorthRecv(BufPosition, 13);
                         }
                         else if ((CellType(index) == Active) && (BufferNorthRecv(BufPosition, 7) == 0.0)) {
@@ -296,7 +296,7 @@ void GhostNodes1D(int, int id, int NeighborRank_North, int NeighborRank_South, i
                         BranchCenterLocation(3 * index) = BranchCenterX;
                         BranchCenterLocation(3 * index + 1) = BranchCenterY;
                         BranchCenterLocation(3 * index + 2) = BranchCenterZ;
-                        SecondBranchF(index) = GhostSecondB;
+                        BranchID(index) = GhostBranchID;
                         BranchDir(index) = GhostBranchDir;
                         CellType(index) = Active;
                     }

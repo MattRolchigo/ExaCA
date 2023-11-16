@@ -82,6 +82,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     int BottomOfCurrentLayer = z_layer_bottom * nx * ny_local;
     int TopOfCurrentLayer = BottomOfCurrentLayer + DomainSize;
     std::pair<int, int> LayerRange = std::make_pair(BottomOfCurrentLayer, TopOfCurrentLayer);
+    std::pair<int, int> LayerRangeBranchCenter = std::make_pair(3 * BottomOfCurrentLayer, 3 * TopOfCurrentLayer);
+
     Temperature<device_memory_space> temperature(DomainSize_AllLayers, DomainSize, NumberOfLayers, inputs.temperature, LayerRange);
     // Read temperature data if necessary
     if (simulation_type == "R")
@@ -119,11 +121,16 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewF DiagonalLength("DiagonalLength", DomainSize);
     ViewF DOCenter(Kokkos::ViewAllocateWithoutInitializing("DOCenter"), 3 * DomainSize);
     ViewF CritDiagonalLength(Kokkos::ViewAllocateWithoutInitializing("CritDiagonalLength"), 26 * DomainSize);
-    ViewF FractMaxTipVelocity("FractMaxTipVelocity", DomainSize);
-    ViewF BranchCenterLocation(Kokkos::ViewAllocateWithoutInitializing("BranchCenterLocation"), 3 * DomainSize);
-    ViewF SecondBranchF("SecondBranchF", DomainSize);
-    ViewS BranchDir("BranchDir", DomainSize);
-
+    ViewF FractMaxTipVelocity_AllLayers("FractMaxTipVelocity", DomainSize_AllLayers);
+    ViewF BranchCenterLocation_AllLayers(Kokkos::ViewAllocateWithoutInitializing("BranchCenterLocation"), 3 * DomainSize_AllLayers);
+    ViewS BranchID_AllLayers("SecondBranchF", DomainSize_AllLayers);
+    ViewS BranchDir_AllLayers("BranchDir", DomainSize_AllLayers);
+    auto FractMaxTipVelocity = Kokkos::subview(FractMaxTipVelocity_AllLayers, LayerRange);
+    auto BranchCenterLocation = Kokkos::subview(BranchCenterLocation_AllLayers, LayerRangeBranchCenter);
+    auto BranchID = Kokkos::subview(BranchID_AllLayers, LayerRange);
+    auto BranchDir = Kokkos::subview(BranchDir_AllLayers, LayerRange);
+    if (simulation_type == "SingleGrain")
+        Kokkos::deep_copy(BranchID, -1);
     // Buffers for ghost node data (fixed size)
     int BufSizeInitialEstimate = 25;
     int BufSize = BufSizeInitialEstimate; // set to initial estimate
@@ -227,7 +234,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CellCapture(id, np, cycle, nx, ny_local, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, temperature, DOCenter, NGrainOrientations,
                         BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth, nz_layer, SteeringVector,
-                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
+                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, FractMaxTipVelocity, BranchCenterLocation, BranchID, BranchDir);
             // Count the number of cells' in halo regions where the data did not fit into the send buffers
             // Reduce across all ranks, as the same BufSize should be maintained across all ranks
             // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding
@@ -240,7 +247,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                               << BufSize << std::endl;
                 RefillBuffers(nx, nz_layer, ny_local, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
                               SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength,
-                              NGrainOrientations, BufSize, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
+                              NGrainOrientations, BufSize, FractMaxTipVelocity, BranchCenterLocation, BranchID, BranchDir);
             }
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
@@ -250,7 +257,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, ny_local, y_offset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents, FractMaxTipVelocity, BranchCenterLocation, SecondBranchF, BranchDir);
+                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents, FractMaxTipVelocity, BranchCenterLocation, BranchID, BranchDir);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 
@@ -283,11 +290,17 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             nz_layer = calc_nz_layer(z_layer_bottom, z_layer_top, id, layernumber + 1);
             DomainSize = calcLayerDomainSize(nx, ny_local, nz_layer);
             
-            Kokkos::realloc(FractMaxTipVelocity, DomainSize);
-            Kokkos::realloc(BranchCenterLocation, 3 * DomainSize);
-            Kokkos::realloc(SecondBranchF, DomainSize);
-            Kokkos::realloc(BranchDir, DomainSize);
+//            Kokkos::realloc(FractMaxTipVelocity, DomainSize);
+//            Kokkos::realloc(BranchCenterLocation, 3 * DomainSize);
+//            Kokkos::realloc(SecondBranchF, DomainSize);
+//            Kokkos::realloc(BranchDir, DomainSize);
+            FractMaxTipVelocity = Kokkos::subview(FractMaxTipVelocity_AllLayers, cellData.LayerRange);
+            LayerRangeBranchCenter = std::make_pair(3 * cellData.BottomOfCurrentLayer, 3 * cellData.TopOfCurrentLayer);
 
+            BranchCenterLocation = Kokkos::subview(BranchCenterLocation_AllLayers, cellData.LayerRange);
+            BranchID = Kokkos::subview(BranchID_AllLayers, cellData.LayerRange);
+            BranchDir = Kokkos::subview(BranchDir_AllLayers, cellData.LayerRange);
+            
             // Determine the bounds of the next layer: Z coordinates span z_layer_bottom-z_layer_top, inclusive
             // For simulation type R, need to initialize new temperature field data for layer "layernumber + 1"
             if (simulation_type == "R") {
@@ -346,7 +359,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // Collect and print specified final fields to output files
     print.printFinalExaCAData(id, np, nx, ny, nz, ny_local, NumberOfLayers, DomainSize, cellData.LayerID_AllLayers,
                               cellData.CellType_AllLayers, cellData.GrainID_AllLayers, temperature, GrainUnitVector,
-                              NGrainOrientations, deltax, XMin, YMin, ZMin, SecondBranchF, FractMaxTipVelocity, BranchDir);
+                              NGrainOrientations, deltax, XMin, YMin, ZMin, BranchID_AllLayers, FractMaxTipVelocity_AllLayers, BranchDir_AllLayers);
 
     // Calculate volume fraction of solidified domain consisting of nucleated grains
     float VolFractionNucleated = calcVolFractionNucleated(id, nx, ny_local, DomainSize, cellData.LayerID_AllLayers,
