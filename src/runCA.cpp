@@ -129,8 +129,10 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     auto BranchCenterLocation = Kokkos::subview(BranchCenterLocation_AllLayers, LayerRangeBranchCenter);
     auto BranchID = Kokkos::subview(BranchID_AllLayers, LayerRange);
     auto BranchDir = Kokkos::subview(BranchDir_AllLayers, LayerRange);
-    if (simulation_type == "SingleGrain")
+    if (simulation_type == "SingleGrain") {
         Kokkos::deep_copy(BranchID, -1);
+        Kokkos::deep_copy(BranchDir, -1);
+    }
     // Buffers for ghost node data (fixed size)
     int BufSizeInitialEstimate = 25;
     int BufSize = BufSizeInitialEstimate; // set to initial estimate

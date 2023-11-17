@@ -424,8 +424,8 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                 short dir_new;
                                 float B_new_x, B_new_y, B_new_z;
                                 // Step 1.4: use the normalized angle theta_orig_norm to calculate f_orig
-                                if (l_orig_mag > 3) {
-                                    float dist_penalization_orig = 1.0 - (1.0 / exp(l_orig_mag / 12.0));
+                                if (l_orig_mag > c) {
+                                    float dist_penalization_orig = 1.0 - (1.0 / exp(l_orig_mag / f_transient));
                                     f_orig = dist_penalization_orig * (1.0 - pow(theta_orig_norm, penalization_factor));
                                     
                                     //                                    if ((SecondBranchF(index) <= 2.0) && (neighbor_coord_z == 100)) {
@@ -456,7 +456,7 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                     //                                        BranchDir(neighbor_index) = theta_index_orig;
                                     //                                    }
                                     //                                    else {
-                                    if (l_new_mag > 3) {
+                                    if (l_new_mag > c) {
                                         float Angle_envelope_new[6];
                                         float l_new_x_norm = l_new_x / l_new_mag;
                                         float l_new_y_norm = l_new_y / l_new_mag;
@@ -492,12 +492,12 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                         else
                                             theta_new_norm = (theta_new - theta_min) / (1.096067 - theta_min);
                                         // Step 2.4: use the normalized angle theta_new_norm to calculate f_new
-                                        float dist_penalization_new = 1.0 - (1.0 / exp(l_new_mag / 12.0));
+                                        float dist_penalization_new = 1.0 - (1.0 / exp(l_new_mag / f_transient));
                                         f_new = dist_penalization_new * (1.0 - pow(theta_new_norm, penalization_factor));
                                     }
                                 }
                                 // Step 3: Determine the larger of (f_orig, f_new), and set the captured cell's branch center appropriately (either B_orig or B_new)
-                                if ((f_orig >= f_new) || (BranchID(index) >= 0)) {
+                                if (f_orig >= f_new) { //} || (BranchID(index) >= 1)) {
                                     // Original branch is growing faster than a sidebranch
                                     FractMaxTipVelocity(neighbor_index) = f_orig;
                                     BranchCenterLocation(3 * neighbor_index) = BranchCenterLocation(3 * index);
@@ -512,7 +512,7 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                     BranchCenterLocation(3 * neighbor_index) = B_new_x;
                                     BranchCenterLocation(3 * neighbor_index + 1) = B_new_y;
                                     BranchCenterLocation(3 * neighbor_index + 2) = B_new_z;
-                                    BranchID(neighbor_index) = BranchID(index) + 1.0;
+                                    BranchID(neighbor_index) = BranchID(index) + 1;
                                     BranchDir(neighbor_index) = dir_new;
                                 }
 
@@ -593,7 +593,7 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                 BranchCenterLocation(3 * index) = coord_x + 0.5;
                 BranchCenterLocation(3 * index + 1) = coord_y + y_offset + 0.5;
                 BranchCenterLocation(3 * index + 2) = coord_z + 0.5;
-                if (CellType(index) == FutureActiveN)
+                //if (CellType(index) == FutureActiveN)
                     BranchID(index) = 0;
                 // If epitaxial cell activation, use branch ID from previous layer
                 if (np > 1) {
