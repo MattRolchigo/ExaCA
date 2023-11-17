@@ -148,7 +148,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
                  Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                  int nz_layer, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
-                 bool AtSouthBoundary, int &BufSize) {
+                 bool AtSouthBoundary, int &BufSize, ViewF Delay) {
 
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
@@ -167,7 +167,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // Update local diagonal length of active cell
                 double LocU = temperature.UndercoolingCurrent(index);
                 LocU = min(210.0, LocU);
-                double V = irf.compute(LocU);
+                double V = Delay(index) * irf.compute(LocU);
                 DiagonalLength(index) += min(0.045, V); // Max amount the diagonal can grow per time step
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
@@ -386,7 +386,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     bool DataFitsInBuffer = loadghostnodes(
-                                        GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth,
+                                        GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, Delay(neighbor_index), SendSizeNorth,
                                         SendSizeSouth, ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z,
                                         AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend,
                                         NGrainOrientations, BufSize);
@@ -426,7 +426,10 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                         CellType(index) = TempSolid;
                 }
             }
-            else if (CellType(index) == FutureActive) {
+            else if ((CellType(index) == FutureActive) || (CellType(index) == FutureActiveN)) {
+                if (CellType(index) == FutureActive)
+                    Delay(index) = 1.0;// 0.25;
+                    
                 // Successful nucleation event - this cell is becoming a new active cell
                 CellType(index) = TemporaryUpdate; // avoid operating on the new active cell before its
                                                    // associated octahedron data is initialized
@@ -456,7 +459,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                     float GhostDL = 0.01;
                     // Collect data for the ghost nodes, if necessary
                     bool DataFitsInBuffer =
-                        loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, SendSizeNorth, SendSizeSouth,
+                        loadghostnodes(GhostGID, GhostDOCX, GhostDOCY, GhostDOCZ, GhostDL, Delay(index), SendSizeNorth, SendSizeSouth,
                                        ny_local, coord_x, coord_y, coord_z, AtNorthBoundary, AtSouthBoundary,
                                        BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
                     if (!(DataFitsInBuffer)) {
@@ -480,7 +483,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                 // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
                 // length
                 bool DataFitsInBuffer = loadghostnodes(
-                    -1, -1.0, -1.0, -1.0, 0.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, coord_y, coord_z,
+                    -1, -1.0, -1.0, -1.0, 0.0, 1.0, SendSizeNorth, SendSizeSouth, ny_local, coord_x, coord_y, coord_z,
                     AtNorthBoundary, AtSouthBoundary, BufferSouthSend, BufferNorthSend, NGrainOrientations, BufSize);
                 if (!(DataFitsInBuffer)) {
                     // This cell's data did not fit in the buffer with current size BufSize - mark with temporary

@@ -74,7 +74,13 @@ KOKKOS_INLINE_FUNCTION void calcCritDiagonalLength(int index, float xp, float yp
         float D2 = x0 * Fx[2] + y0 * Fy[2] + z0 * Fz[2];
         float D3 = x0 * Fx[3] + y0 * Fy[3] + z0 * Fz[3];
         float Dfabs = fmax(fmax(fabs(D0), fabs(D1)), fmax(fabs(D2), fabs(D3)));
-        CritDiagonalLength(26 * index + n) = Dfabs;
+        int prefactor = abs(NeighborX[n]) + abs(NeighborY[n]) + abs(NeighborZ[n]);
+        float prefactor_cdl = 1.0;
+        if (prefactor == 2)
+            prefactor_cdl = sqrt(2);
+        else if (prefactor == 3)
+            prefactor_cdl = sqrt(3);
+        CritDiagonalLength(26 * index + n) = prefactor_cdl * Dfabs;
     }
 }
 

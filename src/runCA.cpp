@@ -117,10 +117,14 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewF DOCenter(Kokkos::ViewAllocateWithoutInitializing("DOCenter"), 3 * DomainSize);
     ViewF CritDiagonalLength(Kokkos::ViewAllocateWithoutInitializing("CritDiagonalLength"), 26 * DomainSize);
 
+    // Delay term near edges
+    ViewF Delay("Delay", DomainSize);
+    Kokkos::deep_copy(Delay, 1.0);
+
     // Buffers for ghost node data (fixed size)
     int BufSizeInitialEstimate = 25;
     int BufSize = BufSizeInitialEstimate; // set to initial estimate
-    int BufComponents = 8;
+    int BufComponents = 9; // extra component for delay
     Buffer2D BufferSouthSend(Kokkos::ViewAllocateWithoutInitializing("BufferSouthSend"), BufSize, BufComponents);
     Buffer2D BufferNorthSend(Kokkos::ViewAllocateWithoutInitializing("BufferNorthSend"), BufSize, BufComponents);
     Buffer2D BufferSouthRecv(Kokkos::ViewAllocateWithoutInitializing("BufferSouthRecv"), BufSize, BufComponents);
@@ -220,7 +224,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CellCapture(id, np, cycle, nx, ny_local, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, temperature, DOCenter, NGrainOrientations,
                         BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth, nz_layer, SteeringVector,
-                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize);
+                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, Delay);
             // Count the number of cells' in halo regions where the data did not fit into the send buffers
             // Reduce across all ranks, as the same BufSize should be maintained across all ranks
             // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding
@@ -233,7 +237,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                               << BufSize << std::endl;
                 RefillBuffers(nx, nz_layer, ny_local, cellData, BufferNorthSend, BufferSouthSend, SendSizeNorth,
                               SendSizeSouth, AtNorthBoundary, AtSouthBoundary, DOCenter, DiagonalLength,
-                              NGrainOrientations, BufSize);
+                              NGrainOrientations, BufSize, Delay);
             }
             CaptureTime += MPI_Wtime() - StartCaptureTime;
 
@@ -243,7 +247,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 GhostNodes1D(cycle, id, NeighborRank_North, NeighborRank_South, nx, ny_local, y_offset, NeighborX,
                              NeighborY, NeighborZ, cellData, DOCenter, GrainUnitVector, DiagonalLength,
                              CritDiagonalLength, NGrainOrientations, BufferNorthSend, BufferSouthSend, BufferNorthRecv,
-                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents);
+                             BufferSouthRecv, BufSize, SendSizeNorth, SendSizeSouth, BufComponents, Delay);
                 GhostTime += MPI_Wtime() - StartGhostTime;
             }
 
@@ -295,6 +299,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             // Resize and zero all view data relating to the active region from the last layer, in preparation for the
             // next layer
             ZeroResetViews(DomainSize, DiagonalLength, CritDiagonalLength, DOCenter, SteeringVector);
+            Kokkos::realloc(Delay, DomainSize);
+            Kokkos::deep_copy(Delay, 1.0);
             MPI_Barrier(MPI_COMM_WORLD);
 
             // Sets up views, powder layer (if necessary), and cell types for the next layer of a multilayer problem
