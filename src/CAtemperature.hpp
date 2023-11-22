@@ -389,7 +389,7 @@ struct Temperature {
     // MaxSolidificationEvents_Host
     void calcMaxSolidificationEvents(int id, int layernumber, ViewI_H MaxSolidificationEvents_Host, int StartRange,
                                      int EndRange, double XMin, double YMin, double deltax, double *ZMinLayer,
-                                     int LayerHeight, int nx, int ny_local, int y_offset, int DomainSize) {
+                                     int CumLayerHeight, int nx, int ny_local, int y_offset, int DomainSize) {
 
         if (layernumber > _inputs.TempFilesInSeries) {
             // Use the value from a previously checked layer, since the time-temperature history is reused
@@ -415,7 +415,7 @@ struct Temperature {
                 // local MPI rank's grid
                 int coord_x = getTempCoordX(i, XMin, deltax);
                 int coord_y = getTempCoordY(i, YMin, deltax, y_offset);
-                int coord_z = getTempCoordZ(i, deltax, LayerHeight, layernumber, ZMinLayer);
+                int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
                 // Convert to 1D coordinate in the current layer's domain
                 int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
                 TempMeltCount(index)++;
@@ -447,9 +447,8 @@ struct Temperature {
         return y_coord;
     }
     // Read data from storage, and calculate the normalized z value of the data point
-    int getTempCoordZ(int i, double deltax, int LayerHeight, int LayerCounter, double *ZMinLayer) {
-        int z_coord =
-            round((RawTemperatureData(i + 2) + deltax * LayerHeight * LayerCounter - ZMinLayer[LayerCounter]) / deltax);
+    int getTempCoordZ(int i, double deltax, int CumLayerHeight, int LayerCounter, double *ZMinLayer) {
+        int z_coord = round((RawTemperatureData(i + 2) + deltax * CumLayerHeight - ZMinLayer[LayerCounter]) / deltax);
         return z_coord;
     }
     // Read data from storage, obtain melting time
@@ -471,7 +470,7 @@ struct Temperature {
     // Initialize temperature fields for layer "layernumber" in case where temperature data comes from file(s)
     // TODO: This can be performed on the device as the dirS problem is
     void initialize(int layernumber, int id, int nx, int ny_local, int DomainSize, int y_offset, double deltax,
-                    double FreezingRange, double XMin, double YMin, double *ZMinLayer, int LayerHeight, int nz_layer,
+                    double FreezingRange, double XMin, double YMin, double *ZMinLayer, int CumLayerHeight, int nz_layer,
                     int z_layer_bottom, int *FinishTimeStep, double deltat) {
 
         // Data was already read into the "RawTemperatureData" data structure
@@ -484,7 +483,7 @@ struct Temperature {
         view_type_int_host MaxSolidificationEvents_Host =
             Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), MaxSolidificationEvents);
         calcMaxSolidificationEvents(id, layernumber, MaxSolidificationEvents_Host, StartRange, EndRange, XMin, YMin,
-                                    deltax, ZMinLayer, LayerHeight, nx, ny_local, y_offset, DomainSize);
+                                    deltax, ZMinLayer, CumLayerHeight, nx, ny_local, y_offset, DomainSize);
         int MaxNumSolidificationEvents = MaxSolidificationEvents_Host(0);
 
         // Resize LayerTimeTempHistory now that the max number of solidification events is known for this layer
@@ -510,7 +509,7 @@ struct Temperature {
             // domain
             int coord_x = getTempCoordX(i, XMin, deltax);
             int coord_y = getTempCoordY(i, YMin, deltax, y_offset);
-            int coord_z = getTempCoordZ(i, deltax, LayerHeight, layernumber, ZMinLayer);
+            int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
             double TMelting = getTempCoordTM(i);
             double TLiquidus = getTempCoordTL(i);
             double CoolingRate = getTempCoordCR(i);

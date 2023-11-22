@@ -56,8 +56,11 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     // temperature data files and parsing the coordinates
     // For simulations using input temperature data with remelting: even if only LayerwiseTempRead is true, all files
     // need to be read to determine the domain bounds
+    ViewI_H LayerHeightList =
+        getLayerHeights(inputs.RNGSeed, NumberOfLayers, LayerHeight, inputs.domain.LayerVariability);
+    ViewI_H CumLayerHeightList = getCumLayerHeights(LayerHeightList, NumberOfLayers);
     FindXYZBounds(id, deltax, nx, ny, nz, XMin, XMax, YMin, YMax, ZMin, ZMax, ZMinLayer, ZMaxLayer, NumberOfLayers,
-                  LayerHeight, inputs);
+                  LayerHeightList, CumLayerHeightList, inputs);
 
     // Ensure that input powder layer init options are compatible with this domain size, if needed for this problem type
     if ((simulation_type == "R") || (simulation_type == "S"))
@@ -68,9 +71,9 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     DomainDecomposition(id, np, ny_local, y_offset, NeighborRank_North, NeighborRank_South, nx, ny, nz,
                         DomainSize_AllLayers, AtNorthBoundary, AtSouthBoundary);
     // Bounds of the current layer: Z coordinates span z_layer_bottom-z_layer_top, inclusive
-    int z_layer_bottom = calc_z_layer_bottom(inputs.SimulationType, LayerHeight, 0, ZMinLayer, ZMin, deltax);
-    int z_layer_top =
-        calc_z_layer_top(inputs.SimulationType, inputs.domain.SpotRadius, LayerHeight, 0, ZMin, deltax, nz, ZMaxLayer);
+    int z_layer_bottom = calc_z_layer_bottom(inputs.SimulationType, CumLayerHeightList(0), 0, ZMinLayer, ZMin, deltax);
+    int z_layer_top = calc_z_layer_top(inputs.SimulationType, inputs.domain.SpotRadius, CumLayerHeightList(0), 0, ZMin,
+                                       deltax, nz, ZMaxLayer);
     int nz_layer = calc_nz_layer(z_layer_bottom, z_layer_top, id, 0);
     DomainSize = calcLayerDomainSize(nx, ny_local, nz_layer); // Number of cells in the current layer on this MPI rank
     MPI_Barrier(MPI_COMM_WORLD);
@@ -96,7 +99,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                NumberOfLayers);
     else if (simulation_type == "R")
         temperature.initialize(0, id, nx, ny_local, DomainSize, y_offset, deltax, irf.FreezingRange, XMin, YMin,
-                               ZMinLayer, LayerHeight, nz_layer, z_layer_bottom, FinishTimeStep, inputs.domain.deltat);
+                               ZMinLayer, CumLayerHeightList(0), nz_layer, z_layer_bottom, FinishTimeStep,
+                               inputs.domain.deltat);
     MPI_Barrier(MPI_COMM_WORLD);
     if (id == 0)
         std::cout << "Done with temperature field initialization" << std::endl;
@@ -269,10 +273,11 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             print.resetIntermediateFileCounter();
 
             // Determine new active cell domain size and offset from bottom of global domain
-            z_layer_bottom =
-                calc_z_layer_bottom(inputs.SimulationType, LayerHeight, layernumber + 1, ZMinLayer, ZMin, deltax);
-            z_layer_top = calc_z_layer_top(inputs.SimulationType, inputs.domain.SpotRadius, LayerHeight,
-                                           layernumber + 1, ZMin, deltax, nz, ZMaxLayer);
+            z_layer_bottom = calc_z_layer_bottom(inputs.SimulationType, CumLayerHeightList(layernumber + 1),
+                                                 layernumber + 1, ZMinLayer, ZMin, deltax);
+            z_layer_top =
+                calc_z_layer_top(inputs.SimulationType, inputs.domain.SpotRadius, CumLayerHeightList(layernumber + 1),
+                                 layernumber + 1, ZMin, deltax, nz, ZMaxLayer);
             nz_layer = calc_nz_layer(z_layer_bottom, z_layer_top, id, layernumber + 1);
             DomainSize = calcLayerDomainSize(nx, ny_local, nz_layer);
             // Determine the bounds of the next layer: Z coordinates span z_layer_bottom-z_layer_top, inclusive
@@ -284,8 +289,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                                     layernumber + 1);
                 // Initialize next layer's temperature data
                 temperature.initialize(layernumber + 1, id, nx, ny_local, DomainSize, y_offset, deltax,
-                                       irf.FreezingRange, XMin, YMin, ZMinLayer, LayerHeight, nz_layer, z_layer_bottom,
-                                       FinishTimeStep, inputs.domain.deltat);
+                                       irf.FreezingRange, XMin, YMin, ZMinLayer, CumLayerHeightList(layernumber + 1),
+                                       nz_layer, z_layer_bottom, FinishTimeStep, inputs.domain.deltat);
             }
 
             // Reset initial undercooling/solidification event counter of all cells to zeros for the next layer,

@@ -95,7 +95,8 @@ void calcz_layer_bottom() {
         // both problem types by the same)
         ZMinLayer[layernumber] = ZMin + layernumber * LayerHeight * deltax;
         // Call function for each layernumber, and for simulation types "S" and "R"
-        int z_layer_bottom_S = calc_z_layer_bottom("S", LayerHeight, layernumber, ZMinLayer, ZMin, deltax);
+        int z_layer_bottom_S =
+            calc_z_layer_bottom("S", layernumber * LayerHeight, layernumber, ZMinLayer, ZMin, deltax);
         EXPECT_EQ(z_layer_bottom_S, LayerHeight * layernumber);
         int z_layer_bottom_R = calc_z_layer_bottom("R", LayerHeight, layernumber, ZMinLayer, ZMin, deltax);
         EXPECT_EQ(z_layer_bottom_R, LayerHeight * layernumber);
@@ -117,9 +118,11 @@ void calcz_layer_top() {
         // ZMax value of ZMin + SpotRadius (lets solution for both problem types be the same)
         ZMaxLayer[layernumber] = ZMin + SpotRadius * deltax + layernumber * LayerHeight * deltax;
         // Call function for each layernumber, and for simulation types "S" and "R"
-        int z_layer_top_S = calc_z_layer_top("S", SpotRadius, LayerHeight, layernumber, ZMin, deltax, nz, ZMaxLayer);
+        int z_layer_top_S =
+            calc_z_layer_top("S", SpotRadius, layernumber * LayerHeight, layernumber, ZMin, deltax, nz, ZMaxLayer);
         EXPECT_EQ(z_layer_top_S, SpotRadius + LayerHeight * layernumber);
-        int z_layer_top_R = calc_z_layer_top("R", SpotRadius, LayerHeight, layernumber, ZMin, deltax, nz, ZMaxLayer);
+        int z_layer_top_R =
+            calc_z_layer_top("R", SpotRadius, layernumber * LayerHeight, layernumber, ZMin, deltax, nz, ZMaxLayer);
         EXPECT_EQ(z_layer_top_R, SpotRadius + LayerHeight * layernumber);
         // For simulation type C, should be independent of layernumber
         int z_layer_top_C = calc_z_layer_top("C", SpotRadius, LayerHeight, layernumber, ZMin, deltax, nz, ZMaxLayer);
@@ -151,75 +154,138 @@ void testcalcLayerDomainSize() {
 //---------------------------------------------------------------------------//
 // bounds_init_test
 //---------------------------------------------------------------------------//
-void testFindXYZBounds(bool TestBinaryInputRead) {
+void testFindXYZBounds(bool TestBinaryInputRead, int LayerVariability) {
 
-    // Write fake OpenFOAM data - temperature data should be of type double
-    double deltax = 1 * pow(10, -6);
-    std::string TestFilename = "TestData";
-    if (TestBinaryInputRead)
-        TestFilename = TestFilename + ".catemp";
-    else
-        TestFilename = TestFilename + ".txt";
-    std::ofstream TestData;
-    if (TestBinaryInputRead)
-        TestData.open(TestFilename, std::ios::out | std::ios::binary);
-    else {
-        TestData.open(TestFilename);
-        TestData << "x, y, z, tm, tl, cr" << std::endl;
-    }
-    // only x,y,z data should be read, tm, tl, cr should not affect result
-    for (int k = 0; k < 3; k++) {
-        for (int j = 0; j < 3; j++) {
-            for (int i = 0; i < 4; i++) {
-                if (TestBinaryInputRead) {
-                    WriteData(TestData, static_cast<double>(i * deltax), TestBinaryInputRead);
-                    WriteData(TestData, static_cast<double>(j * deltax), TestBinaryInputRead);
-                    WriteData(TestData, static_cast<double>(k * deltax), TestBinaryInputRead);
-                    WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
-                    WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
-                    WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
-                }
-                else
-                    TestData << i * deltax << "," << j * deltax << "," << k * deltax << "," << static_cast<double>(-1.0)
-                             << "," << static_cast<double>(-1.0) << "," << static_cast<double>(-1.0) << std::endl;
+    int NumberOfLayers = 6;
+    // Repeat this for having 1, 2, and 3 temperature data files
+    for (int TempFilesInSeries = 1; TempFilesInSeries <= 3; TempFilesInSeries++) {
+        // default inputs struct with default values - manually set non-default substrateInputs values
+        Inputs inputs;
+        inputs.SimulationType = "R";
+        inputs.temperature.TempFilesInSeries = TempFilesInSeries;
+        std::string Ext;
+        if (TestBinaryInputRead)
+            Ext = ".catemp";
+        else
+            Ext = ".txt";
+
+        // Write fake OpenFOAM data - temperature data should be of type double
+        double deltax = 1 * pow(10, -6);
+        // only x,y,z data should be read, tm, tl, cr should not affect result
+        // For additional temperature files, have more data in Z but have the same top surface in Z = 0 for each file
+        for (int n = 0; n < TempFilesInSeries; n++) {
+            std::string TestFilename = "TestData_" + std::to_string(n) + Ext;
+            inputs.temperature.temp_paths.push_back(TestFilename);
+            std::ofstream TestData;
+            if (TestBinaryInputRead)
+                TestData.open(TestFilename, std::ios::out | std::ios::binary);
+            else {
+                TestData.open(TestFilename);
+                TestData << "x, y, z, tm, tl, cr" << std::endl;
             }
+            int DatasizeZ = 2 + (2 * n);
+            // Without layer offsets applied, TestData_1 spans Z = 0, -1, -2 microns
+            // Without layer offsets applied, TestData_2 spans Z = 0, -1, -2, -3, -4 microns
+            // Without layer offsets applied, TestData_3 spans Z = 0, -1, -2, -3, -4, -5, -6 microns
+            for (int k = 0; k <= DatasizeZ; k++) {
+                for (int j = 0; j < 3; j++) {
+                    for (int i = 0; i < 4; i++) {
+                        if (TestBinaryInputRead) {
+                            WriteData(TestData, static_cast<double>(i * deltax), TestBinaryInputRead);
+                            WriteData(TestData, static_cast<double>(j * deltax), TestBinaryInputRead);
+                            WriteData(TestData, static_cast<double>(-(DatasizeZ - k) * deltax), TestBinaryInputRead);
+                            WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
+                            WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
+                            WriteData(TestData, static_cast<double>(-1.0), TestBinaryInputRead);
+                        }
+                        else
+                            TestData << i * deltax << "," << j * deltax << "," << -(DatasizeZ - k) * deltax << ","
+                                     << static_cast<double>(-1.0) << "," << static_cast<double>(-1.0) << ","
+                                     << static_cast<double>(-1.0) << std::endl;
+                    }
+                }
+            }
+            TestData.close();
         }
+        int LayerHeight = 3;
+
+        // Values to be calculated in FindXYZBounds
+        int nx, ny, nz;
+        double XMin, XMax, YMin, YMax, ZMin, ZMax;
+        double *ZMinLayer = new double[NumberOfLayers];
+        double *ZMaxLayer = new double[NumberOfLayers];
+
+        // Variable layer height - first layer has no height offset
+        ViewI_H LayerHeightList(Kokkos::ViewAllocateWithoutInitializing("LayerHeightList"), NumberOfLayers);
+        LayerHeightList(0) = 0;
+        LayerHeightList(1) = LayerHeight - LayerVariability;
+        LayerHeightList(2) = LayerHeight + LayerVariability;
+        LayerHeightList(3) = LayerHeight;
+        LayerHeightList(4) = LayerHeight + LayerVariability;
+        LayerHeightList(5) = LayerHeight - LayerVariability;
+        ViewI_H CumLayerHeightList = getCumLayerHeights(LayerHeightList, NumberOfLayers);
+        FindXYZBounds(0, deltax, nx, ny, nz, XMin, XMax, YMin, YMax, ZMin, ZMax, ZMinLayer, ZMaxLayer, NumberOfLayers,
+                      LayerHeightList, CumLayerHeightList, inputs);
+
+        // Size of overall domain in the lateral dimensions
+        EXPECT_EQ(nx, 4);
+        EXPECT_EQ(ny, 3);
+        EXPECT_DOUBLE_EQ(XMin, 0.0);
+        EXPECT_DOUBLE_EQ(YMin, 0.0);
+        EXPECT_DOUBLE_EQ(XMax, 3 * deltax);
+        EXPECT_DOUBLE_EQ(YMax, 2 * deltax);
+
+        // Bounds for each individual layer
+        // TempFilesInSeries = 1 (repeat TestData_1): layer bottoms should be -2, 1 - LayerVariability, 4, 7, 10 +
+        // LayerVariability, 13 TempFilesInSeries = 2 (repeat TestData_1 and TestData_2): layer bottoms should be -2, -1
+        // - LayerVariability, 4, 5, 10 + LayerVariability, 11 TempFilesInSeries = 3 (repeat TestData_1, TestData_2, and
+        // TestData_3): layer bottoms should be -2, -1 - LayerVariability, 0, 7, 8 + LayerVariability, 9 Layer tops
+        // should be 0, 3 - LayerVariability, 6, 9, 12 + LayerVariability, 15 for all TempFilesInSeries
+        EXPECT_DOUBLE_EQ(ZMinLayer[0], -2 * deltax);
+        if (TempFilesInSeries == 1) {
+            EXPECT_DOUBLE_EQ(ZMinLayer[1], (1 - LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[2], 4 * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[3], 7 * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[4], (10 + LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[5], 13 * deltax);
+        }
+        else if (TempFilesInSeries == 2) {
+            EXPECT_DOUBLE_EQ(ZMinLayer[1], (-1 - LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[2], 4 * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[3], 5 * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[4], (10 + LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[5], 11 * deltax);
+        }
+        else {
+            EXPECT_DOUBLE_EQ(ZMinLayer[1], (-1 - LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[2], 0);
+            EXPECT_DOUBLE_EQ(ZMinLayer[3], 7 * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[4], (8 + LayerVariability) * deltax);
+            EXPECT_DOUBLE_EQ(ZMinLayer[5], 9 * deltax);
+        }
+        EXPECT_DOUBLE_EQ(ZMaxLayer[0], 0);
+        EXPECT_DOUBLE_EQ(ZMaxLayer[1], (3 - LayerVariability) * deltax);
+        EXPECT_DOUBLE_EQ(ZMaxLayer[2], 6 * deltax);
+        EXPECT_DOUBLE_EQ(ZMaxLayer[3], 9 * deltax);
+        EXPECT_DOUBLE_EQ(ZMaxLayer[4], (12 + LayerVariability) * deltax);
+        EXPECT_DOUBLE_EQ(ZMaxLayer[5], 15 * deltax);
+
+        // ZMin is at either -2, or if LayerVariability > 1, ZMin is at -1 - LayerVariability
+        if (TempFilesInSeries == 1)
+            EXPECT_DOUBLE_EQ(ZMin, -2 * deltax);
+        else {
+            double ZMin_expected = fmin(ZMin, deltax * (-1 - LayerVariability));
+            if (LayerVariability > 1)
+                EXPECT_DOUBLE_EQ(ZMin, ZMin_expected);
+            else
+                EXPECT_DOUBLE_EQ(ZMin, -2 * deltax);
+        }
+        EXPECT_DOUBLE_EQ(ZMax, 15 * deltax);
+
+        // nz from ZMin and ZMax
+        int nz_expected = round((ZMax - ZMin) / deltax) + 1;
+        EXPECT_EQ(nz, nz_expected);
     }
-    TestData.close();
-
-    // default inputs struct with default values - manually set non-default substrateInputs values
-    Inputs inputs;
-    inputs.SimulationType = "R";
-    inputs.temperature.TempFilesInSeries = 1;
-    inputs.temperature.temp_paths.push_back(TestFilename);
-    int LayerHeight = 2;
-    int NumberOfLayers = 2;
-    // Values to be calculated in FindXYZBounds
-    int nx, ny, nz;
-    double XMin, XMax, YMin, YMax, ZMin, ZMax;
-    double *ZMinLayer = new double[NumberOfLayers];
-    double *ZMaxLayer = new double[NumberOfLayers];
-
-    FindXYZBounds(0, deltax, nx, ny, nz, XMin, XMax, YMin, YMax, ZMin, ZMax, ZMinLayer, ZMaxLayer, NumberOfLayers,
-                  LayerHeight, inputs);
-
-    EXPECT_DOUBLE_EQ(XMin, 0.0);
-    EXPECT_DOUBLE_EQ(YMin, 0.0);
-    EXPECT_DOUBLE_EQ(ZMin, 0.0);
-    EXPECT_DOUBLE_EQ(XMax, 3 * deltax);
-    EXPECT_DOUBLE_EQ(YMax, 2 * deltax);
-    // ZMax is equal to the largest Z coordinate in the file, offset by LayerHeight cells in the build direction due
-    // to the second layer
-    EXPECT_DOUBLE_EQ(ZMax, 4 * deltax);
-    // Bounds for each individual layer - 2nd layer offset by LayerHeight cells from the first
-    EXPECT_DOUBLE_EQ(ZMinLayer[0], 0.0);
-    EXPECT_DOUBLE_EQ(ZMaxLayer[0], 2 * deltax);
-    EXPECT_DOUBLE_EQ(ZMinLayer[1], 2 * deltax);
-    EXPECT_DOUBLE_EQ(ZMaxLayer[1], 4 * deltax);
-    // Size of overall domain
-    EXPECT_EQ(nx, 4);
-    EXPECT_EQ(ny, 3);
-    EXPECT_EQ(nz, 5);
 }
 
 void testOrientationInit_Vectors() {
@@ -295,9 +361,11 @@ TEST(TEST_CATEGORY, activedomainsizecalc) {
     testcalcLayerDomainSize();
 }
 TEST(TEST_CATEGORY, bounds_init_test) {
-    // reading temperature files to obtain xyz bounds, using binary/non-binary format
-    testFindXYZBounds(false);
-    testFindXYZBounds(true);
+    // reading temperature files to obtain xyz bounds, using binary/non-binary format and with variable layer heights
+    testFindXYZBounds(false, 0);
+    testFindXYZBounds(false, 1);
+    testFindXYZBounds(false, 2);
+    testFindXYZBounds(true, 0);
 }
 TEST(TEST_CATEGORY, orientation_init_tests) {
     testOrientationInit_Vectors();

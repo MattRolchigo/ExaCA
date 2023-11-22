@@ -25,7 +25,7 @@ struct DomainInputs {
     // number of CA cells in each direction only initialized here for problem types C, S, and SingleGrain
     int nx = 0, ny = 0, nz = 0;
     // multilayer problems only
-    int NumberOfLayers = 1, LayerHeight = 0;
+    int NumberOfLayers = 1, LayerHeight = 0, LayerVariability = 0;
     // problem type S only
     int NSpotsX = 0, NSpotsY = 0, SpotRadius = 0, SpotOffset = 0;
 };
@@ -182,7 +182,10 @@ struct Inputs {
         else {
             // Number of layers, layer height are needed for problem types S and R
             domain.NumberOfLayers = inputdata["Domain"]["NumberOfLayers"];
+            // Variability in the layer height
             domain.LayerHeight = inputdata["Domain"]["LayerOffset"];
+            if (inputdata["Domain"].contains("LayerVariability"))
+                domain.LayerVariability = inputdata["Domain"]["LayerVariability"];
             // Type S needs spot information, which is then used to compute the domain bounds
             if (SimulationType == "S") {
                 domain.NSpotsX = inputdata["Domain"]["NSpotsX"];
@@ -493,7 +496,8 @@ struct Inputs {
             if (SimulationType != "C") {
                 ExaCALog << "," << std::endl;
                 ExaCALog << "      \"NumberOfLayers\": " << NumberOfLayers << "," << std::endl;
-                ExaCALog << "      \"LayerOffset\": " << LayerHeight;
+                ExaCALog << "      \"LayerOffset\": " << LayerHeight << "," << std::endl;
+                ExaCALog << "      \"LayerVariability\": " << domain.LayerVariability;
                 if (SimulationType == "S") {
                     ExaCALog << "," << std::endl;
                     ExaCALog << "      \"NSpotsX\": " << domain.NSpotsX << "," << std::endl;

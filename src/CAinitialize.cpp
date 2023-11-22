@@ -58,7 +58,7 @@ bool checkTemperatureFileFormat(std::string tempfile_thislayer) {
 // data files and parsing the coordinates
 void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XMin, double &XMax, double &YMin,
                    double &YMax, double &ZMin, double &ZMax, double *ZMinLayer, double *ZMaxLayer, int NumberOfLayers,
-                   int LayerHeight, Inputs &inputs) {
+                   ViewI_H LayerHeightList, ViewI_H CumLayerHeightList, Inputs &inputs) {
 
     if (inputs.SimulationType == "R") {
         // Two passes through reading temperature data files- the first pass only reads the headers to
@@ -91,9 +91,9 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
         // Read all data files to determine the domain bounds, max number of remelting events
         // for simulations with remelting
         int LayersToRead = std::min(NumberOfLayers, inputs.temperature.TempFilesInSeries); // was given in input file
-        for (int LayerReadCount = 1; LayerReadCount <= LayersToRead; LayerReadCount++) {
+        for (int LayerReadCount = 0; LayerReadCount < LayersToRead; LayerReadCount++) {
 
-            std::string tempfile_thislayer = inputs.temperature.temp_paths[LayerReadCount - 1];
+            std::string tempfile_thislayer = inputs.temperature.temp_paths[LayerReadCount];
             // Get min and max x coordinates in this file, which can be a binary or ASCII input file
             // binary file type uses extension .catemp, all other file types assumed to be comma-separated ASCII input
             bool BinaryInputData = checkTemperatureFileFormat(tempfile_thislayer);
@@ -104,8 +104,8 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
             // Based on the input file's layer offset, adjust ZMin/ZMax from the temperature data coordinate
             // system to the multilayer CA coordinate system Check to see in the XYZ bounds for this layer are
             // also limiting for the entire multilayer CA coordinate system
-            XYZMinMax_ThisLayer[4] += deltax * LayerHeight * (LayerReadCount - 1);
-            XYZMinMax_ThisLayer[5] += deltax * LayerHeight * (LayerReadCount - 1);
+            XYZMinMax_ThisLayer[4] += deltax * CumLayerHeightList(LayerReadCount);
+            XYZMinMax_ThisLayer[5] += deltax * CumLayerHeightList(LayerReadCount);
             if (XYZMinMax_ThisLayer[0] < XMin)
                 XMin = XYZMinMax_ThisLayer[0];
             if (XYZMinMax_ThisLayer[1] > XMax)
@@ -118,10 +118,10 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
                 ZMin = XYZMinMax_ThisLayer[4];
             if (XYZMinMax_ThisLayer[5] > ZMax)
                 ZMax = XYZMinMax_ThisLayer[5];
-            ZMinLayer[LayerReadCount - 1] = XYZMinMax_ThisLayer[4];
-            ZMaxLayer[LayerReadCount - 1] = XYZMinMax_ThisLayer[5];
+            ZMinLayer[LayerReadCount] = XYZMinMax_ThisLayer[4];
+            ZMaxLayer[LayerReadCount] = XYZMinMax_ThisLayer[5];
             if (id == 0)
-                std::cout << "Layer = " << LayerReadCount << " Z Bounds are " << XYZMinMax_ThisLayer[4] << " "
+                std::cout << "Layer " << LayerReadCount << " Z Bounds are " << XYZMinMax_ThisLayer[4] << " "
                           << XYZMinMax_ThisLayer[5] << std::endl;
         }
         // Extend domain in Z (build) direction if the number of layers are simulated is greater than the number
@@ -133,22 +133,28 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
                     // Only one temperature file was read, so the upper Z bound should account for an additional
                     // "NumberOfLayers-1" worth of data Since all layers have the same temperature data, each
                     // layer's "ZMinLayer" is just translated from that of the first layer
-                    ZMinLayer[LayerReadCount] = ZMinLayer[LayerReadCount - 1] + deltax * LayerHeight;
-                    ZMaxLayer[LayerReadCount] = ZMaxLayer[LayerReadCount - 1] + deltax * LayerHeight;
-                    ZMax += deltax * LayerHeight;
+                    ZMinLayer[LayerReadCount] = ZMinLayer[0] + deltax * CumLayerHeightList(LayerReadCount);
+                    ZMaxLayer[LayerReadCount] = ZMaxLayer[0] + deltax * CumLayerHeightList(LayerReadCount);
+                    if (ZMaxLayer[LayerReadCount] > ZMax)
+                        ZMax = ZMaxLayer[LayerReadCount];
+                    if (id == 0)
+                        std::cout << "Layer " << LayerReadCount << " Z Bounds are " << ZMinLayer[LayerReadCount] << " "
+                                  << ZMaxLayer[LayerReadCount] << std::endl;
                 }
                 else {
                     // "TempFilesInSeries" temperature files was read, so the upper Z bound should account for
                     // an additional "NumberOfLayers-TempFilesInSeries" worth of data
-                    int RepeatedFile = (LayerReadCount) % inputs.temperature.TempFilesInSeries;
-                    int RepeatUnit = LayerReadCount / inputs.temperature.TempFilesInSeries;
-                    ZMinLayer[LayerReadCount] = ZMinLayer[RepeatedFile] + RepeatUnit *
-                                                                              inputs.temperature.TempFilesInSeries *
-                                                                              deltax * LayerHeight;
-                    ZMaxLayer[LayerReadCount] = ZMaxLayer[RepeatedFile] + RepeatUnit *
-                                                                              inputs.temperature.TempFilesInSeries *
-                                                                              deltax * LayerHeight;
-                    ZMax += deltax * LayerHeight;
+                    int RepeatedFile = LayerReadCount - inputs.temperature.TempFilesInSeries;
+                    int OffsetFromRepeat = 0;
+                    for (int n = 0; n < inputs.temperature.TempFilesInSeries; n++)
+                        OffsetFromRepeat += LayerHeightList(LayerReadCount - n);
+                    ZMinLayer[LayerReadCount] = ZMinLayer[RepeatedFile] + OffsetFromRepeat * deltax;
+                    ZMaxLayer[LayerReadCount] = ZMaxLayer[RepeatedFile] + OffsetFromRepeat * deltax;
+                    if (ZMaxLayer[LayerReadCount] > ZMax)
+                        ZMax = ZMaxLayer[LayerReadCount];
+                    if (id == 0)
+                        std::cout << "Layer " << LayerReadCount << " Z Bounds are " << ZMinLayer[LayerReadCount] << " "
+                                  << ZMaxLayer[LayerReadCount] << std::endl;
                 }
             }
         }
@@ -173,8 +179,8 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
         ZMax = nz * deltax;
         // If this is a spot melt problem, also set the ZMin/ZMax for each layer
         for (int n = 0; n < NumberOfLayers; n++) {
-            ZMinLayer[n] = deltax * (LayerHeight * n);
-            ZMaxLayer[n] = deltax * (inputs.domain.SpotRadius + LayerHeight * n);
+            ZMinLayer[n] = deltax * CumLayerHeightList(n);
+            ZMaxLayer[n] = deltax * (inputs.domain.SpotRadius + CumLayerHeightList(n));
         }
     }
     if (id == 0) {
@@ -211,8 +217,8 @@ void DomainDecomposition(int id, int np, int &ny_local, int &y_offset, int &Neig
 
 //*****************************************************************************/
 // Get the Z coordinate of the lower bound of iteration
-int calc_z_layer_bottom(std::string SimulationType, int LayerHeight, int layernumber, double *ZMinLayer, double ZMin,
-                        double deltax) {
+int calc_z_layer_bottom(std::string SimulationType, int LayerHeight_ThisLayer, int layernumber, double *ZMinLayer,
+                        double ZMin, double deltax) {
 
     int z_layer_bottom = -1; // assign dummy initial value
     if ((SimulationType == "C") || (SimulationType == "SingleGrain")) {
@@ -222,7 +228,7 @@ int calc_z_layer_bottom(std::string SimulationType, int LayerHeight, int layernu
     else if (SimulationType == "S") {
         // lower bound of domain is an integer multiple of the layer spacing, since the temperature field is the
         // same for every layer
-        z_layer_bottom = LayerHeight * layernumber;
+        z_layer_bottom = LayerHeight_ThisLayer;
     }
     else if (SimulationType == "R") {
         // lower bound of domain is based on the data read from the file(s)
@@ -234,8 +240,8 @@ int calc_z_layer_bottom(std::string SimulationType, int LayerHeight, int layernu
 }
 //*****************************************************************************/
 // Get the Z coordinate of the upper bound of iteration
-int calc_z_layer_top(std::string SimulationType, int SpotRadius, int LayerHeight, int layernumber, double ZMin,
-                     double deltax, int nz, double *ZMaxLayer) {
+int calc_z_layer_top(std::string SimulationType, int SpotRadius, int LayerHeight_ThisLayer, int layernumber,
+                     double ZMin, double deltax, int nz, double *ZMaxLayer) {
 
     int z_layer_top = -1; // assign dummy initial value
     if ((SimulationType == "C") || (SimulationType == "SingleGrain")) {
@@ -245,7 +251,7 @@ int calc_z_layer_top(std::string SimulationType, int SpotRadius, int LayerHeight
     else if (SimulationType == "S") {
         // Top of layer is equal to the spot radius for a problem of hemispherical spot solidification, plus an offset
         // depending on the layer number
-        z_layer_top = SpotRadius + LayerHeight * layernumber;
+        z_layer_top = SpotRadius + LayerHeight_ThisLayer;
     }
     else if (SimulationType == "R") {
         // Top of layer comes from the layer's file data (implicitly assumes bottom of layer 0 is the bottom of the
@@ -287,4 +293,32 @@ void ZeroResetViews(int LocalActiveDomainSize, ViewF &DiagonalLength, ViewF &Cri
     Kokkos::deep_copy(DiagonalLength, 0);
     Kokkos::deep_copy(DOCenter, 0);
     Kokkos::deep_copy(CritDiagonalLength, 0);
+}
+//*****************************************************************************/
+// Get the layer height for each layer of a multilayer simulation
+ViewI_H getLayerHeights(double RNGSeed, int NumberOfLayers, int LayerHeight, int LayerVariability) {
+    ViewI_H LayerHeightList(Kokkos::ViewAllocateWithoutInitializing("LayerHeightList"), NumberOfLayers);
+    std::mt19937_64 generator(RNGSeed);
+    // Layer heights must be whole numbers bounded by LayerHeight +/- LayerVariability, include 0.5 on both sides to
+    // ensure all layer heights are equally probable
+    float gen_bound_low = static_cast<float>(LayerHeight - LayerVariability - 0.49999);
+    float gen_bound_high = static_cast<float>(LayerHeight + LayerVariability + 0.49999);
+    std::uniform_real_distribution<float> layer_height_dist(gen_bound_low, gen_bound_high);
+    // Layer 0 is not offset, all other layers are offset by LayerHeightList(n) from the previous layer
+    LayerHeightList(0) = 0;
+    for (int layernumber = 1; layernumber < NumberOfLayers; layernumber++) {
+        LayerHeightList(layernumber) = round(layer_height_dist(generator));
+    }
+    return LayerHeightList;
+}
+
+// Get the cumulative layer height (with respect to layer 0)
+ViewI_H getCumLayerHeights(ViewI_H LayerHeightList, int NumberOfLayers) {
+    ViewI_H CumLayerHeightList(Kokkos::ViewAllocateWithoutInitializing("CumLayerHeightList"), NumberOfLayers);
+    // Layer 0 is not offset, all other layers are offset by CumLayerHeightList(n) from the original layer 0
+    CumLayerHeightList(0) = 0;
+    for (int layernumber = 1; layernumber < NumberOfLayers; layernumber++) {
+        CumLayerHeightList(layernumber) = LayerHeightList(layernumber) + CumLayerHeightList(layernumber - 1);
+    }
+    return CumLayerHeightList;
 }
