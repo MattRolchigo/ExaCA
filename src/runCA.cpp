@@ -59,8 +59,11 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     ViewI_H LayerHeightList =
         getLayerHeights(inputs.RNGSeed, NumberOfLayers, LayerHeight, inputs.domain.LayerVariability);
     ViewI_H CumLayerHeightList = getCumLayerHeights(LayerHeightList, NumberOfLayers);
+    // Lateral shifts use different seeds to ensure X and Y shifts are different for each layer
+    ViewI_H XShift = getLateralShift(inputs.RNGSeed, NumberOfLayers, inputs.domain.LateralVariability);
+    ViewI_H YShift = getLateralShift(inputs.RNGSeed + 1.0, NumberOfLayers, inputs.domain.LateralVariability);
     FindXYZBounds(id, deltax, nx, ny, nz, XMin, XMax, YMin, YMax, ZMin, ZMax, ZMinLayer, ZMaxLayer, NumberOfLayers,
-                  LayerHeightList, CumLayerHeightList, inputs);
+                  LayerHeightList, CumLayerHeightList, XShift, YShift, inputs);
 
     // Ensure that input powder layer init options are compatible with this domain size, if needed for this problem type
     if ((simulation_type == "R") || (simulation_type == "S"))
@@ -85,7 +88,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
     Temperature<device_memory_space> temperature(DomainSize, NumberOfLayers, inputs.temperature);
     // Read temperature data if necessary
     if (simulation_type == "R")
-        temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers, 0);
+        temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers,
+                                        inputs.domain.LateralVariability, 0);
     // Initialize the temperature fields for the simualtion type of interest
     if ((simulation_type == "C") || (simulation_type == "SingleGrain")) {
         if (inputs.temperature.G == 0)
@@ -99,8 +103,8 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                                NumberOfLayers);
     else if (simulation_type == "R")
         temperature.initialize(0, id, nx, ny_local, DomainSize, y_offset, deltax, irf.FreezingRange, XMin, YMin,
-                               ZMinLayer, CumLayerHeightList(0), nz_layer, z_layer_bottom, FinishTimeStep,
-                               inputs.domain.deltat);
+                               ZMinLayer, CumLayerHeightList(0), XShift, YShift, nz_layer, z_layer_bottom,
+                               FinishTimeStep, inputs.domain.deltat);
     MPI_Barrier(MPI_COMM_WORLD);
     if (id == 0)
         std::cout << "Done with temperature field initialization" << std::endl;
@@ -286,11 +290,11 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
                 // If the next layer's temperature data isn't already stored, it should be read
                 if (inputs.temperature.LayerwiseTempRead)
                     temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers,
-                                                    layernumber + 1);
+                                                    inputs.domain.LateralVariability, layernumber + 1);
                 // Initialize next layer's temperature data
                 temperature.initialize(layernumber + 1, id, nx, ny_local, DomainSize, y_offset, deltax,
                                        irf.FreezingRange, XMin, YMin, ZMinLayer, CumLayerHeightList(layernumber + 1),
-                                       nz_layer, z_layer_bottom, FinishTimeStep, inputs.domain.deltat);
+                                       XShift, YShift, nz_layer, z_layer_bottom, FinishTimeStep, inputs.domain.deltat);
             }
 
             // Reset initial undercooling/solidification event counter of all cells to zeros for the next layer,

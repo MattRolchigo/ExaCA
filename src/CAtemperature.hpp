@@ -87,8 +87,10 @@ struct Temperature {
 
     // Read in temperature data from files, stored in the host view "RawData", with the appropriate MPI ranks storing
     // the appropriate data
+    // RawTemperatureData stores the temperature data without any shifts in X, Y, or Z: any variability in position as a
+    // function of layer height is handled in the initialize function
     void readTemperatureData(int id, double &deltax, int y_offset, int ny_local, double YMin, int NumberOfLayers,
-                             int layernumber) {
+                             int LateralVariability, int layernumber) {
 
         double HTtoCAratio_unrounded = _inputs.HT_deltax / deltax;
         double HTtoCAratio_floor = floor(HTtoCAratio_unrounded);
@@ -118,6 +120,11 @@ struct Temperature {
 
         std::cout << "On MPI rank " << id << ", the Y bounds (in cells) are [" << LowerYBound << "," << UpperYBound
                   << "]" << std::endl;
+        // Extent Y bounds for the read data by LateralVariability to account for the fact that each layer's data will
+        // be shifted by up to this number of cells in +/- Y, and said temperature information may have to be stored on
+        // multiple ranks
+        UpperYBound = UpperYBound + LateralVariability;
+        LowerYBound = LowerYBound - LateralVariability;
         // Store raw data relevant to each rank in the vector structure RawData
         // Two passes through reading temperature data files- this is the second pass, reading the actual X/Y/Z/liquidus
         // time/cooling rate data and each rank stores the data relevant to itself in "RawData". With remelting
@@ -408,17 +415,24 @@ struct Temperature {
             // Need to calculate MaxSolidificationEvents(layernumber) from the values in RawData
             // Init to 0
             view_type_int_host TempMeltCount("TempMeltCount", DomainSize);
-
+            double coord_y_meters_min = YMin + y_offset * deltax;
+            double coord_y_meters_max = YMin + (y_offset + ny_local) * deltax;
             for (int i = StartRange; i < EndRange; i += 6) {
 
                 // Get the integer X, Y, Z coordinates associated with this data point, with the Y coordinate based on
-                // local MPI rank's grid
-                int coord_x = getTempCoordX(i, XMin, deltax);
-                int coord_y = getTempCoordY(i, YMin, deltax, y_offset);
-                int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
-                // Convert to 1D coordinate in the current layer's domain
-                int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
-                TempMeltCount(index)++;
+                // local MPI rank's grid (without shifting data laterially)
+                int coord_x = getTempCoordX(i, XMin, deltax, 0.0);
+                // This Y coordinate may not be in bounds for this rank since no shift was applied - check this before
+                // parsing any additional data (these points can be ignored here since another rank will account for
+                // them)
+                double coord_y_meters = RawTemperatureData(i + 1);
+                if ((coord_y_meters >= coord_y_meters_min) && (coord_y_meters < coord_y_meters_max)) {
+                    int coord_y = getTempCoordY(i, YMin, deltax, 0.0, y_offset);
+                    int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
+                    // Convert to 1D coordinate in the current layer's domain
+                    int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
+                    TempMeltCount(index)++;
+                }
             }
             int MaxCount = 0;
             for (int i = 0; i < DomainSize; i++) {
@@ -435,15 +449,15 @@ struct Temperature {
     }
 
     // Read data from storage, and calculate the normalized x value of the data point
-    int getTempCoordX(int i, double XMin, double deltax) {
-        int x_coord = round((RawTemperatureData(i) - XMin) / deltax);
+    int getTempCoordX(int i, double XMin, double deltax, double x_shift) {
+        int x_coord = round((RawTemperatureData(i) + x_shift - XMin) / deltax);
         return x_coord;
     }
     // Read data from storage, and calculate the normalized y value of the data point. If the optional offset argument
     // is given, the return value is calculated relative to the edge of the MPI rank's local simulation domain (which is
     // offset by y_offset cells from the global domain edge)
-    int getTempCoordY(int i, double YMin, double deltax, int y_offset = 0) {
-        int y_coord = round((RawTemperatureData(i + 1) - YMin) / deltax) - y_offset;
+    int getTempCoordY(int i, double YMin, double deltax, double y_shift, int y_offset = 0) {
+        int y_coord = round((RawTemperatureData(i + 1) + y_shift - YMin) / deltax) - y_offset;
         return y_coord;
     }
     // Read data from storage, and calculate the normalized z value of the data point
@@ -470,8 +484,9 @@ struct Temperature {
     // Initialize temperature fields for layer "layernumber" in case where temperature data comes from file(s)
     // TODO: This can be performed on the device as the dirS problem is
     void initialize(int layernumber, int id, int nx, int ny_local, int DomainSize, int y_offset, double deltax,
-                    double FreezingRange, double XMin, double YMin, double *ZMinLayer, int CumLayerHeight, int nz_layer,
-                    int z_layer_bottom, int *FinishTimeStep, double deltat) {
+                    double FreezingRange, double XMin, double YMin, double *ZMinLayer, int CumLayerHeight,
+                    ViewI_H XShift, ViewI_H YShift, int nz_layer, int z_layer_bottom, int *FinishTimeStep,
+                    double deltat) {
 
         // Data was already read into the "RawTemperatureData" data structure
         // Determine which section of "RawTemperatureData" is relevant for this layer of the overall domain
@@ -500,6 +515,8 @@ struct Temperature {
         if (id == 0)
             std::cout << "Range of raw data for layer " << layernumber << " on rank 0 is " << StartRange << " to "
                       << EndRange << std::endl;
+        double x_shift_layer = deltax * XShift(layernumber);
+        double y_shift_layer = deltax * YShift(layernumber);
         MPI_Barrier(MPI_COMM_WORLD);
         for (int i = StartRange; i < EndRange; i += 6) {
 
@@ -507,28 +524,33 @@ struct Temperature {
             // values
             // coord_y is relative to ths MPI rank's grid, while coord_y_global is relative to the overall simulation
             // domain
-            int coord_x = getTempCoordX(i, XMin, deltax);
-            int coord_y = getTempCoordY(i, YMin, deltax, y_offset);
-            int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
-            double TMelting = getTempCoordTM(i);
-            double TLiquidus = getTempCoordTL(i);
-            double CoolingRate = getTempCoordCR(i);
+            int coord_x = getTempCoordX(i, XMin, deltax, x_shift_layer);
+            int coord_y = getTempCoordY(i, YMin, deltax, y_shift_layer, y_offset);
 
-            // 1D cell coordinate on this MPI rank's domain
-            int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
-            // Store TM, TL, CR values for this solidification event in LayerTimeTempHistory
-            LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 0) =
-                round(TMelting / deltat) + 1;
-            LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 1) =
-                round(TLiquidus / deltat) + 1;
-            LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 2) =
-                std::abs(CoolingRate) * deltat;
-            // Increment number of solidification events for this cell
-            NumberOfSolidificationEvents_Host(index)++;
-            // Estimate of the time step where the last possible solidification is expected to occur
-            double SolidusTime = TLiquidus + FreezingRange / CoolingRate;
-            if (SolidusTime > LargestTime)
-                LargestTime = SolidusTime;
+            // Depending on the shift, this Y coordinate may not be in bounds for this rank - check this before raeding
+            // or storing any additional data
+            if ((coord_y >= 0) && (coord_y < ny_local)) {
+                int coord_z = getTempCoordZ(i, deltax, CumLayerHeight, layernumber, ZMinLayer);
+                double TMelting = getTempCoordTM(i);
+                double TLiquidus = getTempCoordTL(i);
+                double CoolingRate = getTempCoordCR(i);
+
+                // 1D cell coordinate on this MPI rank's domain
+                int index = get1Dindex(coord_x, coord_y, coord_z, nx, ny_local);
+                // Store TM, TL, CR values for this solidification event in LayerTimeTempHistory
+                LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 0) =
+                    round(TMelting / deltat) + 1;
+                LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 1) =
+                    round(TLiquidus / deltat) + 1;
+                LayerTimeTempHistory_Host(index, NumberOfSolidificationEvents_Host(index), 2) =
+                    std::abs(CoolingRate) * deltat;
+                // Increment number of solidification events for this cell
+                NumberOfSolidificationEvents_Host(index)++;
+                // Estimate of the time step where the last possible solidification is expected to occur
+                double SolidusTime = TLiquidus + FreezingRange / CoolingRate;
+                if (SolidusTime > LargestTime)
+                    LargestTime = SolidusTime;
+            }
         }
         MPI_Allreduce(&LargestTime, &LargestTime_Global, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
         if (id == 0)

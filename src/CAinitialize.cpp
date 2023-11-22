@@ -58,7 +58,8 @@ bool checkTemperatureFileFormat(std::string tempfile_thislayer) {
 // data files and parsing the coordinates
 void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XMin, double &XMax, double &YMin,
                    double &YMax, double &ZMin, double &ZMax, double *ZMinLayer, double *ZMaxLayer, int NumberOfLayers,
-                   ViewI_H LayerHeightList, ViewI_H CumLayerHeightList, Inputs &inputs) {
+                   ViewI_H LayerHeightList, ViewI_H CumLayerHeightList, ViewI_H XShift, ViewI_H YShift,
+                   Inputs &inputs) {
 
     if (inputs.SimulationType == "R") {
         // Two passes through reading temperature data files- the first pass only reads the headers to
@@ -157,6 +158,26 @@ void FindXYZBounds(int id, double &deltax, int &nx, int &ny, int &nz, double &XM
                                   << ZMaxLayer[LayerReadCount] << std::endl;
                 }
             }
+        }
+
+        // Apply shift to data in X and Y
+        double XMin_unshifted = XMin;
+        double XMax_unshifted = XMax;
+        double YMin_unshifted = YMin;
+        double YMax_unshifted = YMax;
+        for (int LayerReadCount = 0; LayerReadCount < NumberOfLayers; LayerReadCount++) {
+            double XMinLayer = XMin_unshifted + deltax * XShift(LayerReadCount);
+            if (XMinLayer < XMin)
+                XMin = XMinLayer;
+            double XMaxLayer = XMax_unshifted + deltax * XShift(LayerReadCount);
+            if (XMaxLayer > XMax)
+                XMax = XMaxLayer;
+            double YMinLayer = YMin_unshifted + deltax * YShift(LayerReadCount);
+            if (YMinLayer < YMin)
+                YMin = YMinLayer;
+            double YMaxLayer = YMax_unshifted + deltax * YShift(LayerReadCount);
+            if (YMaxLayer > YMax)
+                YMax = YMaxLayer;
         }
 
         // Now at the conclusion of "Loop 0", the decomposition can be performed as the domain bounds are known
@@ -321,4 +342,19 @@ ViewI_H getCumLayerHeights(ViewI_H LayerHeightList, int NumberOfLayers) {
         CumLayerHeightList(layernumber) = LayerHeightList(layernumber) + CumLayerHeightList(layernumber - 1);
     }
     return CumLayerHeightList;
+}
+
+// Get the shift for the temperature data in the X or Y direction for each layer of a multilayer simulation
+ViewI_H getLateralShift(double RNGSeed, int NumberOfLayers, int LateralVariability) {
+    ViewI_H LateralShift(Kokkos::ViewAllocateWithoutInitializing("LateralShift"), NumberOfLayers);
+    std::mt19937_64 generator(RNGSeed);
+    // Layer heights must be whole numbers bounded by +/- LateralVariability, include 0.5 on both sides to ensure all
+    // shifts are equally probable
+    float gen_bound_low = static_cast<float>(-LateralVariability - 0.49999);
+    float gen_bound_high = static_cast<float>(LateralVariability + 0.49999);
+    std::uniform_real_distribution<float> lateral_shift_dist(gen_bound_low, gen_bound_high);
+    for (int layernumber = 0; layernumber < NumberOfLayers; layernumber++) {
+        LateralShift(layernumber) = round(lateral_shift_dist(generator));
+    }
+    return LateralShift;
 }

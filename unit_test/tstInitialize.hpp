@@ -154,7 +154,7 @@ void testcalcLayerDomainSize() {
 //---------------------------------------------------------------------------//
 // bounds_init_test
 //---------------------------------------------------------------------------//
-void testFindXYZBounds(bool TestBinaryInputRead, int LayerVariability) {
+void testFindXYZBounds(bool TestBinaryInputRead, int LayerVariability, int LateralVariability) {
 
     int NumberOfLayers = 6;
     // Repeat this for having 1, 2, and 3 temperature data files
@@ -224,16 +224,32 @@ void testFindXYZBounds(bool TestBinaryInputRead, int LayerVariability) {
         LayerHeightList(4) = LayerHeight + LayerVariability;
         LayerHeightList(5) = LayerHeight - LayerVariability;
         ViewI_H CumLayerHeightList = getCumLayerHeights(LayerHeightList, NumberOfLayers);
+
+        // Shifts of temperature data in X and Y
+        ViewI_H XShift(Kokkos::ViewAllocateWithoutInitializing("XShift"), NumberOfLayers);
+        ViewI_H YShift(Kokkos::ViewAllocateWithoutInitializing("YShift"), NumberOfLayers);
+        XShift(0) = 0;
+        XShift(1) = LateralVariability;
+        XShift(2) = -LateralVariability;
+        XShift(3) = LateralVariability;
+        XShift(4) = -LateralVariability;
+        XShift(5) = 0;
+        YShift(0) = 0;
+        YShift(1) = -LateralVariability;
+        YShift(2) = LateralVariability;
+        YShift(3) = -LateralVariability;
+        YShift(4) = LateralVariability;
+        YShift(5) = 0;
         FindXYZBounds(0, deltax, nx, ny, nz, XMin, XMax, YMin, YMax, ZMin, ZMax, ZMinLayer, ZMaxLayer, NumberOfLayers,
-                      LayerHeightList, CumLayerHeightList, inputs);
+                      LayerHeightList, CumLayerHeightList, XShift, YShift, inputs);
 
         // Size of overall domain in the lateral dimensions
-        EXPECT_EQ(nx, 4);
-        EXPECT_EQ(ny, 3);
-        EXPECT_DOUBLE_EQ(XMin, 0.0);
-        EXPECT_DOUBLE_EQ(YMin, 0.0);
-        EXPECT_DOUBLE_EQ(XMax, 3 * deltax);
-        EXPECT_DOUBLE_EQ(YMax, 2 * deltax);
+        EXPECT_EQ(nx, 4 + 2 * LateralVariability);
+        EXPECT_EQ(ny, 3 + 2 * LateralVariability);
+        EXPECT_DOUBLE_EQ(XMin, -deltax * LateralVariability);
+        EXPECT_DOUBLE_EQ(YMin, -deltax * LateralVariability);
+        EXPECT_DOUBLE_EQ(XMax, (3 + LateralVariability) * deltax);
+        EXPECT_DOUBLE_EQ(YMax, (2 + LateralVariability) * deltax);
 
         // Bounds for each individual layer
         // TempFilesInSeries = 1 (repeat TestData_1): layer bottoms should be -2, 1 - LayerVariability, 4, 7, 10 +
@@ -362,10 +378,11 @@ TEST(TEST_CATEGORY, activedomainsizecalc) {
 }
 TEST(TEST_CATEGORY, bounds_init_test) {
     // reading temperature files to obtain xyz bounds, using binary/non-binary format and with variable layer heights
-    testFindXYZBounds(false, 0);
-    testFindXYZBounds(false, 1);
-    testFindXYZBounds(false, 2);
-    testFindXYZBounds(true, 0);
+    // and lateral data shifts
+    testFindXYZBounds(false, 0, 3);
+    testFindXYZBounds(false, 1, 0);
+    testFindXYZBounds(false, 2, 0);
+    testFindXYZBounds(true, 0, 0);
 }
 TEST(TEST_CATEGORY, orientation_init_tests) {
     testOrientationInit_Vectors();

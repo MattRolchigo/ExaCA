@@ -25,7 +25,7 @@ struct DomainInputs {
     // number of CA cells in each direction only initialized here for problem types C, S, and SingleGrain
     int nx = 0, ny = 0, nz = 0;
     // multilayer problems only
-    int NumberOfLayers = 1, LayerHeight = 0, LayerVariability = 0;
+    int NumberOfLayers = 1, LayerHeight = 0, LayerVariability = 0, LateralVariability = 0;
     // problem type S only
     int NSpotsX = 0, NSpotsY = 0, SpotRadius = 0, SpotOffset = 0;
 };
@@ -186,6 +186,12 @@ struct Inputs {
             domain.LayerHeight = inputdata["Domain"]["LayerOffset"];
             if (inputdata["Domain"].contains("LayerVariability"))
                 domain.LayerVariability = inputdata["Domain"]["LayerVariability"];
+            if (inputdata["Domain"].contains("LateralVariability")) {
+                if (SimulationType == "R")
+                    domain.LateralVariability = inputdata["Domain"]["LateralVariability"];
+                else if (id == 0)
+                    std::cout << "Note: LateralVariability is only a valid input for problem type R" << std::endl;
+            }
             // Type S needs spot information, which is then used to compute the domain bounds
             if (SimulationType == "S") {
                 domain.NSpotsX = inputdata["Domain"]["NSpotsX"];
@@ -504,6 +510,10 @@ struct Inputs {
                     ExaCALog << "      \"NSpotsY\": " << domain.NSpotsY << "," << std::endl;
                     ExaCALog << "      \"RSpots\": " << domain.SpotRadius << "," << std::endl;
                     ExaCALog << "      \"SpotOffset\": " << domain.SpotOffset << std::endl;
+                }
+                else if (SimulationType == "R") {
+                    ExaCALog << "," << std::endl;
+                    ExaCALog << "      \"LaterialVariability\": " << domain.LateralVariability << std::endl;
                 }
                 else
                     ExaCALog << std::endl;

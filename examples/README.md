@@ -74,6 +74,8 @@ The .json files in the examples subdirectory are provided on the command line to
 |NSpotsY       | S                      | Number of spots in the y direction
 |RSpots        | S                      | Spot radii, in microns
 |SpotOffset    | S                      | Offset of spot centers along the x and y axes, in microns     
+|LayerVariability | S, R                | Variation on LayerOffset such that the build direction offset is randomly selected in the range (LayerOffset - LayerVariability, LayerOffset + LayerVariability) for each layer
+|LateralVariability| R                  | Shift of the data in X and Y (between -/+ LateralVariability), randomly selected for each layer
 
 ## Nucleation inputs
 | Input            |Relevant problem type(s)| Details |

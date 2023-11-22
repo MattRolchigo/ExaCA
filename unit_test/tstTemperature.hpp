@@ -123,7 +123,7 @@ void testReadTemperatureData(int NumberOfLayers, bool LayerwiseTempRead, bool Te
         EXPECT_TRUE(temperature._inputs.temp_paths[1] == inputs.temperature.temp_paths[1]);
 
         // Read in data to "RawTemperatureData"
-        temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers, 0);
+        temperature.readTemperatureData(id, deltax, y_offset, ny_local, YMin, NumberOfLayers, 0, 0);
 
         // Check the results.
         // Does each rank have the right number of temperature data points? Each rank should have six (x,y,z,tm,tl,cr)
