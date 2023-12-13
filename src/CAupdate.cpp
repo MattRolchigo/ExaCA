@@ -163,11 +163,6 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
 
             // Cells of interest for the CA - active cells and future active/liquid cells
             if (CellType(index) == Active) {
-                // Update local diagonal length of active cell
-                double LocU = temperature.UndercoolingCurrent(index);
-                LocU = min(210.0, LocU);
-                double V = irf.compute(LocU);
-                interface.diagonal_length(index) += min(0.045, V); // Max amount the diagonal can grow per time step
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
                 bool DeactivateCell = true; // switch that becomes false if the cell has at least 1 liquid type neighbor
@@ -182,10 +177,17 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                         (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
                         (neighbor_coord_z >= 0)) {
                         int neighbor_index = grid.get_1D_index(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                        if (CellType(neighbor_index) == Liquid)
+                        int diag_index = 26 * index + l;
+                        if (CellType(neighbor_index) == Liquid) {
                             DeactivateCell = false;
+                            // Update neighbor-direction specific diagonal length
+                            double LocU = 0.5 * (temperature.UndercoolingCurrent(index) + temperature.UndercoolingCurrent(neighbor_index));
+                            LocU = min(210.0, LocU);
+                            double V = irf.compute(LocU);
+                            interface.diagonal_length(diag_index) += min(0.045, V); // Max amount the diagonal can grow per time step
+                        }
                         // Capture of cell located at "NeighborD3D1ConvPosition" if this condition is satisfied
-                        if ((interface.diagonal_length(index) >= interface.crit_diagonal_length(26 * index + l)) &&
+                        if ((interface.diagonal_length(diag_index) >= interface.crit_diagonal_length(diag_index)) &&
                             (CellType(neighbor_index) == Liquid)) {
                             // Use of atomic_compare_exchange
                             // (https://github.com/kokkos/kokkos/wiki/Kokkos%3A%3Aatomic_compare_exchange) old_val =
@@ -348,7 +350,9 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                                 float L13 = 0.5 * (fmin(J1, sqrtf(3.0)) + fmin(J2, sqrtf(3.0)));
                                 float NewODiagL = sqrtf(2.0) * fmax(L12, L13); // half diagonal length of new octahedron
 
-                                interface.diagonal_length(neighbor_index) = NewODiagL;
+                                // New diagonal lengths - initially the same
+                                for (int nn=0; nn<26; nn++)
+                                    interface.diagonal_length(26 * neighbor_index + nn) = NewODiagL;
                                 // Calculate coordinates of new decentered octahedron center
                                 float CaptDiag[3];
                                 CaptDiag[0] = xc - cxold;
@@ -681,7 +685,8 @@ void halo_update(const int, const int, const Grid &grid, CellData<device_memory_
                         interface.octahedron_center(3 * index + 1) = new_octahedron_center_y;
                         interface.octahedron_center(3 * index + 2) = new_octahedron_center_z;
                         int MyOrientation = getGrainOrientation(GrainID(index), n_grain_orientations);
-                        interface.diagonal_length(index) = static_cast<float>(new_diagonal_length);
+                        for (int nn=0; nn<26; nn++)
+                            interface.diagonal_length(26 * index + nn) = static_cast<float>(new_diagonal_length);
                         // Cell center - note that the Y coordinate is relative to the domain origin to keep the
                         // coordinate system continuous across ranks
                         double xp = coord_x + 0.5;

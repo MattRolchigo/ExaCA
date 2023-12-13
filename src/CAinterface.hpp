@@ -53,7 +53,7 @@ struct Interface {
     // Constructor for views and view bounds for current layer
     // Use default initialization to 0 for num_steer_host and num_steer and buffer counts
     Interface(int domain_size, int buf_size_initial_estimate = 25, int buf_components_temp = 8)
-        : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), domain_size))
+        : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), 26 * domain_size))
         , octahedron_center(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center"), 3 * domain_size))
         , crit_diagonal_length(
@@ -169,7 +169,7 @@ struct Interface {
         Kokkos::realloc(steering_vector, domain_size);
 
         // Realloc active cell data structure and halo regions on device (old values not needed)
-        Kokkos::realloc(diagonal_length, domain_size);
+        Kokkos::realloc(diagonal_length, 26 * domain_size);
         Kokkos::realloc(octahedron_center, 3 * domain_size);
         Kokkos::realloc(crit_diagonal_length, 26 * domain_size);
 
@@ -184,7 +184,8 @@ struct Interface {
     KOKKOS_INLINE_FUNCTION
     void create_new_octahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
                                const int coord_z) const {
-        diagonal_length(index) = 0.01;
+        for (int n=0; n<26; n++)
+            diagonal_length(26 * index + n) = 0.01;
         octahedron_center(3 * index) = coord_x + 0.5;
         octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
         octahedron_center(3 * index + 2) = coord_z + 0.5;
