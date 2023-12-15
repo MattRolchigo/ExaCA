@@ -185,7 +185,7 @@ struct Interface {
     void create_new_octahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
                                const int coord_z) const {
         for (int n=0; n<26; n++)
-            diagonal_length(26 * index + n) = 0.01;
+            diagonal_length(26 * index + n) = 0.0;
         octahedron_center(3 * index) = coord_x + 0.5;
         octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
         octahedron_center(3 * index + 2) = coord_z + 0.5;
@@ -198,7 +198,7 @@ struct Interface {
     template <typename ViewType>
     KOKKOS_INLINE_FUNCTION void calc_crit_diagonal_length(int index, float xp, float yp, float zp, float cx, float cy,
                                                           float cz, int my_orientation,
-                                                          ViewType grain_unit_vector) const {
+                                                          ViewType grain_unit_vector, const float orig_diag_length) const {
         // Calculate critical octahedron diagonal length to activate nearest neighbor.
         // First, calculate the unique planes (4) associated with all octahedron faces (8)
         // Then just look at distance between face and the point of interest (cell center of
@@ -243,7 +243,7 @@ struct Interface {
             float d2 = x0 * fx[2] + y0 * fy[2] + z0 * fz[2];
             float d3 = x0 * fx[3] + y0 * fy[3] + z0 * fz[3];
             float dfabs = fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
-            crit_diagonal_length(26 * index + n) = dfabs;
+            crit_diagonal_length(26 * index + n) = dfabs - orig_diag_length;
         }
     }
 

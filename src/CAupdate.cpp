@@ -142,7 +142,7 @@ void fill_steering_vector_remelt(const int cycle, const Grid &grid, CellData<dev
 }
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
-void cell_capture(const int, const int np, const Grid &grid, const InterfacialResponseFunction &irf,
+void cell_capture(const int cycle, const int np, const Grid &grid, const InterfacialResponseFunction &irf,
                   CellData<device_memory_space> &cellData, Temperature<device_memory_space> &temperature,
                   Interface<device_memory_space> &interface, const ViewF GrainUnitVector,
                   const int NGrainOrientations) {
@@ -181,7 +181,19 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                         if (CellType(neighbor_index) == Liquid) {
                             DeactivateCell = false;
                             // Update neighbor-direction specific diagonal length
-                            double LocU = 0.5 * (temperature.UndercoolingCurrent(index) + temperature.UndercoolingCurrent(neighbor_index));
+                            // Fraction of distance covered between this cell and its neighbor
+                            double fract_dist = std::fmax(1.0, interface.diagonal_length(diag_index) / interface.crit_diagonal_length(diag_index));
+                            float local_undercooling = temperature.UndercoolingCurrent(index);
+                            float neighbor_undercooling;
+                            if (cycle < temperature.getCritTimeStep(neighbor_index)) {
+                                // Neighbor is superheated - assign negetive undercooling based on cooling rate, and the time step when this cell will cool below the liquidus
+                                neighbor_undercooling = (cycle - temperature.getCritTimeStep(neighbor_index)) * temperature.getUndercoolingChange(neighbor_index, temperature.SolidificationEventCounter(neighbor_index));
+                            }
+                            else {
+                                // Neighbor is undercooled - can get undercooling directly
+                                neighbor_undercooling = temperature.UndercoolingCurrent(neighbor_index);
+                            }
+                            double LocU = fract_dist * neighbor_undercooling + (1 - fract_dist) * local_undercooling;
                             LocU = min(210.0, LocU);
                             double V = irf.compute(LocU);
                             interface.diagonal_length(diag_index) += min(0.045, V); // Max amount the diagonal can grow per time step
@@ -350,9 +362,9 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                                 float L13 = 0.5 * (fmin(J1, sqrtf(3.0)) + fmin(J2, sqrtf(3.0)));
                                 float NewODiagL = sqrtf(2.0) * fmax(L12, L13); // half diagonal length of new octahedron
 
-                                // New diagonal lengths - initially the same
+                                // New diagonal lengths - initially the same, start at 0
                                 for (int nn=0; nn<26; nn++)
-                                    interface.diagonal_length(26 * neighbor_index + nn) = NewODiagL;
+                                    interface.diagonal_length(26 * neighbor_index + nn) = 0.0;
                                 // Calculate coordinates of new decentered octahedron center
                                 float CaptDiag[3];
                                 CaptDiag[0] = xc - cxold;
@@ -375,9 +387,9 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                                 interface.octahedron_center(3 * neighbor_index + 2) = cz;
 
                                 // Get new critical diagonal length values for the newly activated cell (at array
-                                // position "neighbor_index")
+                                // position "neighbor_index"). Offset the critical values by the original diagonal length
                                 interface.calc_crit_diagonal_length(neighbor_index, xp, yp, zp, cx, cy, cz,
-                                                                    MyOrientation, GrainUnitVector);
+                                                                    MyOrientation, GrainUnitVector, NewODiagL);
 
                                 if (np > 1) {
                                     // TODO: Test loading ghost nodes in a separate kernel, potentially adopting
@@ -449,7 +461,7 @@ void cell_capture(const int, const int np, const Grid &grid, const InterfacialRe
                 // Calculate critical values at which this active cell leads to the activation of a neighboring
                 // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
                 // grain
-                interface.calc_crit_diagonal_length(index, cx, cy, cz, cx, cy, cz, MyOrientation, GrainUnitVector);
+                interface.calc_crit_diagonal_length(index, cx, cy, cz, cx, cy, cz, MyOrientation, GrainUnitVector, 0.0);
                 if (np > 1) {
                     // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
                     // slowdown is minor
@@ -686,7 +698,7 @@ void halo_update(const int, const int, const Grid &grid, CellData<device_memory_
                         interface.octahedron_center(3 * index + 2) = new_octahedron_center_z;
                         int MyOrientation = getGrainOrientation(GrainID(index), n_grain_orientations);
                         for (int nn=0; nn<26; nn++)
-                            interface.diagonal_length(26 * index + nn) = static_cast<float>(new_diagonal_length);
+                            interface.diagonal_length(26 * index + nn) = 0.0; //static_cast<float>(new_diagonal_length);
                         // Cell center - note that the Y coordinate is relative to the domain origin to keep the
                         // coordinate system continuous across ranks
                         double xp = coord_x + 0.5;
@@ -696,7 +708,7 @@ void halo_update(const int, const int, const Grid &grid, CellData<device_memory_
                         // neighboring liquid cell
                         interface.calc_crit_diagonal_length(index, xp, yp, zp, new_octahedron_center_x,
                                                             new_octahedron_center_y, new_octahedron_center_z,
-                                                            MyOrientation, GrainUnitVector);
+                                                            MyOrientation, GrainUnitVector, new_diagonal_length);
                         CellType(index) = Active;
                     }
                 });
