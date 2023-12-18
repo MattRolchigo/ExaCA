@@ -194,7 +194,7 @@ void cell_capture(const int cycle, const int np, const Grid &grid, const Interfa
                                 neighbor_undercooling = temperature.UndercoolingCurrent(neighbor_index);
                             }
                             double LocU = fract_dist * neighbor_undercooling + (1 - fract_dist) * local_undercooling;
-                            LocU = min(210.0, LocU);
+                            LocU = max(0.0,min(210.0, LocU));
                             double V = irf.compute(LocU);
                             interface.diagonal_length(diag_index) += min(0.045, V); // Max amount the diagonal can grow per time step
                         }
