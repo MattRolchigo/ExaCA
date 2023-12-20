@@ -31,7 +31,7 @@ void CellCapture(int, int np, int, int nx, int ny_local, InterfacialResponseFunc
                  Temperature<device_memory_space> &temperature, ViewF DOCenter, int NGrainOrientations,
                  Buffer2D BufferNorthSend, Buffer2D BufferSouthSend, ViewI SendSizeNorth, ViewI SendSizeSouth,
                  int nz_layer, ViewI SteeringVector, ViewI numSteer, ViewI_H numSteer_Host, bool AtNorthBoundary,
-                 bool AtSouthBoundary, int &BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS BranchDir, float c = 3.0, float f_transient = 12.0, float penalization_factor = 0.5, float theta_min = 0.0872665);
+                 bool AtSouthBoundary, int &BufSize, ViewF FractMaxTipVelocity, ViewF BranchCenterLocation, ViewS BranchID, ViewS BranchDir, float c, float f_transient, float penalization_factor, float theta_min);
 void JumpTimeStep(int &cycle, unsigned long int RemainingCellsOfInterest, unsigned long int LocalTempSolidCells,
                   Temperature<device_memory_space> &temperature, int DomainSize, int ny_local, int z_layer_bottom,
                   CellData<device_memory_space> &cellData, int id, int layernumber, int np, int nx, int ny,

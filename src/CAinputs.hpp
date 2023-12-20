@@ -66,6 +66,7 @@ struct SubstrateInputs {
     double PowderActiveFraction = 1.0;
     // Top of baseplate assumed at Z = 0 if not otherwise given
     double BaseplateTopZ = 0.0;
+    float c, t, s, theta_min;
 };
 
 struct PrintInputs {
@@ -291,6 +292,11 @@ struct Inputs {
         else if (SimulationType == "SingleGrain") {
             // Orientation of the single grain at the domain center
             substrate.singleGrainOrientation = inputdata["Substrate"]["GrainOrientation"];
+            // grain shape penalization variables
+            substrate.c = inputdata["Substrate"]["c"];
+            substrate.t = inputdata["Substrate"]["t"];
+            substrate.s = inputdata["Substrate"]["s"];
+            substrate.theta_min = inputdata["Substrate"]["theta_min"];
         }
         else {
             // Substrate data - should data come from an initial size or a file?

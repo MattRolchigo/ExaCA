@@ -236,7 +236,7 @@ void RunProgram_Reduced(int id, int np, std::string InputFile) {
             CellCapture(id, np, cycle, nx, ny_local, irf, y_offset, NeighborX, NeighborY, NeighborZ, GrainUnitVector,
                         CritDiagonalLength, DiagonalLength, cellData, temperature, DOCenter, NGrainOrientations,
                         BufferNorthSend, BufferSouthSend, SendSizeNorth, SendSizeSouth, nz_layer, SteeringVector,
-                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, FractMaxTipVelocity, BranchCenterLocation, BranchID, BranchDir);
+                        numSteer, numSteer_Host, AtNorthBoundary, AtSouthBoundary, BufSize, FractMaxTipVelocity, BranchCenterLocation, BranchID, BranchDir, inputs.substrate.c, inputs.substrate.t, inputs.substrate.s, inputs.substrate.theta_min);
             // Count the number of cells' in halo regions where the data did not fit into the send buffers
             // Reduce across all ranks, as the same BufSize should be maintained across all ranks
             // If any rank overflowed its buffer size, resize all buffers to the new size plus 10% padding

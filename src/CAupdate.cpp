@@ -493,7 +493,11 @@ void CellCapture(int id, int np, int cycle, int nx, int ny_local, InterfacialRes
                                             theta_new_norm = (theta_new - theta_min) / (1.096067 - theta_min);
                                         // Step 2.4: use the normalized angle theta_new_norm to calculate f_new
                                         float dist_penalization_new = 1.0 - (1.0 / exp(l_new_mag / f_transient));
-                                        f_new = dist_penalization_new * (1.0 - pow(theta_new_norm, penalization_factor));
+                                        if (dist_penalization_new > 0.5)
+                                            f_new = dist_penalization_new * (1.0 - pow(theta_new_norm, penalization_factor));
+//                                        if (f_new > f_orig)
+//                                            printf("New branch, f_orig was %f, f_new was %f, dist_penalty_old was %f, dist_penalty_new was %f, l_orig_mag was %f, l_new_mag was %f, cell at %d %d %d\n",f_orig, f_new,dist_penalization_orig, dist_penalization_new, l_orig_mag, l_new_mag, neighbor_coord_x,neighbor_coord_y,neighbor_coord_z);
+
                                     }
                                 }
                                 // Step 3: Determine the larger of (f_orig, f_new), and set the captured cell's branch center appropriately (either B_orig or B_new)
