@@ -292,11 +292,6 @@ struct Inputs {
         else if (SimulationType == "SingleGrain") {
             // Orientation of the single grain at the domain center
             substrate.singleGrainOrientation = inputdata["Substrate"]["GrainOrientation"];
-            // grain shape penalization variables
-            substrate.c = inputdata["Substrate"]["c"];
-            substrate.t = inputdata["Substrate"]["t"];
-            substrate.s = inputdata["Substrate"]["s"];
-            substrate.theta_min = inputdata["Substrate"]["theta_min"];
         }
         else {
             // Substrate data - should data come from an initial size or a file?
@@ -342,6 +337,11 @@ struct Inputs {
                 throw std::runtime_error("Error: if the option to extend the baseplate through the powder layers is "
                                          "toggled, a powder layer density cannot be given");
         }
+        // grain shape penalization variables - used for all problem types
+        substrate.c = inputdata["Substrate"]["c"];
+        substrate.t = inputdata["Substrate"]["t"];
+        substrate.s = inputdata["Substrate"]["s"];
+        substrate.theta_min = inputdata["Substrate"]["theta_min"];
 
         // Printing inputs
         getPrintDataFromInputFile(inputdata, id, domain.deltat);
