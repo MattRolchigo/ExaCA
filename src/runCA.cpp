@@ -136,6 +136,7 @@ void runExaCA(int id, int np, std::string input_file) {
             // regions were recorded
             cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation);
             checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
+            checkEventCompletion(grid, celldata, interface);
             capture_time += MPI_Wtime() - start_capture_time;
 
             if (np > 1) {

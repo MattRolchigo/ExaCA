@@ -155,7 +155,6 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
     // cell types
     Kokkos::parallel_for(
         "CellCapture", interface.num_steer_host(0), KOKKOS_LAMBDA(const int &num) {
-            interface.num_steer(0) = 0;
             int index = interface.steering_vector(num);
             // Get the x, y, z coordinates of the cell on this MPI rank
             int coord_x = grid.getCoordX(index);
@@ -170,8 +169,6 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 interface.diagonal_length(index) += irf.compute(loc_u);
                 // Cycle through all neigboring cells on this processor to see if they have been captured
                 // Cells in ghost nodes cannot capture cells on other processors
-                bool deactivate_cell =
-                    true; // switch that becomes false if the cell has at least 1 liquid type neighbor
                 // Which neighbors should be iterated over?
                 for (int l = 0; l < 26; l++) {
                     // Local coordinates of adjacent cell center
@@ -183,8 +180,6 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                         (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
                         (neighbor_coord_z >= 0)) {
                         int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                        if (celldata.cell_type(neighbor_index) == Liquid)
-                            deactivate_cell = false;
                         // Capture of cell located at "neighbor_index" if this condition is satisfied
                         if ((interface.diagonal_length(index) >= interface.crit_diagonal_length(26 * index + l)) &&
                             (celldata.cell_type(neighbor_index) == Liquid)) {
@@ -422,18 +417,6 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                         }     // End if statement for outer capture loop
                     }         // End if statement over neighbors on the active grid
                 }             // End loop over all neighbors of this active cell
-                if (deactivate_cell) {
-                    // This active cell has no more neighboring cells to be captured
-                    // Update the counter for the number of times this cell went from liquid to active to solid
-                    bool solidification_complete_y_n = temperature.updateCheckSolidificationCounter(index);
-                    // Did the cell solidify for the last time in the layer?
-                    // If so, this cell is solid - ignore until next layer (if needed)
-                    // If not, this cell is tempsolid, will become liquid again
-                    if (solidification_complete_y_n)
-                        celldata.cell_type(index) = Solid;
-                    else
-                        celldata.cell_type(index) = TempSolid;
-                }
             }
             else if (celldata.cell_type(index) == FutureActive) {
                 // Successful nucleation event - this cell is becoming a new active cell
@@ -500,6 +483,67 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 else {
                     // Cell activation is now finished - cell type can be changed from FutureLiquid to Active
                     celldata.cell_type(index) = Liquid;
+                }
+            }
+        });
+    Kokkos::fence();
+}
+
+// Check if a solidification event has completed in the cell, and if so, set cell type to solid
+template <typename MemorySpace>
+void checkEventCompletion(const Grid &grid, CellData<MemorySpace> &celldata, Temperature<MemorySpace> &temperature) {
+
+    // Get grain_id subview for this layer
+    auto grain_id = celldata.getGrainIDSubview(grid);
+    // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
+    // cell types
+    Kokkos::parallel_for(
+        "SolidificationEventCheck_NoRemelt", interface.num_steer_host(0), KOKKOS_LAMBDA(const int &num) {
+            // Reset steering vector count to 0
+            interface.num_steer(0) = 0;
+            int index = interface.steering_vector(num);
+            // Get the x, y, z coordinates of the cell on this MPI rank
+            int coord_x = grid.getCoordX(index);
+            int coord_y = grid.getCoordY(index);
+            int coord_z = grid.getCoordZ(index);
+
+            // Cells of interest for the CA - active cells and future active/liquid cells
+            if (celldata.cell_type(index) == Active) {
+                // Cycle through all neigboring cells on this processor to see if any liquid cells remain
+                bool deactivate_cell = true;
+                bool checking_neighbors = true;
+                int l = 0;
+                while (checking_neighbors) {
+                    // Local coordinates of adjacent cell center
+                    int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                    int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                    int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                    // Check if neighbor is in bounds
+                    if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
+                        (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
+                        (neighbor_coord_z >= 0)) {
+                        int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                        // Don't deactivate cell if there is at least 1 liquid cell neighbor
+                        if (celldata.cell_type(neighbor_index) == Liquid) {
+                            deactivate_cell = false;
+                            checking_neighbors = false;
+                        }
+                    }
+                    l++;
+                    if (l == 26)
+                        checking_neighbors = false;
+                }
+                if (deactivate_cell) {
+                    // This active cell has no more neighboring cells to be captured
+                    // Update the counter for the number of times this cell went from liquid to active to solid
+                    bool solidification_complete_y_n = temperature.updateCheckSolidificationCounter(index);
+                    // Did the cell solidify for the last time in the layer?
+                    // If so, this cell is solid - ignore until next layer (if needed)
+                    // If not, this cell is tempsolid, will become liquid again
+                    if (solidification_complete_y_n)
+                        celldata.cell_type(index) = Solid;
+                    else
+                        celldata.cell_type(index) = TempSolid;
                 }
             }
         });
