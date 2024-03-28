@@ -32,6 +32,7 @@ struct Temperature {
     using view_type_double_host = typename view_type_double::HostMirror;
     using view_type_double_2d_host = typename view_type_double_2d::HostMirror;
     using view_type_float_3d_host = typename view_type_float_3d::HostMirror;
+    using view_type_coupled = Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>;
 
     // Using the default exec space for this memory space.
     using execution_space = typename memory_space::execution_space;
@@ -164,8 +165,8 @@ struct Temperature {
             MPI_Wait(&send_request_size, MPI_STATUS_IGNORE);
             MPI_Wait(&recv_request_size, MPI_STATUS_IGNORE);
             // Allocate view for received data
-            ViewType finch_data_recv(Kokkos::ViewAllocateWithoutInitializing("finch_data_recv"), recv_data_size,
-                                     finch_temp_components);
+            view_type_coupled finch_data_recv(Kokkos::ViewAllocateWithoutInitializing("finch_data_recv"),
+                                              recv_data_size, finch_temp_components);
 
             // Send data to the right, recieve data from the left - if needed, increase size of data stored on this rank
             // to accomodate received data
