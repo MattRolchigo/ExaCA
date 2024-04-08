@@ -50,8 +50,7 @@ struct Print {
     // ranks
     using view_type_int_host = Kokkos::View<int *, Kokkos::HostSpace>;
     using view_type_float_host = Kokkos::View<float *, Kokkos::HostSpace>;
-    view_type_int_host recv_y_offset, recv_ny_local, recv_buf_size;
-    // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0=
+    // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0
     int send_buf_start_y, send_buf_end_y, send_buf_size;
     // Holds print options from input file
     PrintInputs _inputs;
@@ -59,28 +58,18 @@ struct Print {
     std::string path_base_filename;
 
     // Default constructor - options are set in getPrintDataFromFile and copied into this struct
-    Print(const Grid &grid, const int np, PrintInputs inputs)
-        : recv_y_offset(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_y_offset"), np))
-        , recv_ny_local(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_ny_local"), np))
-        , recv_buf_size(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("RBufSize"), np))
-        , _inputs(inputs) {
+    Print(const Grid &grid, PrintInputs inputs)
+        : _inputs(inputs) {
 
-        // Buffers for sending/receiving data across ranks
-        for (int recvrank = 0; recvrank < np; recvrank++) {
-            recv_y_offset(recvrank) = grid.getYOffset(recvrank, np);
-            recv_ny_local(recvrank) = grid.getNyLocal(recvrank, np);
-            recv_buf_size(recvrank) = grid.nx * recv_ny_local(recvrank) * grid.nz;
-        }
-
-        // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0
+        // Y coordinates for a given rank's data (excluding wall and halo regions in Y) being sent/loaded into the view of all domain data on rank 0
         if (grid.y_offset == 0)
-            send_buf_start_y = 0;
-        else
             send_buf_start_y = 1;
-        if (grid.ny_local + grid.y_offset == grid.ny)
-            send_buf_end_y = grid.ny_local;
         else
+            send_buf_start_y = 2;
+        if (grid.ny_local + grid.y_offset == grid.ny)
             send_buf_end_y = grid.ny_local - 1;
+        else
+            send_buf_end_y = grid.ny_local - 2;
         send_buf_size = grid.nx * (send_buf_end_y - send_buf_start_y) * grid.nz;
 
         path_base_filename = _inputs.path_to_output + _inputs.base_filename;
@@ -112,10 +101,10 @@ struct Print {
         if (id == 0) {
             // View (short, int, or float) for 3D data given a size
             Kokkos::resize(view_data_whole_domain, z_print_size, grid.nx, grid.ny);
-            // Place rank 0 data into view for whole domain
+            // Place rank 0 data into view for whole domain (excluding walls and halo regions)
             for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
-                for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                    for (int coord_y_local = 0; coord_y_local < grid.ny_local; coord_y_local++) {
+                for (int coord_x = 1; coord_x < grid.nx - 1; coord_x++) {
+                    for (int coord_y_local = 1; coord_y_local < grid.ny_local-2; coord_y_local++) {
                         int index = grid.get1DIndex(coord_x, coord_y_local, coord_z);
                         view_data_whole_domain(coord_z, coord_x, coord_y_local) = view_data_this_rank(index);
                     }
@@ -124,7 +113,8 @@ struct Print {
 
             // Receive values from other ranks - message size different for different ranks
             for (int recvrank = 1; recvrank < np; recvrank++) {
-                int recv_buf_size_this_rank = recv_buf_size(recvrank);
+                // Receive only data in Y owned by rank "recvrank"
+                int recv_buf_size_this_rank = grid.nx * grid.ny_local_owned(recvrank) * grid.nz;
                 host_view_type recv_buf(Kokkos::ViewAllocateWithoutInitializing("RecvBufData"),
                                         recv_buf_size_this_rank);
                 MPI_Recv(recv_buf.data(), recv_buf_size_this_rank, msg_type, recvrank, 0, MPI_COMM_WORLD,
@@ -132,8 +122,8 @@ struct Print {
                 int data_counter = 0;
                 for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
                     for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                        for (int coord_y_local = 0; coord_y_local < recv_ny_local(recvrank); coord_y_local++) {
-                            int coord_y_global = coord_y_local + recv_y_offset(recvrank);
+                        for (int coord_y_local = 0; coord_y_local < grid.ny_local_owned(recvrank); coord_y_local++) {
+                            int coord_y_global = coord_y_local + grid.y_offset_owned(recvrank);
                             view_data_whole_domain(coord_z, coord_x, coord_y_global) = recv_buf(data_counter);
                             data_counter++;
                         }
@@ -142,7 +132,7 @@ struct Print {
             }
         }
         else {
-            // Send non-ghost node data to rank 0
+            // Send non-ghost node (and non-wall data in Y) to rank 0
             int data_counter = 0;
             host_view_type send_buf(Kokkos::ViewAllocateWithoutInitializing("SendBuf"), send_buf_size);
             for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
@@ -473,11 +463,12 @@ struct Print {
             output_fstream << "BINARY" << std::endl;
         else
             output_fstream << "ASCII" << std::endl;
+        // Don't print wall cells in vtk output
         output_fstream << "DATASET STRUCTURED_POINTS" << std::endl;
-        output_fstream << "DIMENSIONS " << grid.nx << " " << grid.ny << " " << z_print_size << std::endl;
-        output_fstream << "ORIGIN " << grid.x_min << " " << grid.y_min << " " << z_print_origin << std::endl;
+        output_fstream << "DIMENSIONS " << grid.nx - 2 << " " << grid.ny - 2 << " " << z_print_size << std::endl;
+        output_fstream << "ORIGIN " << grid.x_min + grid.deltax << " " << grid.y_min + grid.deltax << " " << z_print_origin << std::endl;
         output_fstream << "SPACING " << grid.deltax << " " << grid.deltax << " " << grid.deltax << std::endl;
-        output_fstream << std::fixed << "POINT_DATA " << grid.nx * grid.ny * z_print_size << std::endl;
+        output_fstream << std::fixed << "POINT_DATA " << (grid.nx - 2) * (grid.ny - 2) * z_print_size << std::endl;
     }
 
     // Called on rank 0 to write view data to the vtk file
@@ -499,8 +490,8 @@ struct Print {
         output_fstream << "SCALARS " << var_name_label << " " << data_label << " 1" << std::endl;
         output_fstream << "LOOKUP_TABLE default" << std::endl;
         for (int coord_z = z_start; coord_z < z_end; coord_z++) {
-            for (int coord_y_global = 0; coord_y_global < grid.ny; coord_y_global++) {
-                for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+            for (int coord_y_global = 1; coord_y_global < grid.ny-1; coord_y_global++) {
+                for (int coord_x = 1; coord_x < grid.nx-1; coord_x++) {
                     if (data_label == "int") {
                         int writeval = static_cast<int>(view_data_whole_domain(coord_z, coord_x, coord_y_global));
                         writeData(output_fstream, writeval, _inputs.print_binary, true);
@@ -563,8 +554,8 @@ struct Print {
         // the misorientation for cells in the powder layer that have not been assigned a grain ID.
         // For prior layers, cell type check is unnecessary as these regions have all solidified
         for (int k = 0; k < grid.z_layer_bottom; k++) {
-            for (int j = 0; j < grid.ny; j++) {
-                for (int i = 0; i < grid.nx; i++) {
+            for (int j = 1; j < grid.ny-1; j++) {
+                for (int i = 1; i < grid.nx-1; i++) {
                     short int_print_val;
                     if (grain_id_whole_domain(k, i, j) == 0)
                         int_print_val = 200;
@@ -585,8 +576,8 @@ struct Print {
         // For current layer, check cell types to see if -1 should be printed (if this is a print following a layer, all
         // cells will be solid and no -1s should be written)
         for (int k = grid.z_layer_bottom; k < z_end; k++) {
-            for (int j = 0; j < grid.ny; j++) {
-                for (int i = 0; i < grid.nx; i++) {
+            for (int j = 1; j < grid.ny-1; j++) {
+                for (int i = 1; i < grid.nx-1; i++) {
                     short int_print_val;
                     if (grain_id_whole_domain(k, i, j) == 0)
                         int_print_val = 200;
@@ -625,17 +616,17 @@ struct Print {
         int rve_yhigh = rve_ylow + _inputs.rve_size - 1;
 
         // Make sure the RVE fits in the simulation domain in X and Y
-        if ((rve_xlow < 0) || (rve_xhigh > grid.nx - 1) || (rve_ylow < 0) || (rve_yhigh > grid.ny - 1)) {
+        if ((rve_xlow < 1) || (rve_xhigh > grid.nx - 1) || (rve_ylow < 1) || (rve_yhigh > grid.ny - 2)) {
             std::cout << "WARNING: Simulation domain is too small to obtain default RVE data (should be at least "
                       << _inputs.rve_size << " cells in the X and Y directions" << std::endl;
-            if (rve_xlow < 0)
-                rve_xlow = 0;
-            if (rve_xhigh > grid.nx - 1)
-                rve_xhigh = grid.nx - 1;
-            if (rve_ylow < 0)
-                rve_ylow = 0;
-            if (rve_yhigh > grid.ny - 1)
-                rve_yhigh = grid.ny - 1;
+            if (rve_xlow < 1)
+                rve_xlow = 1;
+            if (rve_xhigh > grid.nx - 2)
+                rve_xhigh = grid.nx - 2;
+            if (rve_ylow < 1)
+                rve_ylow = 1;
+            if (rve_yhigh > grid.ny - 2)
+                rve_yhigh = grid.ny - 2;
         }
 
         // Determine the upper Z bound of the RVE - largest Z for which all cells in the RVE do not contain LayerID

@@ -78,7 +78,7 @@ void runExaCA(int id, int np, std::string input_file) {
     nucleation.placeNuclei(temperature, inputs.rng_seed, 0, grid, id);
 
     // Initialize printing struct from inputs
-    Print print(grid, np, inputs.print);
+    Print print(grid, inputs.print);
 
     // End of initialization
     timers.stopInit();

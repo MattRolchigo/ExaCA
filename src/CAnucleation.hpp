@@ -97,9 +97,9 @@ struct Nucleation {
 
         // Use new RNG seed for each layer
         std::mt19937_64 generator(rng_seed + static_cast<unsigned long>(layernumber));
-        // Uniform distribution for nuclei location assignment
-        std::uniform_real_distribution<double> x_dist(-0.49999, grid.nx - 0.5);
-        std::uniform_real_distribution<double> y_dist(-0.49999, grid.ny - 0.5);
+        // Uniform distribution for nuclei location assignment (do not assign nuclei to walls)
+        std::uniform_real_distribution<double> x_dist(0.50001, grid.nx - 1.5);
+        std::uniform_real_distribution<double> y_dist(0.50001, grid.ny - 1.5);
         std::uniform_real_distribution<double> z_dist(-0.49999, grid.nz_layer - 0.5);
         // Gaussian distribution of nucleation undercooling
         std::normal_distribution<float> g_distribution(_inputs.dtn, _inputs.dtsigma);
@@ -108,7 +108,7 @@ struct Nucleation {
         // Use long int in intermediate steps calculating the number of nucleated grains, though the number should be
         // small enough to be stored as an int
         long int cells_this_layer_long =
-            static_cast<long int>(grid.nx) * static_cast<long int>(grid.ny) * static_cast<long int>(grid.nz_layer);
+            static_cast<long int>(grid.nx-2) * static_cast<long int>(grid.ny-2) * static_cast<long int>(grid.nz_layer);
         long int nuclei_this_layer_single_long =
             std::lround(bulk_prob * cells_this_layer_long); // equivalent to Nuclei_ThisLayer if no remelting
         // Multiplier for the number of nucleation events per layer, based on the number of solidification events
@@ -163,15 +163,15 @@ struct Nucleation {
 
         // Loop through nuclei for this layer - each MPI rank storing the nucleation events that are possible (i.e,
         // nucleation event is associated with a CA cell on that MPI rank's subdomain, the cell is liquid type, and the
-        // cell is associated with the current layer of the multilayer problem) Don't put nuclei in "ghost" cells -
-        // those nucleation events occur on other ranks and the existing halo exchange functionality will handle this
+        // cell is associated with the current layer of the multilayer problem) Don't put nuclei in wall cells or "ghost" cells -
+        // ghost cell nucleation events occur on other ranks and the existing halo exchange functionality will handle this
         std::vector<int> nuclei_grain_id_myrank_v(nuclei_this_layer), nuclei_location_myrank_v(nuclei_this_layer),
             nucleation_times_myrank_v(nuclei_this_layer);
         for (int meltevent = 0; meltevent < nuclei_multiplier; meltevent++) {
             for (int n = 0; n < nuclei_this_layer_single; n++) {
                 int n_event = meltevent * nuclei_this_layer_single + n;
-                if (((nuclei_y(n_event) > grid.y_offset) || (grid.at_south_boundary)) &&
-                    ((nuclei_y(n_event) < grid.y_offset + grid.ny_local - 1) || (grid.at_north_boundary))) {
+                if (((nuclei_y(n_event) > grid.y_offset + 1) || (grid.at_south_boundary)) &&
+                    ((nuclei_y(n_event) < grid.y_offset + grid.ny_local - 2) || (grid.at_north_boundary))) {
                     // Convert 3D location (using global X and Y coordinates) into a 1D location (using local X and Y
                     // coordinates) for the possible nucleation event, both as relative to the bottom of this layer
                     int nuclei_location_this_layer =

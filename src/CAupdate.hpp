@@ -30,7 +30,8 @@ void fillSteeringVector_NoRemelt(const int cycle, const Grid &grid, CellData<Mem
     Kokkos::parallel_for(
         "FillSV", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
             int cell_type = celldata.cell_type(index);
-            bool is_not_solid = (cell_type != Solid);
+            // Check that cell is not a solid or a wall cell
+            bool is_not_solid = (cell_type > 1);
             int crit_time_step = temperature.layer_time_temp_history(index, 0, 1);
             bool past_crit_time = (cycle > crit_time_step);
             bool cell_active = ((cell_type == Active) || (cell_type == FutureActive));
@@ -54,8 +55,8 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
     Kokkos::parallel_for(
         "FillSV_RM", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
             int celltype = celldata.cell_type(index);
-            // Only iterate over cells that are not Solid type
-            if (celltype != Solid) {
+            // Only iterate over cells that are not Solid or Wall type
+            if (celltype > 1) {
                 int melt_time_step = temperature.getMeltTimeStep(cycle, index);
                 int crit_time_step = temperature.getCritTimeStep(index);
                 bool at_melt_time = (cycle == melt_time_step);
@@ -81,13 +82,9 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
                         int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
-                            (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
-                            (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                        if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
+                            int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], neighbor_coord_z);
                             if (celldata.cell_type(neighbor_index) == Active) {
                                 // Mark adjacent active cells to this as cells that should be converted into liquid,
                                 // as they are more likely heating than cooling
@@ -117,13 +114,9 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
                         int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
-                            (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
-                            (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                        if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
+                            int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], neighbor_coord_z);
                             if ((celldata.cell_type(neighbor_index) == TempSolid) ||
                                 (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
                                 // Cell activation to be performed as part of steering vector
@@ -175,13 +168,11 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 // Which neighbors should be iterated over?
                 for (int l = 0; l < 26; l++) {
                     // Local coordinates of adjacent cell center
-                    int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                    int neighbor_coord_y = coord_y + interface.neighbor_y[l];
                     int neighbor_coord_z = coord_z + interface.neighbor_z[l];
                     // Check if neighbor is in bounds
-                    if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
-                        (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
-                        (neighbor_coord_z >= 0)) {
+                    if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
+                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
                         int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
                         if (celldata.cell_type(neighbor_index) == Liquid)
                             deactivate_cell = false;
@@ -220,7 +211,7 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                                 // (xp,yp,zp) are the global coordinates of the new cell's center
                                 // Note that the Y coordinate is relative to the domain origin to keep the coordinate
                                 // system continuous across ranks
-                                float xp = coord_x + interface.neighbor_x[l] + 0.5;
+                                float xp = neighbor_coord_x + 0.5;
                                 float yp = coord_y + grid.y_offset + interface.neighbor_y[l] + 0.5;
                                 float zp = coord_z + interface.neighbor_z[l] + 0.5;
 
@@ -531,8 +522,9 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
     Kokkos::parallel_for(
         "FillSendBuffersOverflow", grid.nx, KOKKOS_LAMBDA(const int &coord_x) {
             for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
-                int index_south_buffer = grid.get1DIndex(coord_x, 1, coord_z);
-                int index_north_buffer = grid.get1DIndex(coord_x, grid.ny_local - 2, coord_z);
+                // Load cells at Y = 2 and Y = ny_local - 3 into buffers (Y = 1 and ny_local - 2 are the halo regions, and Y = 0 and ny_local - 1 are Wall cells)
+                int index_south_buffer = grid.get1DIndex(coord_x, 2, coord_z);
+                int index_north_buffer = grid.get1DIndex(coord_x, grid.ny_local - 3, coord_z);
                 if (celldata.cell_type(index_south_buffer) == ActiveFailedBufferLoad) {
                     int ghost_grain_id = grain_id(index_south_buffer);
                     float ghost_octahedron_center_x = interface.octahedron_center(3 * index_south_buffer);
@@ -543,7 +535,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool data_fits_in_buffer = interface.loadGhostNodes(
                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, 1, coord_z, grid.at_north_boundary,
+                        ghost_diagonal_length, grid.ny_local, coord_x, 2, coord_z, grid.at_north_boundary,
                         grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_south_buffer) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -555,7 +547,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
                     bool data_fits_in_buffer =
-                        interface.loadGhostNodes(-1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, 1, coord_z,
+                        interface.loadGhostNodes(-1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, 2, coord_z,
                                                  grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_south_buffer) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -573,7 +565,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool data_fits_in_buffer = interface.loadGhostNodes(
                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
+                        ghost_diagonal_length, grid.ny_local, coord_x, grid.ny_local - 3, coord_z,
                         grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_north_buffer) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -585,7 +577,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
                     bool data_fits_in_buffer = interface.loadGhostNodes(
-                        -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
+                        -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, grid.ny_local - 3, coord_z,
                         grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_north_buffer) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -641,9 +633,9 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
                     // (i.e., not set to -1.0)?
                     if ((unpack_index == 0) && (interface.buffer_south_recv(buf_position, 0) != -1.0) &&
                         (grid.neighbor_rank_south != MPI_PROC_NULL)) {
-                        // Data received from South
+                        // Data received from South (To place at Y = 1, as Y = 0 are Wall cells)
                         coord_x = static_cast<int>(interface.buffer_south_recv(buf_position, 0));
-                        coord_y = 0;
+                        coord_y = 1;
                         coord_z = static_cast<int>(interface.buffer_south_recv(buf_position, 1));
                         index = grid.get1DIndex(coord_x, coord_y, coord_z);
                         // Two possibilities: buffer data with non-zero diagonal length was loaded, and a liquid
@@ -667,9 +659,9 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
                     }
                     else if ((unpack_index == 1) && (interface.buffer_north_recv(buf_position, 0) != -1.0) &&
                              (grid.neighbor_rank_north != MPI_PROC_NULL)) {
-                        // Data received from North
+                        // Data received from North (To place at Y = ny_local-2, as Y = ny_local-1 are Wall cells)
                         coord_x = static_cast<int>(interface.buffer_north_recv(buf_position, 0));
-                        coord_y = grid.ny_local - 1;
+                        coord_y = grid.ny_local - 2;
                         coord_z = static_cast<int>(interface.buffer_north_recv(buf_position, 1));
                         index = grid.get1DIndex(coord_x, coord_y, coord_z);
                         // Two possibilities: buffer data with non-zero diagonal length was loaded, and a liquid
@@ -860,18 +852,18 @@ void intermediateOutputAndCheck(const int id, int cycle, const Grid &grid, int &
                 sum_liquid += 1;
             else if (cell_type(index) == Active) {
                 sum_active += 1;
-                // Did this cell reach a domain edge?
+                // Did this cell reach a domain edge? X = 0 and nx-1 are walls
                 int coord_x = grid.getCoordX(index);
                 int coord_y = grid.getCoordY(index);
                 int coord_z = grid.getCoordZ(index);
                 int coord_y_global = coord_y + grid.y_offset;
-                if (coord_x == 0)
+                if (coord_x == 1)
                     edges_reached(0, 0) = true;
-                if (coord_x == grid.nx - 1)
+                if (coord_x == grid.nx - 2)
                     edges_reached(0, 1) = true;
-                if (coord_y_global == 0)
+                if (coord_y_global == 1)
                     edges_reached(1, 0) = true;
-                if (coord_y_global == grid.ny - 1)
+                if (coord_y_global == grid.ny - 2)
                     edges_reached(1, 1) = true;
                 if (coord_z == 0)
                     edges_reached(2, 0) = true;

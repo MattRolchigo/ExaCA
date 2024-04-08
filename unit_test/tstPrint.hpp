@@ -37,7 +37,7 @@ void testPrintExaConstitDefaultRVE() {
     // File name/path for test RVE output
     inputs.print.base_filename = "TestRVE";
     // Initialize printing struct from inputs
-    Print print(grid, 1, inputs.print);
+    Print print(grid, inputs.print);
 
     // Check that inputs in print struct match the initialization from inputs
     EXPECT_TRUE(print._inputs.print_default_rve);

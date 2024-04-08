@@ -181,12 +181,12 @@ struct Temperature {
     // the appropriate data
     void readTemperatureData(int id, const Grid &grid, int layernumber) {
 
-        // Y coordinates of this rank's data, inclusive and including ghost nodes
-        int lower_y_bound = grid.y_offset;
-        int upper_y_bound = grid.y_offset + grid.ny_local - 1;
+        // Y coordinates of this rank's data, inclusive and including ghost nodes but not wall cells (which will not store temperature data)
+        int lower_y_bound = grid.y_offset + 1;
+        int upper_y_bound = grid.y_offset + grid.ny_local - 2;
 
         std::cout << "On MPI rank " << id << ", the Y bounds (in cells) are [" << lower_y_bound << "," << upper_y_bound
-                  << "]" << std::endl;
+                  << "], with 1 cell of wall padding on each size" << std::endl;
         // Store raw data relevant to each rank in the vector structure RawData
         // Two passes through reading temperature data files- this is the second pass, reading the actual X/Y/Z/liquidus
         // time/cooling rate data and each rank stores the data relevant to itself in "RawData". With remelting
@@ -323,9 +323,9 @@ struct Temperature {
         // Spots cool at constant rate R, spot thermal gradient = G
         float isotherm_velocity = (_inputs.R / _inputs.G) * deltat / grid.deltax; // in cells per time step
         int spot_time_est = spot_radius / isotherm_velocity + (freezing_range / _inputs.R) / deltat; // in time steps
-        // Spot center location - center of domain in X and Y, top of domain in Z
-        float spot_center_x = spot_radius + 1;
-        float spot_center_y = spot_radius + 1;
+        // Spot center location - center of domain in X and Y (account for walls), top of domain in Z
+        float spot_center_x = spot_radius + 2;
+        float spot_center_y = spot_radius + 2;
         float spot_center_z = grid.nz - 0.5;
 
         if (id == 0)
@@ -620,8 +620,8 @@ struct Temperature {
             "GetMinUndercooling", policy, KOKKOS_LAMBDA(const int &coord_z) {
                 float min_start_undercooling = Kokkos::Experimental::finite_max_v<float>;
                 float min_end_undercooling = Kokkos::Experimental::finite_max_v<float>;
-                for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                    for (int coord_y = 1; coord_y < grid.ny_local - 1; coord_y++) {
+                for (int coord_x = 1; coord_x < grid.nx-1; coord_x++) {
+                    for (int coord_y = 2; coord_y < grid.ny_local - 2; coord_y++) {
                         int index = grid.get1DIndex(coord_x, coord_y, coord_z);
                         if (_undercooling_solidification_start(index) < min_start_undercooling)
                             min_start_undercooling = _undercooling_solidification_start(index);

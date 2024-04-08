@@ -80,6 +80,8 @@ struct CellData {
                     cell_type_local(index) = FutureActive;
                     grain_id_all_layers_local(index) = single_grain_orientation_local + 1;
                 }
+                else if ((coord_x == 0) || (coord_x == grid.nx-1) || (coord_y == 0) || (coord_y == grid.ny_local-1))
+                    cell_type_local(index) = Wall;
                 else
                     cell_type_local(index) = Liquid;
             });
@@ -97,7 +99,7 @@ struct CellData {
                                                    const unsigned long rng_seed) {
 
         // Number of cells at the bottom surface that could potentially be assigned GrainID values
-        const int bottom_surface_size = grid.nx * grid.ny;
+        const int bottom_surface_size = (grid.nx - 2) * (grid.ny - 2);
 
         // First get number of substrate grains for each initialization condition
         if (_inputs.surface_init_mode == "SurfaceSiteFraction")
@@ -125,30 +127,35 @@ struct CellData {
             // Fill act_cell_data_host with the non-zero grain IDs and their associated X and Y based on the position in
             // the 1D vector
             int act_cell_count = 0;
-            for (int n = 0; n < bottom_surface_size; n++) {
-                if (grain_locations_1d[n] != 0) {
-                    act_cell_data_host(act_cell_count, 0) = grid.getCoordXGlobal(n);
-                    act_cell_data_host(act_cell_count, 1) = grid.getCoordYGlobal(n);
-                    act_cell_data_host(act_cell_count, 2) = grain_locations_1d[n];
-                    act_cell_count++;
+            // Skip walls in X and Y
+            for (int coord_x_global = 1; coord_x_global < grid.nx - 1; coord_x_global++) {
+                for (int coord_y_global = 1; coord_y_global < grid.ny - 1; coord_y_global++) {
+                    int coord_1d_global = (coord_x_global - 1) * (grid.ny - 2) + (coord_y_global - 1);
+                    if (grain_locations_1d[coord_1d_global] != 0) {
+                        act_cell_data_host(act_cell_count, 0) = coord_x_global;
+                        act_cell_data_host(act_cell_count, 1) = coord_y_global;
+                        act_cell_data_host(act_cell_count, 2) = grain_locations_1d[coord_1d_global];
+                        act_cell_count++;
+                    }
                 }
             }
         }
         else if (_inputs.surface_init_mode == "SurfaceSiteDensity") {
             // Calls to Xdist(gen) and Y dist(gen) return random locations for grain seeds
-            // Since X = 0 and X = nx-1 are the cell centers of the last cells in X, locations are evenly scattered
-            // between X = -0.49999 and X = nx - 0.5, as the cells have a half width of 0.5. Note that if the number of
+            // Since X = 1 and X = nx-2 are the cell centers of the last non-wall cells in X, locations are evenly scattered
+            // between X = 0.50001 and X = nx - 1.5, as the cells have a half width of 0.5. The same is true for Y. Note that if the number of
             // grains is large compared to the number of cells, multiple grain IDs may be assigned to one cell and the
             // total density will be underestimated on the given grid
             std::mt19937_64 gen(rng_seed);
-            std::uniform_real_distribution<double> x_dist(-0.49999, grid.nx - 0.5);
-            std::uniform_real_distribution<double> y_dist(-0.49999, grid.ny - 0.5);
+            // Do not place grains within walls in X
+            std::uniform_real_distribution<double> x_dist(0.50001, grid.nx - 1.5);
+            std::uniform_real_distribution<double> y_dist(0.50001, grid.ny - 1.5);
             // Randomly locate substrate grain seeds for cells in the interior of this subdomain (at the k = 0 bottom
             // surface)
             for (int n = 0; n < substrate_act_cells; n++) {
                 double x_location = x_dist(gen);
                 double y_location = y_dist(gen);
-                // Randomly select integer coordinates between 0 and nx-1 or ny-1
+                // Randomly select integer coordinates between 1 and nx-2 or ny-2
                 act_cell_data_host(n, 0) = Kokkos::round(x_location);
                 act_cell_data_host(n, 1) = Kokkos::round(y_location);
                 act_cell_data_host(n, 2) = n + 1; // grain ID for epitaxial seeds must be > 0
@@ -156,9 +163,10 @@ struct CellData {
         }
         else if (_inputs.surface_init_mode == "Custom") {
             // Values were already given in the inputs struct, copy these to the view
+            // Account for the fact that the input X locations did not include the walls
             for (int n = 0; n < substrate_act_cells; n++) {
-                act_cell_data_host(n, 0) = _inputs.grain_locations_x[n];
-                act_cell_data_host(n, 1) = _inputs.grain_locations_y[n];
+                act_cell_data_host(n, 0) = _inputs.grain_locations_x[n] + 1;
+                act_cell_data_host(n, 1) = _inputs.grain_locations_y[n] + 1;
                 act_cell_data_host(n, 2) = _inputs.grain_ids[n];
             }
         }
@@ -185,13 +193,23 @@ struct CellData {
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
         auto grain_id_all_layers_local = grain_id_all_layers;
-
+        // Wall cells at domain edges in X and Y
+        auto md_policy_3d =
+            Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
+                {0, 0, 0}, {grid.nx, grid.ny_local, grid.nz});
+        Kokkos::parallel_for(
+            "WallSetup", md_policy_3d, KOKKOS_LAMBDA(const int coord_x, const int coord_y, const int coord_z) {
+                if ((coord_x == 0) || (coord_x == grid.nx-1) || (coord_y == 0) || (coord_y == grid.ny_local-1)) {
+                    int index = grid.get1DIndex(coord_x,coord_y,coord_z);
+                    cell_type_local(index) = Wall;
+                }
+        });
         // Determine which grains/active cells belong to which MPI ranks
         auto policy = Kokkos::RangePolicy<execution_space>(0, substrate_act_cells);
         Kokkos::parallel_for(
             "ConstrainedGrainInit", policy, KOKKOS_LAMBDA(const int &n) {
                 // What are the X and Y coordinates of this active cell relative to the X and Y bounds of this rank?
-                if ((act_cell_data(n, 1) >= grid.y_offset) && (act_cell_data(n, 1) < grid.y_offset + grid.ny_local)) {
+                if ((act_cell_data(n, 1) >= grid.y_offset + 1) && (act_cell_data(n, 1) < grid.y_offset + grid.ny_local - 1)) {
                     // Convert X and Y coordinates to values relative to this MPI rank's grid (Z = 0 for these active
                     // cells, at bottom surface) GrainIDs come from the position on the list of substrate active cells
                     // to avoid reusing the same value
@@ -203,11 +221,11 @@ struct CellData {
                     grain_id_all_layers_local(index) = act_cell_data(n, 2); // assign GrainID > 0 to epitaxial seeds
                 }
             });
-        // Option to fill empty sites at bottom surface with the grain ID of the nearest grain
+        // Option to fill empty (non-Wall) sites at bottom surface with the grain ID of the nearest grain
         if (_inputs.fill_bottom_surface) {
             auto md_policy =
                 Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
-                    {0, 0}, {grid.nx, grid.ny_local});
+                    {1, 1}, {grid.nx-1, grid.ny_local-1});
             // For cells that are not associated with grain centers, optionally assign them the GrainID of the nearest
             // grain center
             Kokkos::parallel_for(
@@ -385,15 +403,15 @@ struct CellData {
 
         std::mt19937_64 gen(rng_seed);
 
-        // Based on the baseplate volume (convert to cubic microns to match units) and the substrate grain spacing,
+        // Based on the baseplate volume (convert to cubic microns to match units, and account for walls at edges in X) and the substrate grain spacing,
         // determine the number of baseplate grains
-        int baseplate_volume = grid.nx * grid.ny * baseplate_size_z;
+        int baseplate_volume = (grid.nx - 2) * (grid.ny - 2) * baseplate_size_z;
         double baseplate_volume_microns = baseplate_volume * Kokkos::pow(grid.deltax, 3) * Kokkos::pow(10, 18);
         double substrate_mean_grain_volume_microns = Kokkos::pow(_inputs.substrate_grain_spacing, 3);
         int number_of_baseplate_grains = Kokkos::round(baseplate_volume_microns / substrate_mean_grain_volume_microns);
         // Need at least 1 baseplate grain, cannot have more baseplate grains than cells in the baseplate
         number_of_baseplate_grains = std::max(number_of_baseplate_grains, 1);
-        number_of_baseplate_grains = std::min(number_of_baseplate_grains, grid.nx * grid.ny * baseplate_size_z);
+        number_of_baseplate_grains = std::min(number_of_baseplate_grains, (grid.nx - 2) * (grid.ny - 2) * baseplate_size_z);
         // TODO: Use device RNG to generate baseplate grain locations, instead of host with copy
         // List of potential grain IDs (starting at 1) - index corresponds to the associated CA cell location
         // Assign positive values for indices 0 through number_of_baseplate_grains-1, assign zeros to the remaining
@@ -439,19 +457,21 @@ struct CellData {
         auto grain_id_all_layers_local = grain_id_all_layers;
 
         // First, assign cells that are associated with grain centers the appropriate non-zero GrainID values (assumes
-        // GrainID values were initialized to zeros)
+        // GrainID values were initialized to zeros, and wall cells are ignored)
         auto policy = Kokkos::RangePolicy<execution_space>(0, number_of_baseplate_grains);
         Kokkos::parallel_for(
             "BaseplateInit", policy, KOKKOS_LAMBDA(const int &n) {
-                int baseplate_grain_loc = baseplate_grain_locations_device(n);
+                // baseplate_grain_locations_device was given as a 1D coordinate in a system without walls in X and Y - convert it to a global 3D coordinate that includes all cells
                 // x, y, z associated with baseplate grain "n", at 1D coordinate "BaseplateGrainLoc"
-                int coord_z_all_layers = grid.getCoordZGlobal(baseplate_grain_loc);
-                int coord_y_global = grid.getCoordYGlobal(baseplate_grain_loc);
-                int coord_x = grid.getCoordXGlobal(baseplate_grain_loc);
-                if ((coord_y_global >= grid.y_offset) && (coord_y_global < grid.y_offset + grid.ny_local)) {
+                int baseplate_grain_loc = baseplate_grain_locations_device(n);
+                int rem = baseplate_grain_loc % ((grid.nx-2) * (grid.ny - 2));
+                int coord_x_global = rem / (grid.ny - 2) + 1;
+                int coord_y_global = rem % (grid.ny - 2) + 1;
+                int coord_z_global_all_layers = baseplate_grain_loc / ((grid.nx-2) * (grid.ny-2));
+                if ((coord_y_global >= grid.y_offset + 1) && (coord_y_global < grid.y_offset + grid.ny_local - 1)) {
                     // This grain is associated with a cell on this MPI rank
                     int coord_y = coord_y_global - grid.y_offset;
-                    int index_all_layers = grid.get1DIndex(coord_x, coord_y, coord_z_all_layers);
+                    int index_all_layers = grid.get1DIndex(coord_x_global, coord_y, coord_z_global_all_layers);
                     grain_id_all_layers_local(index_all_layers) = baseplate_grain_ids_device(n);
                 }
             });
@@ -459,9 +479,9 @@ struct CellData {
 
         auto md_policy =
             Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
-                {0, 0, 0}, {baseplate_size_z, grid.nx, grid.ny_local});
+                {0, 1, 1}, {baseplate_size_z, grid.nx-1, grid.ny_local-1});
 
-        // For cells that are not associated with grain centers, assign them the GrainID of the nearest grain center
+        // For cells that are not associated with grain centers (and are not wall cells), assign them the GrainID of the nearest grain center
         Kokkos::parallel_for(
             "BaseplateGen", md_policy,
             KOKKOS_LAMBDA(const int coord_z_all_layers, const int coord_x, const int coord_y) {
@@ -473,13 +493,16 @@ struct CellData {
                     int min_distance_to_this_grain_grain_id = 0;
                     for (int n = 0; n < number_of_baseplate_grains; n++) {
                         // Baseplate grain center at x_n, y_n, z_n - how far is the cell at i, j+y_offset, k?
-                        int coord_z_grain_all_layers = grid.getCoordZGlobal(baseplate_grain_locations_device(n));
-                        int coord_y_grain_global = grid.getCoordYGlobal(baseplate_grain_locations_device(n));
-                        int coord_x_grain = grid.getCoordXGlobal(baseplate_grain_locations_device(n));
+                        // baseplate_grain_locations_device do not include walls in X or Y - must be modified
+                        int baseplate_grain_loc = baseplate_grain_locations_device(n);
+                        int rem = baseplate_grain_loc % ((grid.nx-2) * (grid.ny - 2));
+                        int coord_x_grain_global = rem / (grid.ny - 2) + 1;
+                        int coord_y_grain_global = rem % (grid.ny - 2) + 1;
+                        int coord_z_grain_global_all_layers = baseplate_grain_loc / ((grid.nx-2) * (grid.ny-2));
                         int coord_y_global = coord_y + grid.y_offset;
-                        float distance_to_this_grain_x = coord_x - coord_x_grain;
+                        float distance_to_this_grain_x = coord_x - coord_x_grain_global;
                         float distance_to_this_grain_y = coord_y_global - coord_y_grain_global;
-                        float distance_to_this_grain_z = coord_z_grain_all_layers - coord_z_all_layers;
+                        float distance_to_this_grain_z = coord_z_grain_global_all_layers - coord_z_all_layers;
                         float distance_to_this_grain =
                             Kokkos::hypot(distance_to_this_grain_x, distance_to_this_grain_y, distance_to_this_grain_z);
                         if (distance_to_this_grain < min_distance_to_this_grain) {
@@ -512,7 +535,7 @@ struct CellData {
 
         // TODO: This should be performed on the device, rather than the host
         int powder_layer_height = powder_top_z - powder_bottom_z;
-        int powder_layer_cells = grid.nx * grid.ny * powder_layer_height;
+        int powder_layer_cells = (grid.nx-2) * (grid.ny - 2) * powder_layer_height;
         int powder_layer_assigned_cells =
             Kokkos::round(static_cast<double>(powder_layer_cells) * _inputs.powder_active_fraction);
         std::vector<int> powder_grain_ids(powder_layer_cells, 0);
@@ -536,18 +559,18 @@ struct CellData {
                       << " through " << next_layer_first_epitaxial_grain_id + powder_layer_assigned_cells - 1
                       << std::endl;
 
-        // Iterate over all cells in the powder layer, on each rank loading the powder grain ID data for local cell
+        // Iterate over all cells (excluding wall cells) in the powder layer, on each rank loading the powder grain ID data for local cell
         // locations
         auto grain_id_all_layers_local = grain_id_all_layers;
         auto powder_policy =
             Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
-                {powder_bottom_z, 0, 0}, {powder_top_z, grid.nx, grid.ny});
+                {powder_bottom_z, 1, 1}, {powder_top_z, grid.nx-1, grid.ny-1});
         Kokkos::parallel_for(
             "PowderGrainInit", powder_policy,
             KOKKOS_LAMBDA(const int coord_z_all_layers, const int coord_x, const int coord_y_global) {
                 // Is this powder coordinate in X and Y in bounds for this rank? Is the grain id of this site unassigned
                 // (wasn't captured during solidification of the previous layer)?
-                if ((coord_y_global >= grid.y_offset) && (coord_y_global < grid.y_offset + grid.ny_local)) {
+                if ((coord_y_global >= grid.y_offset + 1) && (coord_y_global < grid.y_offset + grid.ny_local - 1)) {
                     int coord_y = coord_y_global - grid.y_offset;
                     int index_all_layers = grid.get1DIndex(coord_x, coord_y, coord_z_all_layers);
                     if (grain_id_all_layers_local(index_all_layers) == 0) {
@@ -604,7 +627,11 @@ struct CellData {
             "cell_typeInitSolidRM", policy,
             KOKKOS_LAMBDA(const int &index, int &local_count) {
                 int index_all_layers = index + grid.z_layer_bottom * grid.nx * grid.ny_local;
-                if (number_of_solidification_events(index) > 0) {
+                int coord_x = grid.getCoordX(index_all_layers);
+                int coord_y = grid.getCoordY(index_all_layers);
+                if ((coord_x == 0) || (coord_x == grid.nx-1) || (coord_y == 0) || (coord_y == grid.ny_local-1))
+                    cell_type_local(index) = Wall;
+                else if (number_of_solidification_events(index) > 0) {
                     cell_type_local(index) = TempSolid;
                     layer_id_all_layers_local(index_all_layers) = layernumber;
                     local_count++;
@@ -634,11 +661,12 @@ struct CellData {
         Kokkos::parallel_reduce(
             "NumSolidifiedCells", grid.domain_size,
             KOKKOS_LAMBDA(const int index, int &update_meltcount, int &update_nucleatecount) {
+                int coord_x = grid.getCoordX(index);
                 int coord_y = grid.getCoordY(index);
-                // Is this Y coordinate in the halo region? If so, do not increment counter
+                // Is this X and Y coordinate in the halo region or part of the walls? If so, do not increment counter
                 bool in_halo_region = false;
-                if (((coord_y == 0) && (!grid.at_south_boundary)) ||
-                    ((coord_y == grid.ny_local - 1) && (!grid.at_north_boundary)))
+                if ((coord_x == 0) || (coord_x == grid.nx-1) || (coord_y == 0) || (coord_y == grid.ny_local-1) || ((coord_y == 1) && (!grid.at_south_boundary)) ||
+                    ((coord_y == grid.ny_local - 2) && (!grid.at_north_boundary)))
                     in_halo_region = true;
                 if ((grain_id_all_layers_local(index) < 0) && (!in_halo_region))
                     update_nucleatecount++;

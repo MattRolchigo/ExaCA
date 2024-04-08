@@ -49,6 +49,10 @@ struct Grid {
     DomainInputs _inputs;
     // Temperature inputs from file
     TemperatureInputs _t_inputs;
+    
+    // Rank 0 stores the Y coordinates of data owned by other ranks
+    using view_type_int_host = Kokkos::View<int *, Kokkos::HostSpace>;
+    view_type_int_host y_offset_owned, ny_local_owned;
 
     // Creates grid struct with uninitialized values, used in unit tests
     Grid(int number_of_layers_temp = 1)
@@ -67,7 +71,9 @@ struct Grid {
         , z_max_layer(
               view_type_double_host(Kokkos::ViewAllocateWithoutInitializing("z_max_layer"), number_of_layers_temp))
         , _inputs(inputs)
-        , _t_inputs(t_inputs) {
+        , _t_inputs(t_inputs)
+        , y_offset_owned(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_y_offset"), np))
+        , ny_local_owned(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_ny_local"), np)) {
 
         // Copy from inputs structs
         deltax = _inputs.deltax;
@@ -112,23 +118,12 @@ struct Grid {
                 z_max_layer(0) = z_max;
             }
         }
-        if (id == 0) {
-            std::cout << "Domain size: " << nx << " by " << ny << " by " << nz << std::endl;
-            std::cout << "X Limits of domain: " << x_min << " and " << x_max << std::endl;
-            std::cout << "Y Limits of domain: " << y_min << " and " << y_max << std::endl;
-            std::cout << "Z Limits of domain: " << z_min << " and " << z_max << std::endl;
-            std::cout << "================================================================" << std::endl;
-        }
 
         // Decompose the domain into subdomains on each MPI rank: Calculate ny_local and y_offset for each rank, where
         // each subdomain contains "ny_local" in Y, offset from the full domain origin by "y_offset" cells in Y
         // (previously "DomainDecomposition" in CAinitialize.cpp) First, compare total MPI ranks to total Y cells.
-        if (np > static_cast<double>(ny) / 2.0)
-            throw std::runtime_error("Error: Must have at least 2 cells in Y (decomposition direction) per MPI rank.");
-
-        // The following was previously performed in "DomainDecomposition" in CAinitialize.cpp:
-        // Domain size across all ranks and all layers
-        domain_size_all_layers = getDomainSizeAllLayers();
+        if (np > static_cast<double>(ny) / 5.0)
+            throw std::runtime_error("Error: Must have at least 5 cells in Y (decomposition direction) per MPI rank.");
 
         // Get neighboring ranks to each direction and set boundary indicator variables
         neighbor_rank_north = getNeighborRankNorth(id, np);
@@ -141,17 +136,35 @@ struct Grid {
         y_offset = getYOffset(id, np);
         ny_local = getNyLocal(id, np);
 
-        // Add halo regions with a width of 1 in +/- Y if this MPI rank is not as a domain boundary in said direction
+        // Add halo regions with a width of 1 in +/- Y if this MPI rank is not as a domain boundary in said direction. Add wall cells at domain edges in +/-Y regardless of whether the rank is at a domain boundary
         addHalo();
+            
+        // Add wall cells to all ranks in +/- X and +/- Y, updating the local and global dimensions in X and Y and the domain bound coordinates accordingly
+        addWalls();
+            
+        // Domain size across all ranks and all layers
+        domain_size_all_layers = getDomainSizeAllLayers();
+
         // Gather ny_local and y_offset information on rank 0 to print to screen in rank order
         std::vector<int> global_offset(np);
         std::vector<int> global_size(np);
         MPI_Gather(&y_offset, 1, MPI_INT, global_offset.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Gather(&ny_local, 1, MPI_INT, global_size.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         if (id == 0) {
-            for (int pid = 0; pid < np; pid++)
+            for (int pid = 0; pid < np; pid++) {
+                // Cells that exist on each rank
                 std::cout << "Rank " << pid << " spans Y = " << global_offset[pid] << " through "
-                          << global_offset[pid] + global_size[pid] - 1 << std::endl;
+                << global_offset[pid] + global_size[pid] - 1 << std::endl;
+                // Cells "owned" by each rank (ignores wall and halo region cells)
+                if (pid == 0)
+                    y_offset_owned(pid) = global_offset[pid] + 1;
+                else
+                    y_offset_owned(pid) = global_offset[pid] + 2;
+                if ((pid == 0) || (pid == np-1))
+                    ny_local_owned(pid) = global_size[pid] - 3;
+                else
+                    ny_local_owned(pid) = global_size[pid] - 4;
+            }
         }
 
         // Bounds of layer 0: Z coordinates span z_layer_bottom-z_layer_top, inclusive (functions previously in
@@ -164,9 +177,14 @@ struct Grid {
         top_of_current_layer = getTopOfCurrentLayer();
         layer_range = std::make_pair(bottom_of_current_layer, top_of_current_layer);
         MPI_Barrier(MPI_COMM_WORLD);
-        if (id == 0)
-            std::cout << "Mesh initialized: initial domain size is " << nz_layer << " out of " << nz
-                      << " total cells in the Z direction" << std::endl;
+        if (id == 0) {
+            std::cout << "Domain size: " << nx << " by " << ny << " by " << nz << std::endl;
+            std::cout << "X Limits of domain: " << x_min << " and " << x_max << std::endl;
+            std::cout << "Y Limits of domain: " << y_min << " and " << y_max << std::endl;
+            std::cout << "Z Limits of domain: " << z_min << " and " << z_max << std::endl;
+            std::cout << "================================================================" << std::endl;
+            std::cout << "Initial domain size is " << nz_layer << " out of " << nz << " total cells in the Z direction" << std::endl;
+        }
     };
 
     // Read x, y, z coordinates in tempfile_thislayer (temperature file in either an ASCII or binary format) and return
@@ -405,7 +423,7 @@ struct Grid {
         return at_south_boundary_local;
     }
 
-    // Subdivide ny into ny_local across np ranks as evenly as possible, return ny_local on rank id
+    // Subdivide ny into ny_local across np ranks as evenly as possible, return ny_local on rank id. This assumes that the wall cells have not been added to nye
     int getNyLocal(const int id, const int np) const {
         int ny_local_local = 0;
         int ny_local_est = ny / np;
@@ -460,6 +478,18 @@ struct Grid {
             // Also adjust subdomain offset, as these ghost nodes were added on the -y side of the subdomain
             y_offset--;
         }
+    }
+    
+    // Add wall cells to all ranks in +/- X and +/- Y, updating the local and global dimensions in X and Y and the domain bound coordinates accordingly
+    void addWalls() {
+        nx += 2;
+        ny += 2;
+        x_min -= deltax;
+        x_max += deltax;
+        y_min -= deltax;
+        y_max += deltax;
+        // Each rank has walls on each side in Y regardless of its position in the physical domain. y_offset doesn't require an update, but the offset now refers to the location of the wall cell rather than the first cell in the halo/physical domain
+        ny_local += 2;
     }
 
     // Get the Z coordinate of the lower bound of iteration for layer layernumber
