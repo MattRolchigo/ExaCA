@@ -100,7 +100,7 @@ struct Nucleation {
         // Uniform distribution for nuclei location assignment (do not assign nuclei to walls)
         std::uniform_real_distribution<double> x_dist(0.50001, grid.nx - 1.5);
         std::uniform_real_distribution<double> y_dist(0.50001, grid.ny - 1.5);
-        std::uniform_real_distribution<double> z_dist(-0.49999, grid.nz_layer - 0.5);
+        std::uniform_real_distribution<double> z_dist(0.50001, grid.nz_layer - 1.5);
         // Gaussian distribution of nucleation undercooling
         std::normal_distribution<float> g_distribution(_inputs.dtn, _inputs.dtsigma);
 
@@ -108,7 +108,7 @@ struct Nucleation {
         // Use long int in intermediate steps calculating the number of nucleated grains, though the number should be
         // small enough to be stored as an int
         long int cells_this_layer_long =
-            static_cast<long int>(grid.nx-2) * static_cast<long int>(grid.ny-2) * static_cast<long int>(grid.nz_layer);
+            static_cast<long int>(grid.nx-2) * static_cast<long int>(grid.ny-2) * static_cast<long int>(grid.nz_layer-2);
         long int nuclei_this_layer_single_long =
             std::lround(bulk_prob * cells_this_layer_long); // equivalent to Nuclei_ThisLayer if no remelting
         // Multiplier for the number of nucleation events per layer, based on the number of solidification events

@@ -82,16 +82,13 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], neighbor_coord_z);
-                            if (celldata.cell_type(neighbor_index) == Active) {
-                                // Mark adjacent active cells to this as cells that should be converted into liquid,
-                                // as they are more likely heating than cooling
-                                celldata.cell_type(neighbor_index) = FutureLiquid;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                    neighbor_index;
-                            }
+                        int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], coord_z + interface.neighbor_z[l]);
+                        if (celldata.cell_type(neighbor_index) == Active) {
+                            // Mark adjacent active cells to this as cells that should be converted into liquid,
+                            // as they are more likely heating than cooling
+                            celldata.cell_type(neighbor_index) = FutureLiquid;
+                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
+                                neighbor_index;
                         }
                     }
                 }
@@ -114,17 +111,14 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], neighbor_coord_z);
-                            if ((celldata.cell_type(neighbor_index) == TempSolid) ||
-                                (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
-                                // Cell activation to be performed as part of steering vector
-                                l = 26;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
-                                celldata.cell_type(index) =
-                                    FutureActive; // this cell cannot be captured - is being activated
-                            }
+                        int neighbor_index = grid.get1DIndex(coord_x + interface.neighbor_x[l], coord_y + interface.neighbor_y[l], coord_z + interface.neighbor_z[l]);
+                        if ((celldata.cell_type(neighbor_index) == TempSolid) ||
+                            (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 1)) {
+                            // Cell activation to be performed as part of steering vector
+                            l = 26;
+                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
+                            celldata.cell_type(index) =
+                                FutureActive; // this cell cannot be captured - is being activated
                         }
                     }
                 }
@@ -168,254 +162,251 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 // Which neighbors should be iterated over?
                 for (int l = 0; l < 26; l++) {
                     // Local coordinates of adjacent cell center
+                    int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                    int neighbor_coord_y = coord_y + interface.neighbor_y[l];
                     int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                    // Check if neighbor is in bounds
-                    if ((neighbor_coord_z < grid.nz_layer) && (neighbor_coord_z >= 0)) {
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                        if (celldata.cell_type(neighbor_index) == Liquid)
-                            deactivate_cell = false;
-                        // Capture of cell located at "neighbor_index" if this condition is satisfied
-                        if ((interface.diagonal_length(index) >= interface.crit_diagonal_length(26 * index + l)) &&
-                            (celldata.cell_type(neighbor_index) == Liquid)) {
-                            // Use of atomic_compare_exchange
-                            // (https://github.com/kokkos/kokkos/wiki/Kokkos%3A%3Aatomic_compare_exchange) old_val =
-                            // atomic_compare_exchange(ptr_to_value,comparison_value, new_value); Atomically sets the
-                            // value at the address given by ptr_to_value to new_value if the current value at
-                            // ptr_to_value is equal to comparison_value Returns the previously stored value at the
-                            // address independent on whether the exchange has happened. If this cell's is a liquid
-                            // cell, change it to "TemporaryUpdate" type and return a value of "liquid" If this cell has
-                            // already been changed to "TemporaryUpdate" type, return a value of "0"
-                            int update_val = TemporaryUpdate;
-                            int old_val = Liquid;
-                            int old_cell_type_value = Kokkos::atomic_compare_exchange(
-                                &celldata.cell_type(neighbor_index), old_val, update_val);
-                            // Only proceed if cell_type was previously liquid (this current thread changed the value to
-                            // TemporaryUpdate)
-                            if (old_cell_type_value == Liquid) {
-                                int h = grain_id(index);
-                                int my_orientation = getGrainOrientation(h, orientation.n_grain_orientations);
+                    int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                    if (celldata.cell_type(neighbor_index) == Liquid)
+                        deactivate_cell = false;
+                    // Capture of cell located at "neighbor_index" if this condition is satisfied
+                    if ((interface.diagonal_length(index) >= interface.crit_diagonal_length(26 * index + l)) &&
+                        (celldata.cell_type(neighbor_index) == Liquid)) {
+                        // Use of atomic_compare_exchange
+                        // (https://github.com/kokkos/kokkos/wiki/Kokkos%3A%3Aatomic_compare_exchange) old_val =
+                        // atomic_compare_exchange(ptr_to_value,comparison_value, new_value); Atomically sets the
+                        // value at the address given by ptr_to_value to new_value if the current value at
+                        // ptr_to_value is equal to comparison_value Returns the previously stored value at the
+                        // address independent on whether the exchange has happened. If this cell's is a liquid
+                        // cell, change it to "TemporaryUpdate" type and return a value of "liquid" If this cell has
+                        // already been changed to "TemporaryUpdate" type, return a value of "0"
+                        int update_val = TemporaryUpdate;
+                        int old_val = Liquid;
+                        int old_cell_type_value = Kokkos::atomic_compare_exchange(
+                            &celldata.cell_type(neighbor_index), old_val, update_val);
+                        // Only proceed if cell_type was previously liquid (this current thread changed the value to
+                        // TemporaryUpdate)
+                        if (old_cell_type_value == Liquid) {
+                            int h = grain_id(index);
+                            int my_orientation = getGrainOrientation(h, orientation.n_grain_orientations);
 
-                                // The new cell is captured by this cell's growing octahedron (Grain "h")
-                                grain_id(neighbor_index) = h;
-                                // Store the initial undercooling for the newly captured cell, if this output was
-                                // toggled
-                                temperature.setStartingUndercooling(neighbor_index);
+                            // The new cell is captured by this cell's growing octahedron (Grain "h")
+                            grain_id(neighbor_index) = h;
+                            // Store the initial undercooling for the newly captured cell, if this output was
+                            // toggled
+                            temperature.setStartingUndercooling(neighbor_index);
 
-                                // (cxold, cyold, czold) are the coordinates of this decentered octahedron
-                                float cxold = interface.octahedron_center(3 * index);
-                                float cyold = interface.octahedron_center(3 * index + 1);
-                                float czold = interface.octahedron_center(3 * index + 2);
+                            // (cxold, cyold, czold) are the coordinates of this decentered octahedron
+                            float cxold = interface.octahedron_center(3 * index);
+                            float cyold = interface.octahedron_center(3 * index + 1);
+                            float czold = interface.octahedron_center(3 * index + 2);
 
-                                // (xp,yp,zp) are the global coordinates of the new cell's center
-                                // Note that the Y coordinate is relative to the domain origin to keep the coordinate
-                                // system continuous across ranks
-                                float xp = neighbor_coord_x + 0.5;
-                                float yp = coord_y + grid.y_offset + interface.neighbor_y[l] + 0.5;
-                                float zp = coord_z + interface.neighbor_z[l] + 0.5;
+                            // (xp,yp,zp) are the global coordinates of the new cell's center
+                            // Note that the Y coordinate is relative to the domain origin to keep the coordinate
+                            // system continuous across ranks
+                            float xp = neighbor_coord_x + 0.5;
+                            float yp = coord_y + grid.y_offset + interface.neighbor_y[l] + 0.5;
+                            float zp = coord_z + interface.neighbor_z[l] + 0.5;
 
-                                // (x0,y0,z0) is a vector pointing from this decentered octahedron center to the image
-                                // of the center of the new cell
-                                float x0 = xp - cxold;
-                                float y0 = yp - cyold;
-                                float z0 = zp - czold;
+                            // (x0,y0,z0) is a vector pointing from this decentered octahedron center to the image
+                            // of the center of the new cell
+                            float x0 = xp - cxold;
+                            float y0 = yp - cyold;
+                            float z0 = zp - czold;
 
-                                // mag0 is the magnitude of (x0,y0,z0)
-                                float mag0 = Kokkos::sqrtf(x0 * x0 + y0 * y0 + z0 * z0);
+                            // mag0 is the magnitude of (x0,y0,z0)
+                            float mag0 = Kokkos::sqrtf(x0 * x0 + y0 * y0 + z0 * z0);
 
-                                // Calculate unit vectors for the octahedron that intersect the new cell center
-                                // TODO: Potential inline function in orientation struct that returns Diag1, Diag2, or
-                                // Diag3
-                                float angle_1 = (orientation.grain_unit_vector(9 * my_orientation) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 1) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 2) * z0) /
-                                                mag0;
-                                float angle_2 = (orientation.grain_unit_vector(9 * my_orientation + 3) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 4) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 5) * z0) /
-                                                mag0;
-                                float angle_3 = (orientation.grain_unit_vector(9 * my_orientation + 6) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 7) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 8) * z0) /
-                                                mag0;
-                                float diag_1x =
-                                    orientation.grain_unit_vector(9 * my_orientation) * (2 * (angle_1 < 0) - 1);
-                                float diag_1y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 1) * (2 * (angle_1 < 0) - 1);
-                                float diag_1z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 2) * (2 * (angle_1 < 0) - 1);
+                            // Calculate unit vectors for the octahedron that intersect the new cell center
+                            // TODO: Potential inline function in orientation struct that returns Diag1, Diag2, or
+                            // Diag3
+                            float angle_1 = (orientation.grain_unit_vector(9 * my_orientation) * x0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 1) * y0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 2) * z0) /
+                                            mag0;
+                            float angle_2 = (orientation.grain_unit_vector(9 * my_orientation + 3) * x0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 4) * y0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 5) * z0) /
+                                            mag0;
+                            float angle_3 = (orientation.grain_unit_vector(9 * my_orientation + 6) * x0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 7) * y0 +
+                                             orientation.grain_unit_vector(9 * my_orientation + 8) * z0) /
+                                            mag0;
+                            float diag_1x =
+                                orientation.grain_unit_vector(9 * my_orientation) * (2 * (angle_1 < 0) - 1);
+                            float diag_1y =
+                                orientation.grain_unit_vector(9 * my_orientation + 1) * (2 * (angle_1 < 0) - 1);
+                            float diag_1z =
+                                orientation.grain_unit_vector(9 * my_orientation + 2) * (2 * (angle_1 < 0) - 1);
 
-                                float diag_2x =
-                                    orientation.grain_unit_vector(9 * my_orientation + 3) * (2 * (angle_2 < 0) - 1);
-                                float diag_2y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 4) * (2 * (angle_2 < 0) - 1);
-                                float diag_2z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 5) * (2 * (angle_2 < 0) - 1);
+                            float diag_2x =
+                                orientation.grain_unit_vector(9 * my_orientation + 3) * (2 * (angle_2 < 0) - 1);
+                            float diag_2y =
+                                orientation.grain_unit_vector(9 * my_orientation + 4) * (2 * (angle_2 < 0) - 1);
+                            float diag_2z =
+                                orientation.grain_unit_vector(9 * my_orientation + 5) * (2 * (angle_2 < 0) - 1);
 
-                                float diag_3x =
-                                    orientation.grain_unit_vector(9 * my_orientation + 6) * (2 * (angle_3 < 0) - 1);
-                                float diag_3y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 7) * (2 * (angle_3 < 0) - 1);
-                                float diag_3z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 8) * (2 * (angle_3 < 0) - 1);
+                            float diag_3x =
+                                orientation.grain_unit_vector(9 * my_orientation + 6) * (2 * (angle_3 < 0) - 1);
+                            float diag_3y =
+                                orientation.grain_unit_vector(9 * my_orientation + 7) * (2 * (angle_3 < 0) - 1);
+                            float diag_3z =
+                                orientation.grain_unit_vector(9 * my_orientation + 8) * (2 * (angle_3 < 0) - 1);
 
-                                float u1[3], u2[3];
-                                u1[0] = diag_2x - diag_1x;
-                                u1[1] = diag_2y - diag_1y;
-                                u1[2] = diag_2z - diag_1z;
-                                u2[0] = diag_3x - diag_1x;
-                                u2[1] = diag_3y - diag_1y;
-                                u2[2] = diag_3z - diag_1z;
-                                float uu[3];
-                                uu[0] = u1[1] * u2[2] - u1[2] * u2[1];
-                                uu[1] = u1[2] * u2[0] - u1[0] * u2[2];
-                                uu[2] = u1[0] * u2[1] - u1[1] * u2[0];
-                                float n_dem = Kokkos::hypot(uu[0], uu[1], uu[2]);
-                                float norm[3];
-                                norm[0] = uu[0] / n_dem;
-                                norm[1] = uu[1] / n_dem;
-                                norm[2] = uu[2] / n_dem;
-                                // normal to capturing plane
-                                float norm_plane[3], triangle_x[3], triangle_y[3], triangle_z[3], para_t;
-                                norm_plane[0] = norm[0];
-                                norm_plane[1] = norm[1];
-                                norm_plane[2] = norm[2];
-                                para_t = (norm_plane[0] * x0 + norm_plane[1] * y0 + norm_plane[2] * z0) /
-                                         (norm_plane[0] * diag_1x + norm_plane[1] * diag_1y + norm_plane[2] * diag_1z);
+                            float u1[3], u2[3];
+                            u1[0] = diag_2x - diag_1x;
+                            u1[1] = diag_2y - diag_1y;
+                            u1[2] = diag_2z - diag_1z;
+                            u2[0] = diag_3x - diag_1x;
+                            u2[1] = diag_3y - diag_1y;
+                            u2[2] = diag_3z - diag_1z;
+                            float uu[3];
+                            uu[0] = u1[1] * u2[2] - u1[2] * u2[1];
+                            uu[1] = u1[2] * u2[0] - u1[0] * u2[2];
+                            uu[2] = u1[0] * u2[1] - u1[1] * u2[0];
+                            float n_dem = Kokkos::hypot(uu[0], uu[1], uu[2]);
+                            float norm[3];
+                            norm[0] = uu[0] / n_dem;
+                            norm[1] = uu[1] / n_dem;
+                            norm[2] = uu[2] / n_dem;
+                            // normal to capturing plane
+                            float norm_plane[3], triangle_x[3], triangle_y[3], triangle_z[3], para_t;
+                            norm_plane[0] = norm[0];
+                            norm_plane[1] = norm[1];
+                            norm_plane[2] = norm[2];
+                            para_t = (norm_plane[0] * x0 + norm_plane[1] * y0 + norm_plane[2] * z0) /
+                                     (norm_plane[0] * diag_1x + norm_plane[1] * diag_1y + norm_plane[2] * diag_1z);
 
-                                triangle_x[0] = cxold + para_t * diag_1x;
-                                triangle_y[0] = cyold + para_t * diag_1y;
-                                triangle_z[0] = czold + para_t * diag_1z;
+                            triangle_x[0] = cxold + para_t * diag_1x;
+                            triangle_y[0] = cyold + para_t * diag_1y;
+                            triangle_z[0] = czold + para_t * diag_1z;
 
-                                triangle_x[1] = cxold + para_t * diag_2x;
-                                triangle_y[1] = cyold + para_t * diag_2y;
-                                triangle_z[1] = czold + para_t * diag_2z;
+                            triangle_x[1] = cxold + para_t * diag_2x;
+                            triangle_y[1] = cyold + para_t * diag_2y;
+                            triangle_z[1] = czold + para_t * diag_2z;
 
-                                triangle_x[2] = cxold + para_t * diag_3x;
-                                triangle_y[2] = cyold + para_t * diag_3y;
-                                triangle_z[2] = czold + para_t * diag_3z;
+                            triangle_x[2] = cxold + para_t * diag_3x;
+                            triangle_y[2] = cyold + para_t * diag_3y;
+                            triangle_z[2] = czold + para_t * diag_3z;
 
-                                // Determine which of the 3 corners of the capturing face is closest to the captured
-                                // cell center
-                                float dist_to_corner[3];
-                                dist_to_corner[0] =
-                                    Kokkos::hypot(triangle_x[0] - xp, triangle_y[0] - yp, triangle_z[0] - zp);
-                                dist_to_corner[1] =
-                                    Kokkos::hypot(triangle_x[1] - xp, triangle_y[1] - yp, triangle_z[1] - zp);
-                                dist_to_corner[2] =
-                                    Kokkos::hypot(triangle_x[2] - xp, triangle_y[2] - yp, triangle_z[2] - zp);
+                            // Determine which of the 3 corners of the capturing face is closest to the captured
+                            // cell center
+                            float dist_to_corner[3];
+                            dist_to_corner[0] =
+                                Kokkos::hypot(triangle_x[0] - xp, triangle_y[0] - yp, triangle_z[0] - zp);
+                            dist_to_corner[1] =
+                                Kokkos::hypot(triangle_x[1] - xp, triangle_y[1] - yp, triangle_z[1] - zp);
+                            dist_to_corner[2] =
+                                Kokkos::hypot(triangle_x[2] - xp, triangle_y[2] - yp, triangle_z[2] - zp);
 
-                                int x, y, z;
-                                x = (dist_to_corner[0] < dist_to_corner[1]);
-                                y = (dist_to_corner[1] < dist_to_corner[2]);
-                                z = (dist_to_corner[2] < dist_to_corner[0]);
+                            int x, y, z;
+                            x = (dist_to_corner[0] < dist_to_corner[1]);
+                            y = (dist_to_corner[1] < dist_to_corner[2]);
+                            z = (dist_to_corner[2] < dist_to_corner[0]);
 
-                                int idx = 2 * (z - y) * z + (y - x) * y;
-                                float mindist_to_corner = dist_to_corner[idx];
-                                float xc = triangle_x[idx];
-                                float yc = triangle_y[idx];
-                                float zc = triangle_z[idx];
+                            int idx = 2 * (z - y) * z + (y - x) * y;
+                            float mindist_to_corner = dist_to_corner[idx];
+                            float xc = triangle_x[idx];
+                            float yc = triangle_y[idx];
+                            float zc = triangle_z[idx];
 
-                                float x1 = triangle_x[(idx + 1) % 3];
-                                float y1 = triangle_y[(idx + 1) % 3];
-                                float z1 = triangle_z[(idx + 1) % 3];
-                                float x2 = triangle_x[(idx + 2) % 3];
-                                float y2 = triangle_y[(idx + 2) % 3];
-                                float z2 = triangle_z[(idx + 2) % 3];
+                            float x1 = triangle_x[(idx + 1) % 3];
+                            float y1 = triangle_y[(idx + 1) % 3];
+                            float z1 = triangle_z[(idx + 1) % 3];
+                            float x2 = triangle_x[(idx + 2) % 3];
+                            float y2 = triangle_y[(idx + 2) % 3];
+                            float z2 = triangle_z[(idx + 2) % 3];
 
-                                float d1 = Kokkos::hypot(xp - x2, yp - y2, zp - z2);
-                                float d2 = Kokkos::hypot(xc - x2, yc - y2, zc - z2);
-                                float d3 = Kokkos::hypot(xp - x1, yp - y1, zp - z1);
-                                float d4 = Kokkos::hypot(xc - x1, yc - y1, zc - z1);
+                            float d1 = Kokkos::hypot(xp - x2, yp - y2, zp - z2);
+                            float d2 = Kokkos::hypot(xc - x2, yc - y2, zc - z2);
+                            float d3 = Kokkos::hypot(xp - x1, yp - y1, zp - z1);
+                            float d4 = Kokkos::hypot(xc - x1, yc - y1, zc - z1);
 
-                                float i_1 = 0;
-                                float i_2 = d2;
-                                float j_1 = 0;
-                                float j_2 = d4;
-                                // If minimum distance to corner = 0, the octahedron corner captured the new cell
-                                // center
-                                if (mindist_to_corner != 0) {
-                                    i_1 = d1 * ((xp - x2) * (xc - x2) + (yp - y2) * (yc - y2) + (zp - z2) * (zc - z2)) /
-                                          (d1 * d2);
-                                    i_2 = d2 - i_1;
-                                    j_1 = d3 * ((xp - x1) * (xc - x1) + (yp - y1) * (yc - y1) + (zp - z1) * (zc - z1)) /
-                                          (d3 * d4);
-                                    j_2 = d4 - j_1;
+                            float i_1 = 0;
+                            float i_2 = d2;
+                            float j_1 = 0;
+                            float j_2 = d4;
+                            // If minimum distance to corner = 0, the octahedron corner captured the new cell
+                            // center
+                            if (mindist_to_corner != 0) {
+                                i_1 = d1 * ((xp - x2) * (xc - x2) + (yp - y2) * (yc - y2) + (zp - z2) * (zc - z2)) /
+                                      (d1 * d2);
+                                i_2 = d2 - i_1;
+                                j_1 = d3 * ((xp - x1) * (xc - x1) + (yp - y1) * (yc - y1) + (zp - z1) * (zc - z1)) /
+                                      (d3 * d4);
+                                j_2 = d4 - j_1;
+                            }
+                            float l_12 = 0.5 * (Kokkos::fmin(i_1, Kokkos::sqrt(3.0f)) +
+                                                Kokkos::fmin(i_2, Kokkos::sqrt(3.0f)));
+                            float l_13 = 0.5 * (Kokkos::fmin(j_1, Kokkos::sqrt(3.0f)) +
+                                                Kokkos::fmin(j_2, Kokkos::sqrt(3.0f)));
+                            // half diagonal length of new octahedron
+                            float new_o_diag_l = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
+
+                            interface.diagonal_length(neighbor_index) = new_o_diag_l;
+                            // Calculate coordinates of new decentered octahedron center
+                            float capt_diag[3];
+                            capt_diag[0] = xc - cxold;
+                            capt_diag[1] = yc - cyold;
+                            capt_diag[2] = zc - czold;
+
+                            float capt_diag_magnitude =
+                                Kokkos::sqrt(capt_diag[0] * capt_diag[0] + capt_diag[1] * capt_diag[1] +
+                                             capt_diag[2] * capt_diag[2]);
+                            float capt_diag_uv[3];
+                            capt_diag_uv[0] = capt_diag[0] / capt_diag_magnitude;
+                            capt_diag_uv[1] = capt_diag[1] / capt_diag_magnitude;
+                            capt_diag_uv[2] = capt_diag[2] / capt_diag_magnitude;
+                            // (cx, cy, cz) are the coordinates of the new active cell's decentered octahedron
+                            float cx = xc - new_o_diag_l * capt_diag_uv[0];
+                            float cy = yc - new_o_diag_l * capt_diag_uv[1];
+                            float cz = zc - new_o_diag_l * capt_diag_uv[2];
+
+                            interface.octahedron_center(3 * neighbor_index) = cx;
+                            interface.octahedron_center(3 * neighbor_index + 1) = cy;
+                            interface.octahedron_center(3 * neighbor_index + 2) = cz;
+
+                            // Get new critical diagonal length values for the newly activated cell (at array
+                            // position "neighbor_index")
+                            interface.calcCritDiagonalLength(neighbor_index, xp, yp, zp, cx, cy, cz, my_orientation,
+                                                             orientation.grain_unit_vector);
+
+                            if (np > 1) {
+                                // TODO: Test loading ghost nodes in a separate kernel, potentially adopting
+                                // this change if the slowdown is minor
+                                int ghost_grain_id = h;
+                                float ghost_octahedron_center_x = cx;
+                                float ghost_octahedron_center_y = cy;
+                                float ghost_octahedron_center_z = cz;
+                                float ghost_diagonal_length = new_o_diag_l;
+                                // Collect data for the ghost nodes, if necessary
+                                // Data loaded into the ghost nodes is for the cell that was just captured
+                                bool data_fits_in_buffer = interface.loadGhostNodes(
+                                    ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
+                                    ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local,
+                                    neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
+                                    grid.at_south_boundary, orientation.n_grain_orientations);
+                                if (!(data_fits_in_buffer)) {
+                                    // This cell's data did not fit in the buffer with current size buf_size -
+                                    // mark with temporary type
+                                    celldata.cell_type(neighbor_index) = ActiveFailedBufferLoad;
                                 }
-                                float l_12 = 0.5 * (Kokkos::fmin(i_1, Kokkos::sqrt(3.0f)) +
-                                                    Kokkos::fmin(i_2, Kokkos::sqrt(3.0f)));
-                                float l_13 = 0.5 * (Kokkos::fmin(j_1, Kokkos::sqrt(3.0f)) +
-                                                    Kokkos::fmin(j_2, Kokkos::sqrt(3.0f)));
-                                // half diagonal length of new octahedron
-                                float new_o_diag_l = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
-
-                                interface.diagonal_length(neighbor_index) = new_o_diag_l;
-                                // Calculate coordinates of new decentered octahedron center
-                                float capt_diag[3];
-                                capt_diag[0] = xc - cxold;
-                                capt_diag[1] = yc - cyold;
-                                capt_diag[2] = zc - czold;
-
-                                float capt_diag_magnitude =
-                                    Kokkos::sqrt(capt_diag[0] * capt_diag[0] + capt_diag[1] * capt_diag[1] +
-                                                 capt_diag[2] * capt_diag[2]);
-                                float capt_diag_uv[3];
-                                capt_diag_uv[0] = capt_diag[0] / capt_diag_magnitude;
-                                capt_diag_uv[1] = capt_diag[1] / capt_diag_magnitude;
-                                capt_diag_uv[2] = capt_diag[2] / capt_diag_magnitude;
-                                // (cx, cy, cz) are the coordinates of the new active cell's decentered octahedron
-                                float cx = xc - new_o_diag_l * capt_diag_uv[0];
-                                float cy = yc - new_o_diag_l * capt_diag_uv[1];
-                                float cz = zc - new_o_diag_l * capt_diag_uv[2];
-
-                                interface.octahedron_center(3 * neighbor_index) = cx;
-                                interface.octahedron_center(3 * neighbor_index + 1) = cy;
-                                interface.octahedron_center(3 * neighbor_index + 2) = cz;
-
-                                // Get new critical diagonal length values for the newly activated cell (at array
-                                // position "neighbor_index")
-                                interface.calcCritDiagonalLength(neighbor_index, xp, yp, zp, cx, cy, cz, my_orientation,
-                                                                 orientation.grain_unit_vector);
-
-                                if (np > 1) {
-                                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting
-                                    // this change if the slowdown is minor
-                                    int ghost_grain_id = h;
-                                    float ghost_octahedron_center_x = cx;
-                                    float ghost_octahedron_center_y = cy;
-                                    float ghost_octahedron_center_z = cz;
-                                    float ghost_diagonal_length = new_o_diag_l;
-                                    // Collect data for the ghost nodes, if necessary
-                                    // Data loaded into the ghost nodes is for the cell that was just captured
-                                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
-                                        ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local,
-                                        neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
-                                        grid.at_south_boundary, orientation.n_grain_orientations);
-                                    if (!(data_fits_in_buffer)) {
-                                        // This cell's data did not fit in the buffer with current size buf_size -
-                                        // mark with temporary type
-                                        celldata.cell_type(neighbor_index) = ActiveFailedBufferLoad;
-                                    }
-                                    else {
-                                        // Cell activation is now finished - cell type can be changed from
-                                        // TemporaryUpdate to Active
-                                        celldata.cell_type(neighbor_index) = Active;
-                                    }
-                                } // End if statement for serial/parallel code
                                 else {
-                                    // Only update the new cell's type once Critical Diagonal Length, Triangle
-                                    // Index, and Diagonal Length values have been assigned to it Avoids the race
-                                    // condition in which the new cell is activated, and another thread acts on the
-                                    // new active cell before the cell's new critical diagonal length/triangle
-                                    // index/diagonal length values are assigned
+                                    // Cell activation is now finished - cell type can be changed from
+                                    // TemporaryUpdate to Active
                                     celldata.cell_type(neighbor_index) = Active;
                                 }
-                            } // End if statement within locked capture loop
-                        }     // End if statement for outer capture loop
-                    }         // End if statement over neighbors on the active grid
-                }             // End loop over all neighbors of this active cell
+                            } // End if statement for serial/parallel code
+                            else {
+                                // Only update the new cell's type once Critical Diagonal Length, Triangle
+                                // Index, and Diagonal Length values have been assigned to it Avoids the race
+                                // condition in which the new cell is activated, and another thread acts on the
+                                // new active cell before the cell's new critical diagonal length/triangle
+                                // index/diagonal length values are assigned
+                                celldata.cell_type(neighbor_index) = Active;
+                            }
+                        } // End if statement within locked capture loop
+                    }     // End if statement for outer capture loop
+                }         // End loop over all neighbors of this active cell
                 if (deactivate_cell) {
                     // This active cell has no more neighboring cells to be captured
                     // Update the counter for the number of times this cell went from liquid to active to solid
@@ -521,7 +512,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
     auto grain_id = celldata.getGrainIDSubview(grid);
     Kokkos::parallel_for(
         "FillSendBuffersOverflow", grid.nx, KOKKOS_LAMBDA(const int &coord_x) {
-            for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_z = 1; coord_z < grid.nz_layer-1; coord_z++) {
                 // Load cells at Y = 2 and Y = ny_local - 3 into buffers (Y = 1 and ny_local - 2 are the halo regions, and Y = 0 and ny_local - 1 are Wall cells)
                 int index_south_buffer = grid.get1DIndex(coord_x, 2, coord_z);
                 int index_north_buffer = grid.get1DIndex(coord_x, grid.ny_local - 3, coord_z);
@@ -865,9 +856,9 @@ void intermediateOutputAndCheck(const int id, int cycle, const Grid &grid, int &
                     edges_reached(1, 0) = true;
                 if (coord_y_global == grid.ny - 2)
                     edges_reached(1, 1) = true;
-                if (coord_z == 0)
+                if (coord_z == 1)
                     edges_reached(2, 0) = true;
-                if (coord_z == grid.nz - 1)
+                if (coord_z == grid.nz - 2)
                     edges_reached(2, 1) = true;
             }
             else if (cell_type(index) == Solid)

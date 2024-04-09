@@ -84,9 +84,9 @@ struct Print {
         // Either collect data from all Z coordinates, or just the ones associated with the current layer of a problem
         int z_print_size;
         if (current_layer_only)
-            z_print_size = grid.nz_layer;
+            z_print_size = grid.nz_layer - 1;
         else
-            z_print_size = grid.nz;
+            z_print_size = grid.nz - 1;
 
         // View (int or float extracted from 1D View) for 3D data (no initial size, only given size/filled on rank 0)
         using value_type = typename Collect1DViewTypeDevice::value_type;
@@ -102,7 +102,7 @@ struct Print {
             // View (short, int, or float) for 3D data given a size
             Kokkos::resize(view_data_whole_domain, z_print_size, grid.nx, grid.ny);
             // Place rank 0 data into view for whole domain (excluding walls and halo regions)
-            for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
+            for (int coord_z = 1; coord_z < z_print_size; coord_z++) {
                 for (int coord_x = 1; coord_x < grid.nx - 1; coord_x++) {
                     for (int coord_y_local = 1; coord_y_local < grid.ny_local-2; coord_y_local++) {
                         int index = grid.get1DIndex(coord_x, coord_y_local, coord_z);
@@ -120,6 +120,7 @@ struct Print {
                 MPI_Recv(recv_buf.data(), recv_buf_size_this_rank, msg_type, recvrank, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
                 int data_counter = 0;
+                // Receiving data for Z = 0 and z_print_size-1 and X = 0 and nx-1, though these values aren't printed to file
                 for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
                     for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
                         for (int coord_y_local = 0; coord_y_local < grid.ny_local_owned(recvrank); coord_y_local++) {
@@ -445,12 +446,12 @@ struct Print {
         int z_print_size;
         float z_print_origin;
         if (current_layer_only) {
-            z_print_size = grid.nz_layer;
-            z_print_origin = grid.z_min + grid.z_layer_bottom * grid.deltax;
+            z_print_size = grid.nz_layer - 2;
+            z_print_origin = grid.z_min + grid.z_layer_bottom * grid.deltax + grid.deltax;
         }
         else {
-            z_print_size = grid.z_layer_bottom + grid.nz_layer;
-            z_print_origin = grid.z_min;
+            z_print_size = grid.z_layer_bottom + grid.nz_layer - 2;
+            z_print_origin = grid.z_min + grid.deltax;
         }
 
         if (_inputs.print_binary)
@@ -480,12 +481,12 @@ struct Print {
 
         // Printing the z coordinates spanning the current layer, or from the overall simulation bottom (k = 0) through
         // the top of the current layer
-        int z_start = 0;
+        int z_start = 1;
         int z_end;
         if (current_layer_only)
-            z_end = grid.nz_layer;
+            z_end = grid.nz_layer - 1;
         else
-            z_end = grid.z_layer_bottom + grid.nz_layer;
+            z_end = grid.z_layer_bottom + grid.nz_layer - 1;
         // Print data to the vtk file - casting to the appropriate type if necessary
         output_fstream << "SCALARS " << var_name_label << " " << data_label << " 1" << std::endl;
         output_fstream << "LOOKUP_TABLE default" << std::endl;
@@ -521,8 +522,8 @@ struct Print {
         std::ofstream und_ofstream;
         und_ofstream.open(front_undercooling_filename);
         und_ofstream << "Z (micrometers), Initial Undercooling, Final Undercooling" << std::endl;
-        for (int coord_z = 0; coord_z < nz - 1; coord_z++) {
-            und_ofstream << static_cast<double>(coord_z) * deltax * pow(10, 6) << "," << front_undercooling(coord_z, 0)
+        for (int coord_z = 1; coord_z < nz - 2; coord_z++) {
+            und_ofstream << static_cast<double>(coord_z - 1) * deltax * pow(10, 6) << "," << front_undercooling(coord_z, 0)
                          << "," << front_undercooling(coord_z, 1) << std::endl;
         }
         und_ofstream << static_cast<double>(nz - 1) * deltax * pow(10, 6) << "," << front_undercooling(nz - 1, 0) << ","
@@ -539,7 +540,7 @@ struct Print {
 
         // Print grain orientations to file - either all layers (print_region = 2), or if in an intermediate state, the
         // layers up to the current one (print_region = 1) z_end will equal grid.nz if this is the final layer
-        int z_end = grid.z_layer_bottom + grid.nz_layer;
+        int z_end = grid.z_layer_bottom + grid.nz_layer - 1;
         std::ofstream misorientations_ofstream;
         writeHeader(misorientations_ofstream, misorientations_filename, grid, false);
         misorientations_ofstream << "SCALARS Angle_z short 1" << std::endl;
@@ -553,7 +554,7 @@ struct Print {
         // nucleated grains are assigned values between 100-162 to differentiate them. Additionally, 200 is printed as
         // the misorientation for cells in the powder layer that have not been assigned a grain ID.
         // For prior layers, cell type check is unnecessary as these regions have all solidified
-        for (int k = 0; k < grid.z_layer_bottom; k++) {
+        for (int k = 1; k <= grid.z_layer_bottom; k++) {
             for (int j = 1; j < grid.ny-1; j++) {
                 for (int i = 1; i < grid.nx-1; i++) {
                     short int_print_val;
@@ -575,7 +576,7 @@ struct Print {
         }
         // For current layer, check cell types to see if -1 should be printed (if this is a print following a layer, all
         // cells will be solid and no -1s should be written)
-        for (int k = grid.z_layer_bottom; k < z_end; k++) {
+        for (int k = grid.z_layer_bottom + 1; k < z_end; k++) {
             for (int j = 1; j < grid.ny-1; j++) {
                 for (int i = 1; i < grid.nx-1; i++) {
                     short int_print_val;
@@ -631,8 +632,8 @@ struct Print {
 
         // Determine the upper Z bound of the RVE - largest Z for which all cells in the RVE do not contain LayerID
         // values of the last layer
-        int rve_zhigh = grid.nz - 1;
-        for (int k = grid.nz - 1; k >= 0; k--) {
+        int rve_zhigh = grid.nz - 2;
+        for (int k = grid.nz - 2; k >= 1; k--) {
             [&] {
                 for (int j = rve_ylow; j <= rve_yhigh; j++) {
                     for (int i = rve_xlow; i <= rve_xhigh; i++) {
@@ -641,17 +642,17 @@ struct Print {
                     }
                 }
                 rve_zhigh = k;
-                k = 0; // leave loop
+                k = 1; // leave loop
             }();
         }
 
         // Determine the lower Z bound of the RVE, and make sure the RVE fits in the simulation domain in X and Y
         int rve_zlow = rve_zhigh - _inputs.rve_size + 1;
-        if (rve_zlow < 0) {
+        if (rve_zlow < 1) {
             std::cout << "WARNING: Simulation domain is too small to obtain default RVE data (should be at least "
                       << _inputs.rve_size << " cells in the Z direction, more layers are required" << std::endl;
-            rve_zlow = 0;
-            rve_zhigh = grid.nz - 1;
+            rve_zlow = 1;
+            rve_zhigh = grid.nz - 2;
         }
 
         // Print RVE data to file

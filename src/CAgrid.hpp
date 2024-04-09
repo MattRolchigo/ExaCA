@@ -139,7 +139,7 @@ struct Grid {
         // Add halo regions with a width of 1 in +/- Y if this MPI rank is not as a domain boundary in said direction. Add wall cells at domain edges in +/-Y regardless of whether the rank is at a domain boundary
         addHalo();
             
-        // Add wall cells to all ranks in +/- X and +/- Y, updating the local and global dimensions in X and Y and the domain bound coordinates accordingly
+        // Add wall cells to all ranks in +/- X, +/- Y, and +/-Z, updating the local and global dimensions and the domain bound coordinates accordingly
         addWalls();
             
         // Domain size across all ranks and all layers
@@ -480,14 +480,22 @@ struct Grid {
         }
     }
     
-    // Add wall cells to all ranks in +/- X and +/- Y, updating the local and global dimensions in X and Y and the domain bound coordinates accordingly
+    // Add wall cells to all ranks in +/- X, Y, Z updating the local and global dimensions in X, Y, Z and the domain bound coordinates accordingly
     void addWalls() {
         nx += 2;
         ny += 2;
+        nz += 2;
         x_min -= deltax;
         x_max += deltax;
         y_min -= deltax;
         y_max += deltax;
+        z_min -= deltax;
+        z_max += deltax;
+        // Add an extra cells to the domain bounds of each layer
+        for (int layernumber=0; layernumber<number_of_layers; layernumber++) {
+            z_min_layer[layernumber] -= deltax;
+            z_max_layer[layernumber] += deltax;
+        }
         // Each rank has walls on each side in Y regardless of its position in the physical domain. y_offset doesn't require an update, but the offset now refers to the location of the wall cell rather than the first cell in the halo/physical domain
         ny_local += 2;
     }

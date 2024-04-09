@@ -323,10 +323,10 @@ struct Temperature {
         // Spots cool at constant rate R, spot thermal gradient = G
         float isotherm_velocity = (_inputs.R / _inputs.G) * deltat / grid.deltax; // in cells per time step
         int spot_time_est = spot_radius / isotherm_velocity + (freezing_range / _inputs.R) / deltat; // in time steps
-        // Spot center location - center of domain in X and Y (account for walls), top of domain in Z
+        // Spot center location - center of domain in X and Y (account for walls), one cell below the top of domain in Z to account for the wall
         float spot_center_x = spot_radius + 2;
         float spot_center_y = spot_radius + 2;
-        float spot_center_z = grid.nz - 0.5;
+        float spot_center_z = grid.nz - 1.5;
 
         if (id == 0)
             std::cout << "Initializing temperature field for the hemispherical spot, which will take approximately "
@@ -338,7 +338,7 @@ struct Temperature {
         double R_local = _inputs.R;
         auto md_policy =
             Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
-                {0, 0, 0}, {grid.nz, grid.nx, grid.ny_local});
+                {1, 1, 1}, {grid.nz-1, grid.nx-1, grid.ny_local-1});
         Kokkos::parallel_for(
             "SpotTemperatureInit", md_policy, KOKKOS_LAMBDA(const int coord_z, const int coord_x, const int coord_y) {
                 // 1D cell index
@@ -607,7 +607,7 @@ struct Temperature {
         undercooling_solidification_start = Kokkos::subview(undercooling_solidification_start_all_layers, layer_range);
     }
 
-    // For each Z coordinate, find the smallest undercooling at which solidification started and finished, writing this
+    // For each Z coordinate (excluding the wall cells), find the smallest undercooling at which solidification started and finished, writing this
     // data to an output file
     view_type_float_2d_host getFrontUndercoolingStartFinish(const int id, const Grid &grid) {
         view_type_float start_solidification_z(Kokkos::ViewAllocateWithoutInitializing("start_solidification_z"),
@@ -615,7 +615,7 @@ struct Temperature {
         view_type_float end_solidification_z(Kokkos::ViewAllocateWithoutInitializing("end_solidification_z"), grid.nz);
         auto _undercooling_solidification_start = undercooling_solidification_start;
         auto _undercooling_current = undercooling_current;
-        auto policy = Kokkos::RangePolicy<execution_space>(0, grid.nz);
+        auto policy = Kokkos::RangePolicy<execution_space>(1, grid.nz-1);
         Kokkos::parallel_for(
             "GetMinUndercooling", policy, KOKKOS_LAMBDA(const int &coord_z) {
                 float min_start_undercooling = Kokkos::Experimental::finite_max_v<float>;
@@ -653,7 +653,7 @@ struct Temperature {
                 Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), start_solidification_z_reduced);
             view_type_float_host end_solidification_z_host =
                 Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), end_solidification_z_reduced);
-            for (int coord_z = 0; coord_z < grid.nz; coord_z++) {
+            for (int coord_z = 1; coord_z < grid.nz-1; coord_z++) {
                 start_end_solidification_z_host(coord_z, 0) = start_solidification_z_host(coord_z);
                 start_end_solidification_z_host(coord_z, 1) = end_solidification_z_host(coord_z);
             }
