@@ -659,19 +659,19 @@ struct Temperature {
                                 _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1);
                             if (next_event_liq > event_liq) {
                                 _layer_time_temp_history(_current_solidification_event(index) + i, 0) =
-                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
+                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0);
                                 _layer_time_temp_history(_current_solidification_event(index) + i, 1) =
-                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 1);
+                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1);
                                 _layer_time_temp_history(_current_solidification_event(index) + i, 2) =
-                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 2);
+                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 2);
                             }
                             for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
                                 _layer_time_temp_history(_current_solidification_event(index + ii), 0) =
-                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 0);
+                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 0);
                                 _layer_time_temp_history(_current_solidification_event(index + ii), 1) =
-                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 1);
+                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 1);
                                 _layer_time_temp_history(_current_solidification_event(index + ii), 2) =
-                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 2);
+                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 2);
                             }
                             // Substract one from the number of solidification events, the local
                             // n_solidification_events_cell, and last_solidification_event
