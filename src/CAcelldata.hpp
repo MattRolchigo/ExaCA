@@ -251,7 +251,10 @@ struct CellData {
     }
 
     void initSubstrate(const int id, const Grid &grid, const unsigned long rng_seed,
-                       view_type_int number_of_solidification_events) {
+                       const view_type_int_host number_of_solidification_events) {
+
+        auto number_of_solidification_events_device =
+            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events);
 
         // Determine the number of cells in the Z direction that are part of the baseplate
         int baseplate_size_z = getBaseplateSizeZ(id, grid);
@@ -570,7 +573,7 @@ struct CellData {
     // Sets up views, powder layer (if necessary), and cell types for the next layer of a multilayer problem
     //*****************************************************************************/
     void initNextLayer(const int nextlayernumber, const int id, const Grid &grid, const unsigned long rng_seed,
-                       view_type_int number_of_solidification_events) {
+                       const view_type_int_host number_of_solidification_events) {
 
         // Subviews for the next layer's grain id, layer id, cell type are constructed based on updated layer bound
         // z_layer_bottom
@@ -582,14 +585,16 @@ struct CellData {
             initPowderGrainID(nextlayernumber, id, rng_seed, grid, powder_bottom_z, powder_top_z);
 
         // Initialize active cell data structures and nuclei locations for the next layer "layernumber + 1"
-        initCellTypeLayerID(nextlayernumber, id, grid, number_of_solidification_events);
+        auto number_of_solidification_events_device =
+            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events);
+        initCellTypeLayerID(nextlayernumber, id, grid, number_of_solidification_events_device);
     }
 
     //*****************************************************************************/
     // Initializes cells for the current layer as either solid (don't resolidify) or tempsolid (will melt and
     // resolidify)
     void initCellTypeLayerID(const int layernumber, const int id, const Grid &grid,
-                             view_type_int number_of_solidification_events) {
+                             const view_type_int number_of_solidification_events) {
 
         int melt_pool_cell_count;
         // Realloc celltype to the domain size of the next layer

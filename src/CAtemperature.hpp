@@ -497,47 +497,25 @@ struct Temperature {
 
     // Read data from storage, and calculate the normalized x value of the data point
     KOKKOS_INLINE_FUNCTION
-    int getTempCoordX(const view_type_double_2d &raw_temperature_data_device, const int i, const double x_min,
-                      const double deltax) {
-        int x_coord = Kokkos::round((raw_temperature_data_device(i, 0) - x_min) / deltax);
+    int getTempCoordX(const double x_val, const double x_min, const double deltax) {
+        int x_coord = Kokkos::round((x_val - x_min) / deltax);
         return x_coord;
     }
     // Read data from storage, and calculate the normalized y value of the data point. If the optional offset argument
     // is given, the return value is calculated relative to the edge of the MPI rank's local simulation domain (which is
     // offset by y_offset cells from the global domain edge)
     KOKKOS_INLINE_FUNCTION
-    int getTempCoordY(const view_type_double_2d &raw_temperature_data_device, const int i, const double y_min,
-                      const double deltax, const int y_offset = 0) {
-        int y_coord = Kokkos::round((raw_temperature_data_device(i, 1) - y_min) / deltax) - y_offset;
+    int getTempCoordY(const double y_val, const double y_min, const double deltax, const int y_offset = 0) {
+        int y_coord = Kokkos::round((y_val - y_min) / deltax) - y_offset;
         return y_coord;
     }
     // Read data from storage, and calculate the normalized z value of the data point
     KOKKOS_INLINE_FUNCTION
-    int getTempCoordZ(const view_type_double_2d &raw_temperature_data_device, const int i, const double deltax,
-                      const int layer_height, const int layer_counter, const view_type_double &z_min_layer) {
-        int z_coord =
-            Kokkos::round((raw_temperature_data_device(i, 2) +
-                           deltax * static_cast<double>(layer_height * layer_counter) - z_min_layer(layer_counter)) /
-                          deltax);
+    int getTempCoordZ(const double z_val, const double deltax, const int layer_height, const int layer_counter,
+                      const view_type_double &z_min_layer) {
+        int z_coord = Kokkos::round(
+            (z_val + deltax * static_cast<double>(layer_height * layer_counter) - z_min_layer(layer_counter)) / deltax);
         return z_coord;
-    }
-    // Read data from storage, obtain melting time
-    KOKKOS_INLINE_FUNCTION
-    double getTempCoordTM(const view_type_double_2d &raw_temperature_data_device, const int i) {
-        double TMelting = raw_temperature_data_device(i, 3);
-        return TMelting;
-    }
-    // Read data from storage, obtain liquidus time
-    KOKKOS_INLINE_FUNCTION
-    double getTempCoordTL(const view_type_double_2d &raw_temperature_data_device, const int i) {
-        double TLiquidus = raw_temperature_data_device(i, 4);
-        return TLiquidus;
-    }
-    // Read data from storage, obtain cooling rate
-    KOKKOS_INLINE_FUNCTION
-    double getTempCoordCR(const view_type_double_2d &raw_temperature_data_device, const int i) {
-        double cooling_rate = raw_temperature_data_device(i, 5);
-        return cooling_rate;
     }
 
     // Set the maximum number of times a cell undergoes solidification in a layer
@@ -585,10 +563,10 @@ struct Temperature {
         Kokkos::parallel_for(
             "CalcNumSEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
                 // Get the integer X, Y, Z coordinates associated with this data point
-                const int coord_x = getTempCoordX(raw_temperature_data_device, event, grid.x_min, grid.deltax);
+                const int coord_x = getTempCoordX(raw_temperature_data_device(event, 0), grid.x_min, grid.deltax);
                 const int coord_y =
-                    getTempCoordY(raw_temperature_data_device, event, grid.y_min, grid.deltax, grid.y_offset);
-                const int coord_z = getTempCoordZ(raw_temperature_data_device, event, grid.deltax, grid.layer_height,
+                    getTempCoordY(raw_temperature_data_device(event, 1), grid.y_min, grid.deltax, grid.y_offset);
+                const int coord_z = getTempCoordZ(raw_temperature_data_device(event, 2), grid.deltax, grid.layer_height,
                                                   layernumber, z_min_layer);
 
                 // 1D cell coordinate on this MPI rank's domain
@@ -628,10 +606,10 @@ struct Temperature {
         Kokkos::parallel_for(
             "LoadSolidificationEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
                 // Get the integer X, Y, Z coordinates associated with this data point
-                const int coord_x = getTempCoordX(raw_temperature_data_device, event, grid.x_min, grid.deltax);
+                const int coord_x = getTempCoordX(raw_temperature_data_device(event, 0), grid.x_min, grid.deltax);
                 const int coord_y =
-                    getTempCoordY(raw_temperature_data_device, event, grid.y_min, grid.deltax, grid.y_offset);
-                const int coord_z = getTempCoordZ(raw_temperature_data_device, event, grid.deltax, grid.layer_height,
+                    getTempCoordY(raw_temperature_data_device(event, 1), grid.y_min, grid.deltax, grid.y_offset);
+                const int coord_z = getTempCoordZ(raw_temperature_data_device(event, 2), grid.deltax, grid.layer_height,
                                                   layernumber, z_min_layer);
 
                 // 1D cell coordinate on this MPI rank's domain
@@ -641,9 +619,9 @@ struct Temperature {
                 const int cell_event_count = Kokkos::atomic_fetch_add(&current_solidification_event_temp(index), 1);
 
                 // Event data to store
-                const double t_melting = getTempCoordTM(raw_temperature_data_device, event);
-                const double t_liquidus = getTempCoordTL(raw_temperature_data_device, event);
-                const double cooling_rate = getTempCoordCR(raw_temperature_data_device, event);
+                const double t_melting = raw_temperature_data_device(event, 3);
+                const double t_liquidus = raw_temperature_data_device(event, 4);
+                const double cooling_rate = raw_temperature_data_device(event, 5);
 
                 // Store event data in layer_time_temp_history
                 _layer_time_temp_history(cell_event_count, 0) = Kokkos::round(t_melting / deltat) + 1;
@@ -689,7 +667,7 @@ struct Temperature {
                 int n_solidification_events_cell = number_of_solidification_events_device(index);
                 if (n_solidification_events_cell > 1) {
                     for (int i = 0; i < n_solidification_events_cell - 1; i++) {
-                        float event_liq = _layer_time_temp_history(current_solidification_event(index) + i, 1);
+                        float event_liq = _layer_time_temp_history(_current_solidification_event(index) + i, 1);
                         float next_event_melt =
                             _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
                         if (next_event_melt < event_liq) {
@@ -908,6 +886,7 @@ struct Temperature {
 
         // Local copy for lambda capture.
         auto _layer_time_temp_history = layer_time_temp_history;
+        auto _last_solidification_event = last_solidification_event;
 
         auto policy = Kokkos::RangePolicy<execution_space>(0, domain_size);
         Kokkos::parallel_for(
@@ -917,7 +896,7 @@ struct Temperature {
                     extracted_data(index) = static_cast<extracted_value_type>(default_val);
                 else
                     extracted_data(index) = static_cast<extracted_value_type>(
-                        _layer_time_temp_history(last_solidification_event(index) - 1, extracted_val));
+                        _layer_time_temp_history(_last_solidification_event(index) - 1, extracted_val));
             });
         return extracted_data;
     }
