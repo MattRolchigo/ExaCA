@@ -278,7 +278,7 @@ struct CellData {
         Kokkos::deep_copy(layer_id_all_layers, -1);
 
         // Initialize cell types and layer IDs based on whether cells will solidify in layer 0 or not
-        initCellTypeLayerID(0, id, grid, number_of_solidification_events);
+        initCellTypeLayerID(0, id, grid, number_of_solidification_events_device);
 
         if (id == 0) {
             std::cout << "Grain struct initialized" << std::endl;

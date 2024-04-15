@@ -495,29 +495,6 @@ struct Temperature {
             std::cout << "Spot melt temperature field initialized" << std::endl;
     }
 
-    // Read data from storage, and calculate the normalized x value of the data point
-    KOKKOS_INLINE_FUNCTION
-    int getTempCoordX(const double x_val, const double x_min, const double deltax) {
-        int x_coord = Kokkos::round((x_val - x_min) / deltax);
-        return x_coord;
-    }
-    // Read data from storage, and calculate the normalized y value of the data point. If the optional offset argument
-    // is given, the return value is calculated relative to the edge of the MPI rank's local simulation domain (which is
-    // offset by y_offset cells from the global domain edge)
-    KOKKOS_INLINE_FUNCTION
-    int getTempCoordY(const double y_val, const double y_min, const double deltax, const int y_offset = 0) {
-        int y_coord = Kokkos::round((y_val - y_min) / deltax) - y_offset;
-        return y_coord;
-    }
-    // Read data from storage, and calculate the normalized z value of the data point
-    KOKKOS_INLINE_FUNCTION
-    int getTempCoordZ(const double z_val, const double deltax, const int layer_height, const int layer_counter,
-                      const view_type_double &z_min_layer) {
-        int z_coord = Kokkos::round(
-            (z_val + deltax * static_cast<double>(layer_height * layer_counter) - z_min_layer(layer_counter)) / deltax);
-        return z_coord;
-    }
-
     // Set the maximum number of times a cell undergoes solidification in a layer
     void setMaxNumSolidificationEvents(const int id, const int domain_size,
                                        view_type_int &number_of_solidification_events_device) {
@@ -563,11 +540,13 @@ struct Temperature {
         Kokkos::parallel_for(
             "CalcNumSEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
                 // Get the integer X, Y, Z coordinates associated with this data point
-                const int coord_x = getTempCoordX(raw_temperature_data_device(event, 0), grid.x_min, grid.deltax);
+                const int coord_x = Kokkos::round((raw_temperature_data_device(event, 0) - grid.x_min) / grid.deltax);
                 const int coord_y =
-                    getTempCoordY(raw_temperature_data_device(event, 1), grid.y_min, grid.deltax, grid.y_offset);
-                const int coord_z = getTempCoordZ(raw_temperature_data_device(event, 2), grid.deltax, grid.layer_height,
-                                                  layernumber, z_min_layer);
+                    Kokkos::round((raw_temperature_data_device(event, 1) - grid.y_min) / grid.deltax) - grid.y_offset;
+                const int coord_z = Kokkos::round((raw_temperature_data_device(event, 2) +
+                                                   grid.deltax * static_cast<double>(grid.layer_height * layernumber) -
+                                                   grid.z_min_layer(layernumber)) /
+                                                  grid.deltax);
 
                 // 1D cell coordinate on this MPI rank's domain
                 const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
@@ -606,11 +585,13 @@ struct Temperature {
         Kokkos::parallel_for(
             "LoadSolidificationEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
                 // Get the integer X, Y, Z coordinates associated with this data point
-                const int coord_x = getTempCoordX(raw_temperature_data_device(event, 0), grid.x_min, grid.deltax);
+                const int coord_x = Kokkos::round((raw_temperature_data_device(event, 0) - grid.x_min) / grid.deltax);
                 const int coord_y =
-                    getTempCoordY(raw_temperature_data_device(event, 1), grid.y_min, grid.deltax, grid.y_offset);
-                const int coord_z = getTempCoordZ(raw_temperature_data_device(event, 2), grid.deltax, grid.layer_height,
-                                                  layernumber, z_min_layer);
+                    Kokkos::round((raw_temperature_data_device(event, 1) - grid.y_min) / grid.deltax) - grid.y_offset;
+                const int coord_z = Kokkos::round((raw_temperature_data_device(event, 2) +
+                                                   grid.deltax * static_cast<double>(grid.layer_height * layernumber) -
+                                                   grid.z_min_layer(layernumber)) /
+                                                  grid.deltax);
 
                 // 1D cell coordinate on this MPI rank's domain
                 const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
@@ -669,27 +650,27 @@ struct Temperature {
                     for (int i = 0; i < n_solidification_events_cell - 1; i++) {
                         float event_liq = _layer_time_temp_history(_current_solidification_event(index) + i, 1);
                         float next_event_melt =
-                            _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
+                            _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0);
                         if (next_event_melt < event_liq) {
                             // Keep whichever event has the larger liquidus time - ignore the removed event for now and
                             // move other event data into the next location in layer_time_temp_history. In the future,
                             // the ignored event data could be printed to files for debugging
                             float next_event_liq =
-                                _layer_time_temp_history(current_solidification_event(index) + i + 1, 1);
+                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1);
                             if (next_event_liq > event_liq) {
-                                _layer_time_temp_history(current_solidification_event(index) + i, 0) =
+                                _layer_time_temp_history(_current_solidification_event(index) + i, 0) =
                                     _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
-                                _layer_time_temp_history(current_solidification_event(index) + i, 1) =
+                                _layer_time_temp_history(_current_solidification_event(index) + i, 1) =
                                     _layer_time_temp_history(current_solidification_event(index) + i + 1, 1);
-                                _layer_time_temp_history(current_solidification_event(index) + i, 2) =
+                                _layer_time_temp_history(_current_solidification_event(index) + i, 2) =
                                     _layer_time_temp_history(current_solidification_event(index) + i + 1, 2);
                             }
                             for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
-                                _layer_time_temp_history(current_solidification_event(index + ii), 0) =
+                                _layer_time_temp_history(_current_solidification_event(index + ii), 0) =
                                     _layer_time_temp_history(current_solidification_event(index + ii + 1), 0);
-                                _layer_time_temp_history(current_solidification_event(index + ii), 1) =
+                                _layer_time_temp_history(_current_solidification_event(index + ii), 1) =
                                     _layer_time_temp_history(current_solidification_event(index + ii + 1), 1);
-                                _layer_time_temp_history(current_solidification_event(index + ii), 2) =
+                                _layer_time_temp_history(_current_solidification_event(index + ii), 2) =
                                     _layer_time_temp_history(current_solidification_event(index + ii + 1), 2);
                             }
                             // Substract one from the number of solidification events, the local
