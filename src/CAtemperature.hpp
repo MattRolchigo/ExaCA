@@ -28,27 +28,27 @@ struct Temperature {
     using view_type_double = Kokkos::View<double *, memory_space>;
     using view_type_double_2d = Kokkos::View<double **, memory_space>;
     using view_type_float_2d = Kokkos::View<float **, memory_space>;
-    using view_type_float_3d = Kokkos::View<float ***, memory_space>;
     using view_type_int_host = typename view_type_int::HostMirror;
     using view_type_float_host = typename view_type_float::HostMirror;
     using view_type_double_host = typename view_type_double::HostMirror;
     using view_type_double_2d_host = typename view_type_double_2d::HostMirror;
     using view_type_float_2d_host = typename view_type_float_2d::HostMirror;
-    using view_type_float_3d_host = typename view_type_float_3d::HostMirror;
     using view_type_coupled = Kokkos::View<double **, Kokkos::LayoutLeft, Kokkos::HostSpace>;
 
     // Using the default exec space for this memory space.
     using execution_space = typename memory_space::execution_space;
 
-    // Maximum number of times each CA cell in a given layer undergoes solidification
-    view_type_int max_solidification_events;
-    // For each cell in the current layer (index 1), and each time solidification happens (index 2), hold the values
-    // that will be used for MeltTimeStep, CritTimeStep, and UndercoolingChange (index 3)
-    view_type_float_3d layer_time_temp_history;
-    // The number of times that each CA cell will undergo solidification during this layer
-    view_type_int number_of_solidification_events;
-    // A counter for the number of times each CA cell has undergone solidification so far this layer
-    view_type_int solidification_event_counter;
+    // Maximum number of times a cell on this layer undergoes melting/solidification
+    int max_num_solidification_events = 1;
+    // Number of times a given cell melts/solidifies (stored on host only)
+    view_type_int_host number_of_solidification_events;
+    // Index in the list of events associated with the current solidification event occuring in a given cell
+    view_type_int current_solidification_event;
+    // Index in the list of events associated with the last solidification of a given cell
+    view_type_int last_solidification_event;
+    // List of melt-solidification events, each with a tm (melting time), tl (time cell cools below liquidus), and cr
+    // (cooling rate from liquidus temperature) value
+    view_type_float_2d layer_time_temp_history;
     // The current undercooling of a CA cell (if superheated liquid or hasn't undergone solidification yet, equals 0)
     // Also maintained for the full multilayer domain
     view_type_float undercooling_current_all_layers, undercooling_current;
@@ -69,18 +69,17 @@ struct Temperature {
     // Constructor creates views with size based on the grid inputs - each cell assumed to solidify once by default,
     // layer_time_temp_history modified to account for multiple events if needed undercooling_current and
     // solidification_event_counter are default initialized to zeros
-    Temperature(const Grid &grid, TemperatureInputs inputs, const bool store_solidification_start = false,
-                const int est_num_temperature_data_points = 100000)
-        : max_solidification_events(
-              view_type_int(Kokkos::ViewAllocateWithoutInitializing("number_of_layers"), grid.number_of_layers))
-        , layer_time_temp_history(view_type_float_3d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
-                                                     grid.domain_size, 1, 3))
-        , number_of_solidification_events(view_type_int(
-              Kokkos::ViewAllocateWithoutInitializing("number_of_solidification_events"), grid.domain_size))
-        , solidification_event_counter(view_type_int("solidification_event_counter", grid.domain_size))
+    Temperature(const Grid &grid, TemperatureInputs inputs, const bool store_solidification_start = false)
+        : number_of_solidification_events(view_type_int_host("number_of_solidification_events", grid.domain_size))
+        , current_solidification_event(
+              view_type_int(Kokkos::ViewAllocateWithoutInitializing("current_solidification_event"), grid.domain_size))
+        , last_solidification_event(
+              view_type_int(Kokkos::ViewAllocateWithoutInitializing("last_solidification_event"), grid.domain_size))
+        , layer_time_temp_history(view_type_float_2d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
+                                                     grid.domain_size, 3))
         , undercooling_current_all_layers(view_type_float("undercooling_current", grid.domain_size_all_layers))
         , raw_temperature_data(view_type_double_2d_host(Kokkos::ViewAllocateWithoutInitializing("raw_temperature_data"),
-                                                        est_num_temperature_data_points, num_temperature_components))
+                                                        grid.domain_size, num_temperature_components))
         , first_value(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("first_value"), grid.number_of_layers))
         , last_value(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("last_value"), grid.number_of_layers))
         , _store_solidification_start(store_solidification_start)
@@ -98,16 +97,16 @@ struct Temperature {
     // Constructor using in-memory temperature data from external source.
     Temperature(const int id, const int np, const Grid &grid, TemperatureInputs inputs,
                 view_type_coupled input_temperature_data, const bool store_solidification_start = false)
-        : max_solidification_events(
-              view_type_int(Kokkos::ViewAllocateWithoutInitializing("number_of_layers"), grid.number_of_layers))
-        , layer_time_temp_history(view_type_float_3d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
-                                                     grid.domain_size, 1, 3))
-        , number_of_solidification_events(view_type_int(
-              Kokkos::ViewAllocateWithoutInitializing("number_of_solidification_events"), grid.domain_size))
-        , solidification_event_counter(view_type_int("solidification_event_counter", grid.domain_size))
+        : number_of_solidification_events(view_type_int_host("number_of_solidification_events", grid.domain_size))
+        , current_solidification_event(
+              view_type_int(Kokkos::ViewAllocateWithoutInitializing("current_solidification_event"), grid.domain_size))
+        , last_solidification_event(
+              view_type_int(Kokkos::ViewAllocateWithoutInitializing("last_solidification_event"), grid.domain_size))
+        , layer_time_temp_history(view_type_float_2d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
+                                                     grid.domain_size, 3))
         , undercooling_current_all_layers(view_type_float("undercooling_current", grid.domain_size_all_layers))
         , raw_temperature_data(view_type_double_2d_host(Kokkos::ViewAllocateWithoutInitializing("raw_temperature_data"),
-                                                        input_temperature_data.extent(0), num_temperature_components))
+                                                        grid.domain_size, num_temperature_components))
         , first_value(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("first_value"), grid.number_of_layers))
         , last_value(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("last_value"), grid.number_of_layers))
         , _store_solidification_start(store_solidification_start)
@@ -383,47 +382,49 @@ struct Temperature {
             location_liquidus_isotherm =
                 location_init_undercooling + Kokkos::round(_inputs.init_undercooling / (_inputs.G * grid.deltax));
 
+        // Each cell solidifies once
+        Kokkos::deep_copy(number_of_solidification_events, 1);
+
         // Local copies for lambda capture.
-        auto layer_time_temp_history_local = layer_time_temp_history;
-        auto max_solidification_events_local = max_solidification_events;
-        auto number_solidification_events_local = number_of_solidification_events;
-        auto undercooling_current_local = undercooling_current;
-        double init_undercooling_local = _inputs.init_undercooling;
-        double G_local = _inputs.G;
-        double R_local = _inputs.R;
+        auto _layer_time_temp_history = layer_time_temp_history;
+        auto _undercooling_current = undercooling_current;
+        auto _current_solidification_event = current_solidification_event;
+        auto _last_solidification_event = last_solidification_event;
+        const double _init_undercooling = _inputs.init_undercooling;
+        const double _G = _inputs.G;
+        const double _R = _inputs.R;
         auto policy = Kokkos::RangePolicy<execution_space>(0, grid.domain_size);
         Kokkos::parallel_for(
             "TempInitG", policy, KOKKOS_LAMBDA(const int &index) {
+                // Each cell solidifies once
+                _current_solidification_event(index) = index;
+                _last_solidification_event(index) = index + 1;
+
                 // All cells past melting time step
-                layer_time_temp_history_local(index, 0, 0) = -1;
+                _layer_time_temp_history(index, 0) = -1;
                 // Negative dist_from_liquidus and dist_from_init_undercooling values for cells below the liquidus
                 // isotherm
-                int coord_z = grid.getCoordZ(index);
-                int dist_from_liquidus = coord_z - location_liquidus_isotherm;
+                const int coord_z = grid.getCoordZ(index);
+                const int dist_from_liquidus = coord_z - location_liquidus_isotherm;
                 // Cells reach liquidus at a time dependent on their Z coordinate
                 // Cells with negative liquidus time values are already undercooled, should have positive undercooling
                 // and negative liquidus time step
                 if (dist_from_liquidus < 0) {
-                    layer_time_temp_history_local(index, 0, 1) = -1;
-                    int dist_from_init_undercooling = coord_z - location_init_undercooling;
-                    undercooling_current_local(index) =
-                        init_undercooling_local - dist_from_init_undercooling * G_local * grid.deltax;
+                    _layer_time_temp_history(index, 1) = -1;
+                    const int dist_from_init_undercooling = coord_z - location_init_undercooling;
+                    _undercooling_current(index) = _init_undercooling - dist_from_init_undercooling * _G * grid.deltax;
                 }
                 else {
                     // Cells with positive liquidus time values are not yet tracked - leave current undercooling as
                     // default zeros and set liquidus time step. R_local will never be zero here, as all cells at a
                     // fixed undercooling must be below the liquidus (distFromLiquidus < 0)
-                    layer_time_temp_history_local(index, 0, 1) =
-                        dist_from_liquidus * G_local * grid.deltax / (R_local * deltat);
+                    _layer_time_temp_history(index, 1) = dist_from_liquidus * _G * grid.deltax / (_R * deltat);
                 }
                 // Cells cool at a constant rate
-                layer_time_temp_history_local(index, 0, 2) = R_local * deltat;
-                // All cells solidify once
-                max_solidification_events_local(0) = 1;
-                number_solidification_events_local(index) = 1;
+                _layer_time_temp_history(index, 2) = _R * deltat;
             });
         if (id == 0) {
-            std::cout << "Temperature field initialized for unidirectional solidification with G = " << G_local
+            std::cout << "Temperature field initialized for unidirectional solidification with G = " << _G
                       << " K/m, initial undercooling at Z = " << location_init_undercooling << " of "
                       << _inputs.init_undercooling << " K below the liquidus" << std::endl;
             std::cout << "Done with temperature field initialization" << std::endl;
@@ -433,8 +434,9 @@ struct Temperature {
     // Initialize temperature data for a hemispherical spot melt (single layer simulation)
     void initialize(const int id, const Grid &grid, const double freezing_range, double deltat, double spot_radius) {
 
-        // Each cell solidifies at most one time
-        Kokkos::deep_copy(max_solidification_events, 1);
+        // Each cell solidifies 0 or 1 time
+        auto number_of_solidification_events_device =
+            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events);
 
         // Outer edges of spots are initialized at the liquidus temperature
         // Spots cool at constant rate R, spot thermal gradient = G
@@ -450,270 +452,283 @@ struct Temperature {
                       << spot_time_est << " time steps to fully solidify" << std::endl;
 
         // Initialize layer_time_temp_history data values for this spot
-        auto layer_time_temp_history_local = layer_time_temp_history;
-        auto number_solidification_events_local = number_of_solidification_events;
-        double R_local = _inputs.R;
+        auto _layer_time_temp_history = layer_time_temp_history;
+        auto _current_solidification_event = current_solidification_event;
+        auto _last_solidification_event = last_solidification_event;
+        double _R = _inputs.R;
+        // event count view init to zero
+        view_type_int event_count("event_count", 1);
+
         auto md_policy =
             Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
                 {0, 0, 0}, {grid.nz, grid.nx, grid.ny_local});
         Kokkos::parallel_for(
             "SpotTemperatureInit", md_policy, KOKKOS_LAMBDA(const int coord_z, const int coord_x, const int coord_y) {
                 // 1D cell index
-                int index = grid.get1DIndex(coord_x, coord_y, coord_z);
+                const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
                 // Distance of this cell from the spot center
-                float dist_z = spot_center_z - coord_z;
-                float dist_x = spot_center_x - coord_x;
-                int coord_y_global = coord_y + grid.y_offset;
-                float dist_y = spot_center_y - coord_y_global;
-                float tot_dist = Kokkos::hypot(dist_x, dist_y, dist_z);
+                const float dist_z = spot_center_z - coord_z;
+                const float dist_x = spot_center_x - coord_x;
+                const int coord_y_global = coord_y + grid.y_offset;
+                const float dist_y = spot_center_y - coord_y_global;
+                const float tot_dist = Kokkos::hypot(dist_x, dist_y, dist_z);
                 if (tot_dist <= spot_radius) {
+                    // This cell melts and resolidifies - increment counter
+                    int current_count = Kokkos::atomic_fetch_add(&event_count(0), 1);
+                    number_of_solidification_events_device(index) = 1;
+                    _current_solidification_event(index) = current_count;
+                    _last_solidification_event(index) = current_count + 1;
                     // Melt time step (first time step)
-                    layer_time_temp_history_local(index, 0, 0) = 1;
+                    _layer_time_temp_history(current_count, 0) = 1;
                     // Liquidus time step (related to distance to spot edge)
-                    layer_time_temp_history_local(index, 0, 1) =
+                    _layer_time_temp_history(current_count, 1) =
                         Kokkos::round((spot_radius - tot_dist) / isotherm_velocity) + 1;
                     // Cooling rate per time step
-                    layer_time_temp_history_local(index, 0, 2) = R_local * deltat;
-                    number_solidification_events_local(index) = 1;
-                }
-                else {
-                    // Dummy layer_time_temp_history data
-                    for (int l = 0; l < 3; l++) {
-                        layer_time_temp_history_local(index, 0, l) = -1.0;
-                    }
-                    number_solidification_events_local(index) = 0;
+                    _layer_time_temp_history(current_count, 2) = _R * deltat;
                 }
             });
         MPI_Barrier(MPI_COMM_WORLD);
+        auto event_count_host = Kokkos::create_mirror_view_and_copy(memory_space(), event_count);
+        std::cout << "Rank " << id << " has " << event_count_host(0) << " total solidification events" << std::endl;
+        Kokkos::resize(layer_time_temp_history, event_count_host(0), 3);
         if (id == 0)
             std::cout << "Spot melt temperature field initialized" << std::endl;
     }
 
-    // Calculate the number of times that a cell in layer "layernumber" undergoes melting/solidification, and store in
-    // max_solidification_events_host
-    void calcMaxSolidificationEvents(const int id, const int layernumber,
-                                     const view_type_int_host max_solidification_events_host, const int start_range,
-                                     const int end_range, const Grid &grid, const std::string simulation_type) {
-
-        bool calc_remelting_events;
-        if (simulation_type == "R") {
-            if (layernumber > _inputs.temp_files_in_series)
-                calc_remelting_events = false;
-            else
-                calc_remelting_events = true;
-        }
-        else {
-            if (layernumber > 0)
-                calc_remelting_events = false;
-            else
-                calc_remelting_events = true;
-        }
-        if (!calc_remelting_events) {
-            // Use the value from a previously checked layer, since the time-temperature history is reused
-            if ((simulation_type == "FromFinch") || (_inputs.temp_files_in_series == 1)) {
-                // All layers have the same temperature data, max_solidification_events for this layer is the same as
-                // the last
-                max_solidification_events_host(layernumber) = max_solidification_events_host(layernumber - 1);
-            }
-            else {
-                // All layers have different temperature data but in a repeating pattern
-                int repeated_file = layernumber % _inputs.temp_files_in_series;
-                max_solidification_events_host(layernumber) = max_solidification_events_host(repeated_file);
-            }
-        }
-        else {
-            // Need to calculate max_solidification_events(layernumber) from the values in RawData
-            // Init to 0
-            view_type_int_host temp_melt_count("temp_melt_count", grid.domain_size);
-
-            for (int i = start_range; i < end_range; i++) {
-
-                // Get the integer X, Y, Z coordinates associated with this data point, with the Y coordinate based on
-                // local MPI rank's grid
-                int coord_x = getTempCoordX(i, grid.x_min, grid.deltax);
-                int coord_y = getTempCoordY(i, grid.y_min, grid.deltax, grid.y_offset);
-                int coord_z = getTempCoordZ(i, grid.deltax, grid.layer_height, layernumber, grid.z_min_layer);
-                // Convert to 1D coordinate in the current layer's domain
-                int index = grid.get1DIndex(coord_x, coord_y, coord_z);
-                temp_melt_count(index)++;
-            }
-            int max_count = 0;
-            for (int i = 0; i < grid.domain_size; i++) {
-                if (temp_melt_count(i) > max_count)
-                    max_count = temp_melt_count(i);
-            }
-            int max_count_global;
-            MPI_Allreduce(&max_count, &max_count_global, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-            max_solidification_events_host(layernumber) = max_count_global;
-        }
-        if (id == 0)
-            std::cout << "The maximum number of melting/solidification events during layer " << layernumber << " is "
-                      << max_solidification_events_host(layernumber) << std::endl;
-    }
-
     // Read data from storage, and calculate the normalized x value of the data point
-    int getTempCoordX(const int i, const double x_min, const double deltax) {
-        int x_coord = Kokkos::round((raw_temperature_data(i, 0) - x_min) / deltax);
+    KOKKOS_INLINE_FUNCTION
+    int getTempCoordX(const view_type_double_2d &raw_temperature_data_device, const int i, const double x_min,
+                      const double deltax) {
+        int x_coord = Kokkos::round((raw_temperature_data_device(i, 0) - x_min) / deltax);
         return x_coord;
     }
     // Read data from storage, and calculate the normalized y value of the data point. If the optional offset argument
     // is given, the return value is calculated relative to the edge of the MPI rank's local simulation domain (which is
     // offset by y_offset cells from the global domain edge)
-    int getTempCoordY(const int i, const double y_min, const double deltax, const int y_offset = 0) {
-        int y_coord = Kokkos::round((raw_temperature_data(i, 1) - y_min) / deltax) - y_offset;
+    KOKKOS_INLINE_FUNCTION
+    int getTempCoordY(const view_type_double_2d &raw_temperature_data_device, const int i, const double y_min,
+                      const double deltax, const int y_offset = 0) {
+        int y_coord = Kokkos::round((raw_temperature_data_device(i, 1) - y_min) / deltax) - y_offset;
         return y_coord;
     }
     // Read data from storage, and calculate the normalized z value of the data point
-    int getTempCoordZ(const int i, const double deltax, const int layer_height, const int layer_counter,
-                      const view_type_double_host z_min_layer) {
-        int z_coord = Kokkos::round(
-            (raw_temperature_data(i, 2) + deltax * layer_height * layer_counter - z_min_layer[layer_counter]) / deltax);
+    KOKKOS_INLINE_FUNCTION
+    int getTempCoordZ(const view_type_double_2d &raw_temperature_data_device, const int i, const double deltax,
+                      const int layer_height, const int layer_counter, const view_type_double &z_min_layer) {
+        int z_coord =
+            Kokkos::round((raw_temperature_data_device(i, 2) +
+                           deltax * static_cast<double>(layer_height * layer_counter) - z_min_layer(layer_counter)) /
+                          deltax);
         return z_coord;
     }
     // Read data from storage, obtain melting time
-    double getTempCoordTM(const int i) {
-        double TMelting = raw_temperature_data(i, 3);
+    KOKKOS_INLINE_FUNCTION
+    double getTempCoordTM(const view_type_double_2d &raw_temperature_data_device, const int i) {
+        double TMelting = raw_temperature_data_device(i, 3);
         return TMelting;
     }
     // Read data from storage, obtain liquidus time
-    double getTempCoordTL(const int i) {
-        double TLiquidus = raw_temperature_data(i, 4);
+    KOKKOS_INLINE_FUNCTION
+    double getTempCoordTL(const view_type_double_2d &raw_temperature_data_device, const int i) {
+        double TLiquidus = raw_temperature_data_device(i, 4);
         return TLiquidus;
     }
     // Read data from storage, obtain cooling rate
-    double getTempCoordCR(const int i) {
-        double cooling_rate = raw_temperature_data(i, 5);
+    KOKKOS_INLINE_FUNCTION
+    double getTempCoordCR(const view_type_double_2d &raw_temperature_data_device, const int i) {
+        double cooling_rate = raw_temperature_data_device(i, 5);
         return cooling_rate;
     }
 
+    // Set the maximum number of times a cell undergoes solidification in a layer
+    void setMaxNumSolidificationEvents(const int id, const int domain_size,
+                                       view_type_int &number_of_solidification_events_device) {
+        auto policy = Kokkos::RangePolicy<execution_space>(0, domain_size);
+        max_num_solidification_events = 0;
+        Kokkos::parallel_reduce(
+            "getMaxSEvents", policy,
+            KOKKOS_LAMBDA(const int index, int &loc_max) {
+                if (number_of_solidification_events_device(index) > loc_max)
+                    loc_max = number_of_solidification_events_device(index);
+            },
+            max_num_solidification_events);
+        if (id == 0)
+            std::cout << "The maximum number of times a cell will melt and resolidify on this layer is "
+                      << max_num_solidification_events << std::endl;
+    }
+
     // Initialize temperature fields for layer "layernumber" in case where temperature data comes from file(s)
-    // TODO: This can be performed on the device as the dirS problem is
-    void initialize(const int layernumber, const int id, const Grid &grid, const double freezing_range,
-                    const double deltat, const std::string simulation_type) {
+    void initialize(const int layernumber, const int id, const Grid &grid, const double deltat) {
 
         // Data was already read into the "raw_temperature_data" data structure
         // Determine which section of "raw_temperature_data" is relevant for this layer of the overall domain
         int start_range = first_value[layernumber];
         int end_range = last_value[layernumber];
 
-        // Temporary host view for the maximum number of times a cell in a given layer will solidify (different for each
-        // layer)
-        view_type_int_host max_solidification_events_host =
-            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), max_solidification_events);
-        calcMaxSolidificationEvents(id, layernumber, max_solidification_events_host, start_range, end_range, grid,
-                                    simulation_type);
-        int max_num_solidification_events = max_solidification_events_host(layernumber);
+        // From raw_temperature_data, get the number of times each cell melts/solidifies
+        view_type_double_2d raw_temperature_data_device =
+            Kokkos::create_mirror_view_and_copy(memory_space(), raw_temperature_data);
+        view_type_double z_min_layer = Kokkos::create_mirror_view_and_copy(memory_space(), grid.z_min_layer);
+        // Temporary view for the number of times each cell solidifies - default init to zeros
+        view_type_int number_of_solidification_events_device("num_solidification_events_dev", grid.domain_size);
+        // Reallocate views for solidification event counting
+        Kokkos::realloc(current_solidification_event, grid.domain_size);
+        Kokkos::realloc(last_solidification_event, grid.domain_size);
+        Kokkos::deep_copy(current_solidification_event, 0);
+        Kokkos::deep_copy(last_solidification_event, 0);
 
-        // Resize layer_time_temp_history now that the max number of solidification events is known for this layer
-        Kokkos::resize(layer_time_temp_history, grid.domain_size, max_num_solidification_events, 3);
-
-        // These views are initialized to zeros on the host, filled with data, and then copied to the device for layer
-        // "layernumber"
-        view_type_float_3d_host layer_time_temp_history_host("TimeTempHistory_H", grid.domain_size,
-                                                             max_num_solidification_events, 3);
-        view_type_int_host number_of_solidification_events_host("NumSEvents_H", grid.domain_size);
-
-        double largest_time = 0;
-        double largest_time_global = 0;
         if (id == 0)
             std::cout << "Range of raw data for layer " << layernumber << " on rank 0 is " << start_range << " to "
                       << end_range << std::endl;
         MPI_Barrier(MPI_COMM_WORLD);
-        for (int i = start_range; i < end_range; i++) {
-            // Get the integer X, Y, Z coordinates associated with this data point, along with the associated TM,
-            // TL, CR values coord_y is relative to this MPI rank's grid, while coord_y_global is relative to the
-            // overall simulation domain
-            int coord_x = getTempCoordX(i, grid.x_min, grid.deltax);
-            int coord_y = getTempCoordY(i, grid.y_min, grid.deltax, grid.y_offset);
-            int coord_z = getTempCoordZ(i, grid.deltax, grid.layer_height, layernumber, grid.z_min_layer);
-            double t_melting = getTempCoordTM(i);
-            double t_liquidus = getTempCoordTL(i);
-            double cooling_rate = getTempCoordCR(i);
+        auto events_policy = Kokkos::RangePolicy<execution_space>(start_range, end_range);
+        Kokkos::parallel_for(
+            "CalcNumSEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
+                // Get the integer X, Y, Z coordinates associated with this data point
+                const int coord_x = getTempCoordX(raw_temperature_data_device, event, grid.x_min, grid.deltax);
+                const int coord_y =
+                    getTempCoordY(raw_temperature_data_device, event, grid.y_min, grid.deltax, grid.y_offset);
+                const int coord_z = getTempCoordZ(raw_temperature_data_device, event, grid.deltax, grid.layer_height,
+                                                  layernumber, z_min_layer);
 
-            // 1D cell coordinate on this MPI rank's domain
-            int index = grid.get1DIndex(coord_x, coord_y, coord_z);
-            // Store TM, TL, CR values for this solidification event in layer_time_temp_history
-            layer_time_temp_history_host(index, number_of_solidification_events_host(index), 0) =
-                Kokkos::round(t_melting / deltat) + 1;
-            layer_time_temp_history_host(index, number_of_solidification_events_host(index), 1) =
-                Kokkos::round(t_liquidus / deltat) + 1;
-            layer_time_temp_history_host(index, number_of_solidification_events_host(index), 2) =
-                std::abs(cooling_rate) * deltat;
-            // Increment number of solidification events for this cell
-            number_of_solidification_events_host(index)++;
-            // Estimate of the time step where the last possible solidification is expected to occur
-            double solidus_time = t_liquidus + freezing_range / cooling_rate;
-            if (solidus_time > largest_time)
-                largest_time = solidus_time;
-        }
-        MPI_Allreduce(&largest_time, &largest_time_global, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-        if (id == 0)
-            std::cout << " Layer " << layernumber
-                      << " time step where all cells are cooled below solidus for the final time is "
-                      << Kokkos::round((largest_time_global) / deltat) << " (or " << largest_time_global << " seconds)"
-                      << std::endl;
-        if (id == 0)
-            std::cout << "Layer " << layernumber << " temperatures read" << std::endl;
+                // 1D cell coordinate on this MPI rank's domain
+                const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
 
-        // Reorder solidification events in layer_time_temp_history(location,event number,component) so that they are in
-        // order based on the melting time values (component = 0)
-        for (int index = 0; index < grid.domain_size; index++) {
-            int n_solidification_events_cell = number_of_solidification_events_host(index);
-            if (n_solidification_events_cell > 0) {
-                for (int i = 0; i < n_solidification_events_cell - 1; i++) {
-                    for (int j = (i + 1); j < n_solidification_events_cell; j++) {
-                        if (layer_time_temp_history_host(index, i, 0) > layer_time_temp_history_host(index, j, 0)) {
-                            // Swap these two points - melting event "j" happens before event "i"
-                            float old_melt_val = layer_time_temp_history_host(index, i, 0);
-                            float old_liq_val = layer_time_temp_history_host(index, i, 1);
-                            float old_cr_val = layer_time_temp_history_host(index, i, 2);
-                            layer_time_temp_history_host(index, i, 0) = layer_time_temp_history_host(index, j, 0);
-                            layer_time_temp_history_host(index, i, 1) = layer_time_temp_history_host(index, j, 1);
-                            layer_time_temp_history_host(index, i, 2) = layer_time_temp_history_host(index, j, 2);
-                            layer_time_temp_history_host(index, j, 0) = old_melt_val;
-                            layer_time_temp_history_host(index, j, 1) = old_liq_val;
-                            layer_time_temp_history_host(index, j, 2) = old_cr_val;
+                // Increment number of solidification events for this cell
+                Kokkos::atomic_increment(&number_of_solidification_events_device(index));
+            });
+        Kokkos::fence();
+
+        // Local copy for lambda capture
+        auto _current_solidification_event = current_solidification_event;
+        auto _last_solidification_event = last_solidification_event;
+        // Get the initial and final event number for each event in the list (offsets for event number in
+        // layer_time_temp_history)
+        auto policy = Kokkos::RangePolicy<execution_space>(0, grid.domain_size);
+        int tot_num_events;
+        Kokkos::parallel_scan(
+            "GetCurrentEventNum", policy,
+            KOKKOS_LAMBDA(const int &index, int &partial_sum, bool is_final) {
+                if (is_final)
+                    _current_solidification_event(index) = partial_sum;
+                partial_sum += number_of_solidification_events_device(index);
+                if (is_final)
+                    _last_solidification_event(index) = partial_sum;
+            },
+            tot_num_events);
+        Kokkos::fence();
+
+        // Place solidification events into the appropriate positions of layer_time_temp_history, which is resized with
+        // the number of events to simulate now known
+        Kokkos::resize(layer_time_temp_history, tot_num_events, 3);
+        auto _layer_time_temp_history = layer_time_temp_history;
+
+        view_type_int current_solidification_event_temp("current_solidification_event_temp", grid.domain_size);
+        Kokkos::deep_copy(current_solidification_event_temp, current_solidification_event);
+        Kokkos::parallel_for(
+            "LoadSolidificationEvents", events_policy, KOKKOS_LAMBDA(const int &event) {
+                // Get the integer X, Y, Z coordinates associated with this data point
+                const int coord_x = getTempCoordX(raw_temperature_data_device, event, grid.x_min, grid.deltax);
+                const int coord_y =
+                    getTempCoordY(raw_temperature_data_device, event, grid.y_min, grid.deltax, grid.y_offset);
+                const int coord_z = getTempCoordZ(raw_temperature_data_device, event, grid.deltax, grid.layer_height,
+                                                  layernumber, z_min_layer);
+
+                // 1D cell coordinate on this MPI rank's domain
+                const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
+
+                // Increment number of solidification events for this cell and get the old value
+                const int cell_event_count = Kokkos::atomic_fetch_add(&current_solidification_event_temp(index), 1);
+
+                // Event data to store
+                const double t_melting = getTempCoordTM(raw_temperature_data_device, event);
+                const double t_liquidus = getTempCoordTL(raw_temperature_data_device, event);
+                const double cooling_rate = getTempCoordCR(raw_temperature_data_device, event);
+
+                // Store event data in layer_time_temp_history
+                _layer_time_temp_history(cell_event_count, 0) = Kokkos::round(t_melting / deltat) + 1;
+                _layer_time_temp_history(cell_event_count, 1) = Kokkos::round(t_liquidus / deltat) + 1;
+                _layer_time_temp_history(cell_event_count, 2) = std::abs(cooling_rate) * deltat;
+            });
+        Kokkos::fence();
+        MPI_Barrier(MPI_COMM_WORLD);
+        if (id == 0)
+            std::cout << "Layer " << layernumber << " temperatures stored" << std::endl;
+
+        // Reorder solidification events in layer_time_temp_history based on the melting time values (component = 0)
+        Kokkos::parallel_for(
+            "OrderEvents", policy, KOKKOS_LAMBDA(const int &index) {
+                int n_solidification_events_cell = number_of_solidification_events_device(index);
+                if (n_solidification_events_cell > 1) {
+                    for (int i = 0; i < n_solidification_events_cell - 1; i++) {
+                        for (int j = (i + 1); j < n_solidification_events_cell; j++) {
+                            const int event_a = _current_solidification_event(index) + i;
+                            const int event_b = _current_solidification_event(index) + j;
+                            if (_layer_time_temp_history(event_a, 0) > _layer_time_temp_history(event_b, 0)) {
+                                // Swap these two points - melting event "b" happens before event "a"
+                                const float old_melt_val = _layer_time_temp_history(event_a, 0);
+                                const float old_liq_val = _layer_time_temp_history(event_a, 1);
+                                const float old_cr_val = _layer_time_temp_history(event_a, 2);
+                                _layer_time_temp_history(event_a, 0) = _layer_time_temp_history(event_b, 0);
+                                _layer_time_temp_history(event_a, 1) = _layer_time_temp_history(event_b, 1);
+                                _layer_time_temp_history(event_a, 2) = _layer_time_temp_history(event_b, 2);
+                                _layer_time_temp_history(event_b, 0) = old_melt_val;
+                                _layer_time_temp_history(event_b, 1) = old_liq_val;
+                                _layer_time_temp_history(event_b, 2) = old_cr_val;
+                            }
                         }
                     }
                 }
-            }
-        }
+            });
+
         // If a cell melts twice before reaching the liquidus temperature, this is a double counted solidification
-        // event and should be removed
-        for (int index = 0; index < grid.domain_size; index++) {
-            int n_solidification_events_cell = number_of_solidification_events_host(index);
-            if (n_solidification_events_cell > 1) {
-                for (int i = 0; i < n_solidification_events_cell - 1; i++) {
-                    if (layer_time_temp_history_host(index, i + 1, 0) < layer_time_temp_history_host(index, i, 1)) {
-                        std::cout << "Cell " << index << " removing anomalous event " << i + 1 << " out of "
-                                  << n_solidification_events_cell - 1 << std::endl;
-                        // Keep whichever event has the larger liquidus time
-                        if (layer_time_temp_history_host(index, i + 1, 1) > layer_time_temp_history_host(index, i, 1)) {
-                            layer_time_temp_history_host(index, i, 0) = layer_time_temp_history_host(index, i + 1, 0);
-                            layer_time_temp_history_host(index, i, 1) = layer_time_temp_history_host(index, i + 1, 1);
-                            layer_time_temp_history_host(index, i, 2) = layer_time_temp_history_host(index, i + 1, 2);
+        // event and should be ignored (move to back the index of the last event and decrement the value for
+        // last_solidification_event so that it does not get iterated over
+        Kokkos::parallel_for(
+            "RemoveDoubleEvents", policy, KOKKOS_LAMBDA(const int &index) {
+                int n_solidification_events_cell = number_of_solidification_events_device(index);
+                if (n_solidification_events_cell > 1) {
+                    for (int i = 0; i < n_solidification_events_cell - 1; i++) {
+                        float event_liq = _layer_time_temp_history(current_solidification_event(index) + i, 1);
+                        float next_event_melt =
+                            _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
+                        if (next_event_melt < event_liq) {
+                            // Keep whichever event has the larger liquidus time - ignore the removed event for now and
+                            // move other event data into the next location in layer_time_temp_history. In the future,
+                            // the ignored event data could be printed to files for debugging
+                            float next_event_liq =
+                                _layer_time_temp_history(current_solidification_event(index) + i + 1, 1);
+                            if (next_event_liq > event_liq) {
+                                _layer_time_temp_history(current_solidification_event(index) + i, 0) =
+                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 0);
+                                _layer_time_temp_history(current_solidification_event(index) + i, 1) =
+                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 1);
+                                _layer_time_temp_history(current_solidification_event(index) + i, 2) =
+                                    _layer_time_temp_history(current_solidification_event(index) + i + 1, 2);
+                            }
+                            for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
+                                _layer_time_temp_history(current_solidification_event(index + ii), 0) =
+                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 0);
+                                _layer_time_temp_history(current_solidification_event(index + ii), 1) =
+                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 1);
+                                _layer_time_temp_history(current_solidification_event(index + ii), 2) =
+                                    _layer_time_temp_history(current_solidification_event(index + ii + 1), 2);
+                            }
+                            // Substract one from the number of solidification events, the local
+                            // n_solidification_events_cell, and last_solidification_event
+                            number_of_solidification_events_device(index)--;
+                            n_solidification_events_cell--;
+                            _last_solidification_event(index)--;
                         }
-                        layer_time_temp_history_host(index, i + 1, 0) = 0.0;
-                        layer_time_temp_history_host(index, i + 1, 1) = 0.0;
-                        layer_time_temp_history_host(index, i + 1, 2) = 0.0;
-                        // Reshuffle other solidification events over if needed
-                        for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
-                            layer_time_temp_history_host(index, ii, 0) = layer_time_temp_history_host(index, ii + 1, 0);
-                            layer_time_temp_history_host(index, ii, 1) = layer_time_temp_history_host(index, ii + 1, 1);
-                            layer_time_temp_history_host(index, ii, 2) = layer_time_temp_history_host(index, ii + 1, 2);
-                        }
-                        number_of_solidification_events_host(index)--;
                     }
                 }
-            }
-        }
+            });
 
-        // Copy host view data back to device
-        max_solidification_events = Kokkos::create_mirror_view_and_copy(memory_space(), max_solidification_events_host);
-        layer_time_temp_history = Kokkos::create_mirror_view_and_copy(memory_space(), layer_time_temp_history_host);
+        // Set the max number of solidification events undergone by any one cell, and copy view of number of
+        // solidification events to host (device copy not used outside this function)
+        setMaxNumSolidificationEvents(id, grid.domain_size, number_of_solidification_events_device);
         number_of_solidification_events =
-            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events_host);
-
+            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), number_of_solidification_events_device);
         if (id == 0) {
             std::cout << "Layer " << layernumber << " temperature field is from Z = " << grid.z_layer_bottom
                       << " through " << grid.nz_layer + grid.z_layer_bottom - 1 << " of the global domain" << std::endl;
@@ -801,7 +816,7 @@ struct Temperature {
     // Update local cell undercooling for the current melt-resolidification event
     KOKKOS_INLINE_FUNCTION
     void updateUndercooling(const int index) const {
-        undercooling_current(index) += layer_time_temp_history(index, solidification_event_counter(index), 2);
+        undercooling_current(index) += layer_time_temp_history(current_solidification_event(index), 2);
     }
 
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just
@@ -815,44 +830,52 @@ struct Temperature {
     // Update the solidification event counter for a cell that has not finished the previous solidification event (i.e.,
     // solidification is not complete in this cell as it is not tempsolid or solid type)
     KOKKOS_INLINE_FUNCTION
-    void updateSolidificationCounter(const int index) const { solidification_event_counter(index)++; }
+    void updateSolidificationCounter(const int index) const { current_solidification_event(index)++; }
 
     // Update the solidification event counter for the cell (which is either tempsolid or solid type) and return whether
     // all solidification events have completed in the cell
     KOKKOS_INLINE_FUNCTION
     bool updateCheckSolidificationCounter(const int index) const {
         bool solidification_complete;
-        solidification_event_counter(index)++;
-        if (solidification_event_counter(index) == number_of_solidification_events(index))
+        current_solidification_event(index)++;
+        if (current_solidification_event(index) == last_solidification_event(index))
             solidification_complete = true;
         else
             solidification_complete = false;
         return solidification_complete;
     }
 
-    // Reset solidification event counter and get the subview associated with the undercooling field for the next layer
-    void resetLayerEventsUndercooling(const Grid &grid) {
+    // Initialize the temperature data for the next layer of a multilayer simulation
+    void initNextLayer(const int id, const std::string simulation_type, Grid &grid, const double deltat,
+                       const int next_layer_number) {
+
+        // If the next layer's temperature data isn't already stored, it should be read
+        if ((simulation_type == "FromFile") && (_inputs.layerwise_temp_read))
+            readTemperatureData(id, grid, next_layer_number);
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        // Initialize next layer's temperature data
+        initialize(next_layer_number, id, grid, deltat);
+
+        // Get the subview for the next layer's undercooling
         getCurrentLayerUndercooling(grid.layer_range);
         if (_store_solidification_start)
             getCurrentLayerStartingUndercooling(grid.layer_range);
-        Kokkos::realloc(solidification_event_counter, grid.domain_size);
-        Kokkos::deep_copy(solidification_event_counter, 0);
     }
 
     // Extract the next time that this point undergoes melting
     KOKKOS_INLINE_FUNCTION
     int getMeltTimeStep(const int cycle, const int index) const {
         int melt_time_step;
-        int solidification_event_counter_cell = solidification_event_counter(index);
-        melt_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 0));
+        int solidification_event_counter_cell = current_solidification_event(index);
+        melt_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell, 0));
         if (cycle > melt_time_step) {
             // If the cell has already exceeded the melt time step for the current melt-solidification event, get the
             // melt time step associated with the next solidification event - or, if there is no next
             // melt-solidification event, return the max possible int as the cell will not melt again during this layer
             // of the multilayer problem
             if (solidification_event_counter_cell < (number_of_solidification_events(index) - 1))
-                melt_time_step =
-                    static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell + 1, 0));
+                melt_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell + 1, 0));
             else
                 melt_time_step = INT_MAX;
         }
@@ -863,22 +886,9 @@ struct Temperature {
     // Uses the current value of the solidification event counter
     KOKKOS_INLINE_FUNCTION
     int getCritTimeStep(const int index) const {
-        int solidification_event_counter_cell = solidification_event_counter(index);
-        int crit_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
+        const int solidification_event_counter_cell = current_solidification_event(index);
+        int crit_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell, 1));
         return crit_time_step;
-    }
-    // Uses a specified solidification event
-    KOKKOS_INLINE_FUNCTION
-    int getCritTimeStep(const int index, const int solidification_event_counter_cell) const {
-        int crit_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
-        return crit_time_step;
-    }
-
-    // Extract the cooling rate associated with a specified solidificaiton event
-    KOKKOS_INLINE_FUNCTION
-    float getUndercoolingChange(const int index, const int solidification_event_counter_cell) const {
-        float undercooling_change = layer_time_temp_history(index, solidification_event_counter_cell, 2);
-        return undercooling_change;
     }
 
     // Extract either the last time step that all points undergo melting in the layer, the last time they cools below
@@ -892,20 +902,48 @@ struct Temperature {
         extracted_view_data_type extracted_data(Kokkos::ViewAllocateWithoutInitializing("extracted_data"), domain_size);
         using extracted_value_type = typename extracted_view_data_type::value_type;
 
-        // Local copies for lambda capture.
-        auto layer_time_temp_history_local = layer_time_temp_history;
-        auto number_of_solidification_events_local = number_of_solidification_events;
+        // Get device copy of number_of_solidification_events
+        auto number_of_solidification_events_device =
+            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events);
+
+        // Local copy for lambda capture.
+        auto _layer_time_temp_history = layer_time_temp_history;
 
         auto policy = Kokkos::RangePolicy<execution_space>(0, domain_size);
         Kokkos::parallel_for(
             "Extract_tm_tl_cr_data", policy, KOKKOS_LAMBDA(const int &index) {
-                int num_solidification_events_this_cell = number_of_solidification_events_local(index);
                 // If this cell doesn't undergo solidification at all, print -1
-                if (num_solidification_events_this_cell == 0)
+                if (number_of_solidification_events_device(index) == 0)
                     extracted_data(index) = static_cast<extracted_value_type>(default_val);
                 else
                     extracted_data(index) = static_cast<extracted_value_type>(
-                        layer_time_temp_history_local(index, num_solidification_events_this_cell - 1, extracted_val));
+                        _layer_time_temp_history(last_solidification_event(index) - 1, extracted_val));
+            });
+        return extracted_data;
+    }
+
+    // Extract either the last time step that all points undergo melting in the layer, the last time they cools below
+    // the liquidus, or the rate at which they cools from the liquidus from layer_time_temp_history (corresponds to
+    // solidification event number `NumSolidificationEvents-1` for the cell) (can't just use subview here since
+    // NumSolidificationEvents is different for each cell) If the cell does not undergo solidification, either print -1
+    // or the specified default value
+    template <typename extracted_view_data_type>
+    extracted_view_data_type extractSolidificationEventCounter(const int domain_size) {
+        extracted_view_data_type extracted_data(Kokkos::ViewAllocateWithoutInitializing("extracted_data"), domain_size);
+        using extracted_value_type = typename extracted_view_data_type::value_type;
+
+        // Local device copies for lambda capture.
+        auto _current_solidification_event = current_solidification_event;
+        auto _last_solidification_event = last_solidification_event;
+        auto _number_of_solidification_events =
+            Kokkos::create_mirror_view_and_copy(memory_space(), number_of_solidification_events);
+
+        auto policy = Kokkos::RangePolicy<execution_space>(0, domain_size);
+        Kokkos::parallel_for(
+            "ExtractSEventCounter", policy, KOKKOS_LAMBDA(const int &index) {
+                extracted_data(index) = static_cast<extracted_value_type>(
+                    _current_solidification_event(index) -
+                    (_last_solidification_event(index) - _number_of_solidification_events(index)));
             });
         return extracted_data;
     }

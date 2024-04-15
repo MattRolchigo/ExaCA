@@ -37,7 +37,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     else if (simulation_type == "Spot")
         temperature.initialize(id, grid, irf.freezing_range, inputs.domain.deltat, inputs.domain.spot_radius);
     else if ((simulation_type == "FromFile") || (simulation_type == "FromFinch"))
-        temperature.initialize(0, id, grid, irf.freezing_range, inputs.domain.deltat, simulation_type);
+        temperature.initialize(0, id, grid, inputs.domain.deltat);
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Initialize grain orientations
@@ -148,19 +148,8 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             grid.initNextLayer(id, simulation_type, layernumber + 1);
 
             // Initialize new temperature field data for layer "layernumber + 1"
-            // TODO: reorganize these temperature functions calls into a temperature.init_next_layer as done with the
-            // substrate
-            // If the next layer's temperature data isn't already stored, it should be read
-            if ((simulation_type == "FromFile") && (inputs.temperature.layerwise_temp_read))
-                temperature.readTemperatureData(id, grid, layernumber + 1);
-            MPI_Barrier(MPI_COMM_WORLD);
-            // Initialize next layer's temperature data
-            temperature.initialize(layernumber + 1, id, grid, irf.freezing_range, inputs.domain.deltat,
-                                   simulation_type);
+            temperature.initNextLayer(id, simulation_type, grid, inputs.domain.deltat, layernumber + 1);
 
-            // Reset solidification event counter of all cells to zeros for the next layer, resizing to number of cells
-            // associated with the next layer, and get the subview for undercooling
-            temperature.resetLayerEventsUndercooling(grid);
             // Resize and zero all view data relating to the active region from the last layer, in preparation for the
             // next layer
             interface.initNextLayer(grid.domain_size);

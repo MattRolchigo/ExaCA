@@ -71,8 +71,6 @@ void testNucleiInit() {
     // Each rank has 40 cells - the top 32 cells are part of the active layer and are candidates for nucleation
     // assignment
     int max_potential_nuclei_per_pass = 4 * np;
-    // A cell can solidify 1-3 times
-    int max_solidification_events_count = 3;
     // Manually set nucleation parameters
     // This nucleation density ensures there will be 4 potential nuclei per MPI rank present
     // without remelting (each cell solidifies once)
@@ -82,54 +80,62 @@ void testNucleiInit() {
 
     // Allocate temperature data structures
     Temperature<memory_space> temperature(grid, inputs.temperature);
-    // Resize layer_time_temp_history with the known max number of solidification events
-    Kokkos::resize(temperature.layer_time_temp_history, grid.domain_size, max_solidification_events_count, 3);
-    // Initialize max_solidification_events to 3 for each layer. layer_time_temp_history and
-    // number_of_solidification_events are initialized for each cell on the host and copied to the device
-    Kokkos::View<int *, Kokkos::HostSpace> max_solidification_events_host(
-        Kokkos::ViewAllocateWithoutInitializing("max_solidification_events_host"), grid.number_of_layers);
-    max_solidification_events_host(0) = max_solidification_events_count;
-    max_solidification_events_host(1) = max_solidification_events_count;
+    // A cell can solidify 1-3 times
+    temperature.max_num_solidification_events = 3;
+    auto current_solidification_event_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.current_solidification_event);
+    auto last_solidification_event_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.last_solidification_event);
+
     // Cells solidify 1, 2, or 3 times, depending on their X coordinate
-    Kokkos::parallel_for(
-        "NumSolidificationEventsInit", grid.nz_layer, KOKKOS_LAMBDA(const int &coord_z) {
-            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
-                    int index = grid.get1DIndex(coord_x, coord_y, coord_z);
-                    if (coord_x < grid.nx / 2 - 1)
-                        temperature.number_of_solidification_events(index) = 3;
-                    else if (coord_x < grid.nx / 2)
-                        temperature.number_of_solidification_events(index) = 2;
-                    else
-                        temperature.number_of_solidification_events(index) = 1;
-                }
+    int tot_num_events = 0;
+    for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
+        for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+            for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                int index = grid.get1DIndex(coord_x, coord_y, coord_z);
+                if (coord_x < grid.nx / 2 - 1)
+                    temperature.number_of_solidification_events(index) = 3;
+                else if (coord_x < grid.nx / 2)
+                    temperature.number_of_solidification_events(index) = 2;
+                else
+                    temperature.number_of_solidification_events(index) = 1;
+                current_solidification_event_host(index) = tot_num_events;
+                last_solidification_event_host(index) =
+                    current_solidification_event_host(index) + temperature.number_of_solidification_events(index);
+                tot_num_events += temperature.number_of_solidification_events(index);
             }
-        });
-    Kokkos::fence();
+        }
+    }
+    temperature.current_solidification_event =
+        Kokkos::create_mirror_view_and_copy(memory_space(), current_solidification_event_host);
+    temperature.last_solidification_event =
+        Kokkos::create_mirror_view_and_copy(memory_space(), last_solidification_event_host);
+
+    // Resize layer_time_temp_history with the known number of solidification events
+    Kokkos::resize(temperature.layer_time_temp_history, tot_num_events, 3);
     Kokkos::parallel_for(
-        "layer_time_temp_historyInit", max_solidification_events_count, KOKKOS_LAMBDA(const int &n) {
+        "layer_time_temp_historyInit", temperature.max_num_solidification_events, KOKKOS_LAMBDA(const int &n) {
             for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
                 for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
                     for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
                         int index = grid.get1DIndex(coord_x, coord_y, coord_z);
                         int coord_z_all_layers = coord_z + grid.z_layer_bottom;
-                        if (n < temperature.number_of_solidification_events(index)) {
+                        int solidification_event_num = temperature.current_solidification_event(index) + n;
+                        if (solidification_event_num < temperature.last_solidification_event(index)) {
                             // melting time step depends on solidification event number
-                            temperature.layer_time_temp_history(index, n, 0) =
+                            temperature.layer_time_temp_history(solidification_event_num, 0) =
                                 coord_z_all_layers + coord_y + grid.y_offset + (grid.domain_size * n);
                             // liquidus time stemp depends on solidification event number
-                            temperature.layer_time_temp_history(index, n, 1) =
+                            temperature.layer_time_temp_history(solidification_event_num, 1) =
                                 coord_z_all_layers + coord_y + grid.y_offset + 1 + (grid.domain_size * n);
                             // ensures that a cell's nucleation time will be 1 time step after its CritTimeStep value
-                            temperature.layer_time_temp_history(index, n, 2) = 1.2;
+                            temperature.layer_time_temp_history(solidification_event_num, 2) = 1.2;
                         }
                     }
                 }
             }
         });
     Kokkos::fence();
-    temperature.max_solidification_events =
-        Kokkos::create_mirror_view_and_copy(memory_space(), max_solidification_events_host);
 
     // Nucleation data structure, containing views of nuclei locations, time steps, and ids, and nucleation event
     // counters - initialized with an estimate on the number of nuclei in the layer Without knowing
@@ -156,13 +162,12 @@ void testNucleiInit() {
     // Was the nucleation counter initialized to zero?
     EXPECT_EQ(nucleation.nucleation_counter, 0);
 
-    // Is the total number of nuclei in the system correct, based on the number of remelting events? Equal probability
-    // of creating a nucleus each time a cell resolidifies
-    int expected_nuclei_per_rank = 100 + max_solidification_events_count * max_potential_nuclei_per_pass;
+    // Is the total number of GrainIDs used to generate nucleation sites correct?
+    int expected_nuclei_per_rank = 100 + temperature.max_num_solidification_events * max_potential_nuclei_per_pass;
     EXPECT_EQ(nucleation.nuclei_whole_domain, expected_nuclei_per_rank);
     for (int n = 0; n < nucleation.possible_nuclei; n++) {
         // Are the nuclei grain IDs negative numbers in the expected range based on the inputs?
-        EXPECT_GT(nuclei_grain_id_host(n), -(100 + expected_nuclei_per_rank * np + 1));
+        EXPECT_GT(nuclei_grain_id_host(n), -(expected_nuclei_per_rank + 1));
         EXPECT_LT(nuclei_grain_id_host(n), -100);
         // Are the correct undercooling values associated with the correct cell locations?
         // Cell location is a local position (relative to the bottom of the layer)

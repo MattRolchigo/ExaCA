@@ -240,8 +240,10 @@ struct Print {
                               diagonal_length_whole_domain);
             }
             if (_inputs.intralayer_solidification_event_counter) {
+                auto solidification_event_counter =
+                    temperature.template extractSolidificationEventCounter<view_type_int>(grid.domain_size);
                 auto solidification_event_counter_whole_domain =
-                    collectViewData(id, np, grid, true, MPI_INT, temperature.solidification_event_counter);
+                    collectViewData(id, np, grid, true, MPI_INT, solidification_event_counter);
                 printViewData(id, intralayer_ofstream, grid, true, "int", "SolidificationEventCounter",
                               solidification_event_counter_whole_domain);
             }
@@ -384,8 +386,10 @@ struct Print {
                                   diagonal_length_whole_domain);
                 }
                 if (_inputs.interlayer_solidification_event_counter) {
+                    auto solidification_event_counter =
+                        temperature.template extractSolidificationEventCounter<view_type_int>(grid.domain_size);
                     auto solidification_event_counter_whole_domain =
-                        collectViewData(id, np, grid, true, MPI_INT, temperature.solidification_event_counter);
+                        collectViewData(id, np, grid, true, MPI_INT, solidification_event_counter);
                     printViewData(id, currentlayer_ofstream, grid, true, "int", "SolidificationEventCounter",
                                   solidification_event_counter_whole_domain);
                 }

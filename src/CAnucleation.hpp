@@ -88,12 +88,10 @@ struct Nucleation {
         // TODO: convert this subroutine into kokkos kernels, rather than copying data back to the host, and nucleation
         // data back to the device again. This is currently performed on the device due to heavy usage of standard
         // library algorithm functions Copy temperature data into temporary host views for this subroutine
-        auto max_solidification_events_host =
-            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.max_solidification_events);
-        auto number_of_solidification_events_host =
-            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.number_of_solidification_events);
         auto layer_time_temp_history_host =
             Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.layer_time_temp_history);
+        auto current_solidification_event_host =
+            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.current_solidification_event);
 
         // Use new RNG seed for each layer
         std::mt19937_64 generator(rng_seed + static_cast<unsigned long>(layernumber));
@@ -112,7 +110,7 @@ struct Nucleation {
         long int nuclei_this_layer_single_long =
             std::lround(bulk_prob * cells_this_layer_long); // equivalent to Nuclei_ThisLayer if no remelting
         // Multiplier for the number of nucleation events per layer, based on the number of solidification events
-        long int nuclei_multiplier_long = static_cast<long int>(max_solidification_events_host(layernumber));
+        long int nuclei_multiplier_long = static_cast<long int>(temperature.max_num_solidification_events);
         long int nuclei_this_layer_long = nuclei_this_layer_single_long * nuclei_multiplier_long;
         // Vector and view sizes should be type int for indexing and grain ID assignment purposes -
         // Nuclei_ThisLayer_long should be less than INT_MAX
@@ -178,16 +176,15 @@ struct Nucleation {
                         grid.get1DIndex(nuclei_x(n_event), nuclei_y(n_event) - grid.y_offset, nuclei_z(n_event));
                     // Criteria for placing a nucleus - whether or not this nuclei is associated with a solidification
                     // event
-                    if (meltevent < number_of_solidification_events_host(nuclei_location_this_layer)) {
+                    if (meltevent < temperature.number_of_solidification_events(nuclei_location_this_layer)) {
                         // Nucleation event is possible - cell undergoes solidification at least once, this nucleation
                         // event is associated with one of the time periods during which the associated cell undergoes
                         // solidification
                         nuclei_location_myrank_v[possible_nuclei] = nuclei_location_this_layer;
-
-                        float crit_time_step_this_event =
-                            layer_time_temp_history_host(nuclei_location_this_layer, meltevent, 1);
-                        float undercooling_change_this_event =
-                            layer_time_temp_history_host(nuclei_location_this_layer, meltevent, 2);
+                        const int nuc_associated_s_event =
+                            current_solidification_event_host(nuclei_location_this_layer) + meltevent;
+                        float crit_time_step_this_event = layer_time_temp_history_host(nuc_associated_s_event, 1);
+                        float undercooling_change_this_event = layer_time_temp_history_host(nuc_associated_s_event, 2);
                         float time_to_nuc_und =
                             Kokkos::round(static_cast<float>(crit_time_step_this_event) +
                                           nuclei_undercooling_whole_domain_v[n_event] / undercooling_change_this_event);

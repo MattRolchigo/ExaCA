@@ -515,26 +515,26 @@ void testFillSteeringVector_Remelt() {
     Kokkos::parallel_for(
         "TempDataInit", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
             grain_id(index) = 1;
-            celldata.cell_type(index) = TempSolid;
             // Cell coordinates on this rank in X, Y, and Z (GlobalZ = relative to domain bottom)
             int coord_z = grid.getCoordZ(index);
             int coord_y = grid.getCoordY(index);
             // Cells at Z = 0 through Z = 2 are Solid, Z = 3 and 4 are TempSolid
-            if (coord_z <= 2) {
-                // Solid cells should have -1 assigned as their melt/crit time steps
-                temperature.layer_time_temp_history(index, 0, 0) = -1;
-                temperature.layer_time_temp_history(index, 0, 1) = -1;
-                temperature.layer_time_temp_history(index, 0, 2) = 0;
-            }
-            else {
+            if (coord_z > 2) {
                 // Cells "melt" at a time step corresponding to their Y location in the overall domain (depends on
                 // MyYOffset of the rank)
-                temperature.layer_time_temp_history(index, 0, 0) = coord_y + grid.y_offset + 1;
+                int current_count = index - 2 * grid.nx * grid.ny_local;
+                temperature.current_solidification_event(index) = current_count;
+                temperature.last_solidification_event(index) = current_count + 1;
+                temperature.number_of_solidification_events(index) = 1;
+                temperature.layer_time_temp_history(current_count, 0) = coord_y + grid.y_offset + 1;
                 // Cells reach liquidus during cooling 2 time steps after melting
-                temperature.layer_time_temp_history(index, 0, 1) = temperature.layer_time_temp_history(index, 0, 0) + 2;
+                temperature.layer_time_temp_history(current_count, 1) =
+                    temperature.layer_time_temp_history(current_count, 0) + 2;
+                celldata.cell_type(index) = TempSolid;
+                temperature.layer_time_temp_history(current_count, 2) = 0.2;
             }
-            temperature.layer_time_temp_history(index, 0, 2) = 0.2;
-            temperature.number_of_solidification_events(index) = 1;
+            else
+                celldata.cell_type(index) = Solid;
         });
 
     // Interface struct
@@ -557,6 +557,8 @@ void testFillSteeringVector_Remelt() {
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.undercooling_current);
     auto layer_time_temp_history_host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.layer_time_temp_history);
+    auto current_solidification_event_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.current_solidification_event);
 
     // Check the modified CellType and UndercoolingCurrent values on the host:
     // Check that the cells corresponding to outside of the "active" portion of the domain have unchanged values
@@ -574,18 +576,19 @@ void testFillSteeringVector_Remelt() {
         if (coord_z <= 2)
             EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
         else {
-            if (numcycles < layer_time_temp_history_host(index, 0, 0)) {
+            int event_num = current_solidification_event_host(index);
+            if (numcycles < layer_time_temp_history_host(event_num, 0)) {
                 EXPECT_EQ(cell_type_host(index), TempSolid);
                 EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
             }
-            else if ((numcycles >= layer_time_temp_history_host(index, 0, 0)) &&
-                     (numcycles <= layer_time_temp_history_host(index, 0, 1))) {
+            else if ((numcycles >= layer_time_temp_history_host(event_num, 0)) &&
+                     (numcycles <= layer_time_temp_history_host(event_num, 1))) {
                 EXPECT_EQ(cell_type_host(index), Liquid);
                 EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
             }
             else {
                 EXPECT_FLOAT_EQ(undercooling_current_host(index),
-                                (numcycles - layer_time_temp_history_host(index, 0, 1)) * 0.2);
+                                (numcycles - layer_time_temp_history_host(event_num, 1)) * 0.2);
                 if (coord_z == 4)
                     EXPECT_EQ(cell_type_host(index), Liquid);
                 else {
