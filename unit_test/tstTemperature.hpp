@@ -191,6 +191,7 @@ void testInit_UnidirectionalGradient(const std::string simulation_type, const do
     Grid grid;
     grid.nx = 2;
     grid.ny_local = 5;
+    grid.z_layer_bottom = 0;
     grid.nz = 6; // (Front is at Z = 0 for directional growth, single grain seed at Z = 2 for singlegrain problem)
     grid.domain_size = grid.nx * grid.ny_local * grid.nz;
     grid.domain_size_all_layers = grid.domain_size;
@@ -295,6 +296,215 @@ void testInit_UnidirectionalGradient(const std::string simulation_type, const do
     }
 }
 
+void testInit_FromFile() {
+
+    using memory_space = TEST_MEMSPACE;
+
+    int id, np;
+    // Get number of processes
+    MPI_Comm_size(MPI_COMM_WORLD, &np);
+    // Get individual process ID
+    MPI_Comm_rank(MPI_COMM_WORLD, &id);
+
+    // Create test data
+    // Empty input struct
+    Inputs inputs;
+    // Manually set time step
+    inputs.domain.deltat = 0.5 * pow(10, -6);
+    // Default grid for 1 layer, manually set values
+    Grid grid(1);
+    // Domain size is a 3 by 12 by 3 region, each subdomain includes the same Y coordinates
+    grid.nx = 3;
+    grid.ny = 12;
+    grid.nz = 3;
+    grid.nz_layer = 3;
+    grid.ny_local = 3;
+    grid.y_offset = 0;
+    grid.x_min = 0.0;
+    grid.y_min = 0.0;
+    grid.z_min = 0.0;
+    grid.z_min_layer(0) = 0.0;
+    grid.layer_height = 0;
+    grid.deltax = 1 * pow(10, -6);
+    grid.domain_size = grid.nx * grid.ny_local * grid.nz_layer;
+    grid.domain_size_all_layers = grid.domain_size;
+    grid.layer_range = std::make_pair(0, grid.domain_size);
+
+    // Temperature fields characterized by data in this structure
+    Temperature<memory_space> temperature(grid, inputs.temperature, inputs.print.store_solidification_start);
+    // Load test temperature data into raw_temperature_data
+    // Rank 0 has one melt-solidification event in each cell
+    // Rank 1 has no events at Z = 0, one event at each cell at Z = 1, and two events for each cell at Z = 2
+    // Ranks 2 and larger have the same as rank 1, but with (np-2) "extra" events at Z = 2 (cell goes above the liquidus
+    // a second time before going below the liquidus once) that should be automatically removed and with the two
+    // "normal" events reversed in order to ensure that they get swapped correctly in temperature.initialize
+    int event_count = 0;
+    temperature.first_value(0) = 0;
+
+    // Time values to seconds, cooling rate is in K/s
+    float raw_data_melt_time_first_event = 10 * inputs.domain.deltat;
+    float raw_data_liq_time_first_event = 45 * inputs.domain.deltat;
+    float raw_data_cooling_rate_first_event = 5 / inputs.domain.deltat;
+    float raw_data_melt_time_second_event = 50 * inputs.domain.deltat;
+    float raw_data_liq_time_second_event = 100 * inputs.domain.deltat;
+    float raw_data_cooling_rate_second_event = 1 / inputs.domain.deltat;
+
+    // normalized vals: in time steps and in K/time step. Time steps offset by 1 from time step 0
+    float expected_melt_time_first_event = 11;
+    float expected_liq_time_first_event = 46;
+    float expected_cooling_rate_first_event = 5;
+    float expected_melt_time_second_event = 51;
+    float expected_liq_time_second_event = 101;
+    float expected_cooling_rate_second_event = 1;
+
+    if (id == 0) {
+        // Z = 0: one event each cell on rank 0
+        for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                    temperature.raw_temperature_data(event_count, 0) = coord_x * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 1) = coord_y * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 2) = coord_z * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 3) = raw_data_melt_time_first_event;
+                    temperature.raw_temperature_data(event_count, 4) = raw_data_liq_time_first_event;
+                    temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_first_event;
+                    event_count++;
+                }
+            }
+        }
+    }
+    else if (id == 1) {
+        // Z = 0: no events on rank 1, Z = 1: one event, Z = 2: two events
+        for (int coord_z = 1; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                    temperature.raw_temperature_data(event_count, 0) = coord_x * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 1) = coord_y * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 2) = coord_z * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 3) = raw_data_melt_time_first_event;
+                    temperature.raw_temperature_data(event_count, 4) = raw_data_liq_time_first_event;
+                    temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_first_event;
+                    event_count++;
+                }
+            }
+        }
+        for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+            for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                temperature.raw_temperature_data(event_count, 0) = coord_x * grid.deltax;
+                temperature.raw_temperature_data(event_count, 1) = coord_y * grid.deltax;
+                temperature.raw_temperature_data(event_count, 2) = 2 * grid.deltax;
+                temperature.raw_temperature_data(event_count, 3) = raw_data_melt_time_second_event;
+                temperature.raw_temperature_data(event_count, 4) = raw_data_liq_time_second_event;
+                temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_second_event;
+                event_count++;
+            }
+        }
+    }
+    else {
+        // Same as rank 1, but order in list reversed
+        for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+            for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                temperature.raw_temperature_data(event_count, 0) = coord_x * grid.deltax;
+                temperature.raw_temperature_data(event_count, 1) = coord_y * grid.deltax;
+                temperature.raw_temperature_data(event_count, 2) = 2 * grid.deltax;
+                temperature.raw_temperature_data(event_count, 3) = raw_data_melt_time_second_event;
+                temperature.raw_temperature_data(event_count, 4) = raw_data_liq_time_second_event;
+                temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_second_event;
+                event_count++;
+            }
+        }
+        for (int coord_z = 1; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                    temperature.raw_temperature_data(event_count, 0) = coord_x * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 1) = coord_y * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 2) = coord_z * grid.deltax;
+                    temperature.raw_temperature_data(event_count, 3) = raw_data_melt_time_first_event;
+                    temperature.raw_temperature_data(event_count, 4) = raw_data_liq_time_first_event;
+                    temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_first_event;
+                    event_count++;
+                }
+            }
+        }
+        // Ranks 3 and larger: Place events that should be removed (making room for them in raw_temperature_data first)
+        if (id > 2) {
+            Kokkos::resize(temperature.raw_temperature_data, event_count + np - 3, 6);
+            for (int i = id; i < np; i++) {
+                // Place in one of three possible cells in X
+                int event_loc_x = (i + 1) % grid.nx;
+                float error_melt_time = raw_data_liq_time_first_event - ((i + 1) * inputs.domain.deltat);
+                float error_liq_time = error_melt_time + inputs.domain.deltat;
+                temperature.raw_temperature_data(event_count, 0) = event_loc_x * grid.deltax;
+                temperature.raw_temperature_data(event_count, 1) = 0.0;
+                temperature.raw_temperature_data(event_count, 2) = 2 * grid.deltax;
+                temperature.raw_temperature_data(event_count, 3) = error_melt_time;
+                temperature.raw_temperature_data(event_count, 4) = error_liq_time;
+                temperature.raw_temperature_data(event_count, 5) = raw_data_cooling_rate_first_event;
+                event_count++;
+            }
+        }
+    }
+    temperature.last_value(0) = event_count;
+
+    // Initialize layer 0 temperature field variables for layer 0
+    temperature.initialize(0, id, grid, inputs.domain.deltat);
+
+    // Copy data back to host
+    auto current_solidification_event_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.current_solidification_event);
+    auto last_solidification_event_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.last_solidification_event);
+    auto layer_time_temp_history_host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.layer_time_temp_history);
+
+    // Check results - events should be organized by cell number in layer_time_temp_history
+    // Check the first solidification events - in Z = 0, 1, 2 cells on rank 0, in Z = 1 cells on all other ranks
+    // Check the second solidification events that should exist on ranks > 0 at Z = 2
+    if (id == 0) {
+        EXPECT_EQ(temperature.max_num_solidification_events, 1);
+        for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                    const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
+                    EXPECT_EQ(last_solidification_event_host(index),
+                              current_solidification_event_host(index) +
+                                  temperature.number_of_solidification_events(index));
+                    const int event_num = current_solidification_event_host(index);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 0), expected_melt_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 1), expected_liq_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 2), expected_cooling_rate_first_event);
+                }
+            }
+        }
+    }
+    else {
+        EXPECT_EQ(temperature.max_num_solidification_events, 2);
+        for (int coord_z = 1; coord_z < grid.nz_layer; coord_z++) {
+            for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+                for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
+                    const int index = grid.get1DIndex(coord_x, coord_y, coord_z);
+                    EXPECT_EQ(last_solidification_event_host(index),
+                              current_solidification_event_host(index) +
+                                  temperature.number_of_solidification_events(index));
+                    const int event_num = current_solidification_event_host(index);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 0), expected_melt_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 1), expected_liq_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 2), expected_cooling_rate_first_event);
+                    if (coord_z == 2) {
+                        const int next_event_num = event_num + 1;
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 0),
+                                        expected_melt_time_second_event);
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 1),
+                                        expected_liq_time_second_event);
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 2),
+                                        expected_cooling_rate_second_event);
+                    }
+                }
+            }
+        }
+    }
+}
+
 //---------------------------------------------------------------------------//
 // RUN TESTS
 //---------------------------------------------------------------------------//
@@ -315,5 +525,7 @@ TEST(TEST_CATEGORY, temperature) {
     testInit_UnidirectionalGradient("Directional", 1000000, 2);
     testInit_UnidirectionalGradient("SingleGrain", 0, 2);
     testInit_UnidirectionalGradient("SingleGrain", 1000000, 2);
+    // Test for problem type where temperature data came from an input file
+    testInit_FromFile();
 }
 } // end namespace Test

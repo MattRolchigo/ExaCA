@@ -643,6 +643,7 @@ struct Temperature {
         // If a cell melts twice before reaching the liquidus temperature, this is a double counted solidification
         // event and should be ignored (move to back the index of the last event and decrement the value for
         // last_solidification_event so that it does not get iterated over
+        // TODO: Store removed solidification event data to print to files for future reference
         Kokkos::parallel_for(
             "RemoveDoubleEvents", policy, KOKKOS_LAMBDA(const int &index) {
                 int n_solidification_events_cell = number_of_solidification_events_device(index);
@@ -666,12 +667,12 @@ struct Temperature {
                                     _layer_time_temp_history(_current_solidification_event(index) + i + 1, 2);
                             }
                             for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
-                                _layer_time_temp_history(_current_solidification_event(index + ii), 0) =
-                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 0);
-                                _layer_time_temp_history(_current_solidification_event(index + ii), 1) =
-                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 1);
-                                _layer_time_temp_history(_current_solidification_event(index + ii), 2) =
-                                    _layer_time_temp_history(_current_solidification_event(index + ii + 1), 2);
+                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0) =
+                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 0);
+                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1) =
+                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 1);
+                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 2) =
+                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 2);
                             }
                             // Substract one from the number of solidification events, the local
                             // n_solidification_events_cell, and last_solidification_event
