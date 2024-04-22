@@ -509,7 +509,7 @@ struct Temperature {
                 if (number_of_solidification_events_device(index) > loc_max)
                     loc_max = number_of_solidification_events_device(index);
             },
-            max_num_solidification_events);
+            Kokkos::Max<int>(max_num_solidification_events));
         if (id == 0)
             std::cout << "The maximum number of times a cell will melt and resolidify on this layer is "
                       << max_num_solidification_events << std::endl;
