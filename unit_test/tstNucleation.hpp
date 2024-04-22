@@ -112,7 +112,7 @@ void testNucleiInit() {
         Kokkos::create_mirror_view_and_copy(memory_space(), last_solidification_event_host);
 
     // Resize layer_time_temp_history with the known number of solidification events
-    Kokkos::resize(temperature.layer_time_temp_history, tot_num_events, 3);
+    Kokkos::resize(temperature.layer_time_temp_history, 3 * tot_num_events);
     Kokkos::parallel_for(
         "layer_time_temp_historyInit", temperature.max_num_solidification_events, KOKKOS_LAMBDA(const int &n) {
             for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
@@ -123,13 +123,13 @@ void testNucleiInit() {
                         int solidification_event_num = temperature.current_solidification_event(index) + n;
                         if (solidification_event_num < temperature.last_solidification_event(index)) {
                             // melting time step depends on solidification event number
-                            temperature.layer_time_temp_history(solidification_event_num, 0) =
+                            temperature.layer_time_temp_history(3 * solidification_event_num) =
                                 coord_z_all_layers + coord_y + grid.y_offset + (grid.domain_size * n);
                             // liquidus time stemp depends on solidification event number
-                            temperature.layer_time_temp_history(solidification_event_num, 1) =
+                            temperature.layer_time_temp_history(3 * solidification_event_num + 1) =
                                 coord_z_all_layers + coord_y + grid.y_offset + 1 + (grid.domain_size * n);
                             // ensures that a cell's nucleation time will be 1 time step after its CritTimeStep value
-                            temperature.layer_time_temp_history(solidification_event_num, 2) = 1.2;
+                            temperature.layer_time_temp_history(3 * solidification_event_num + 2) = 1.2;
                         }
                     }
                 }

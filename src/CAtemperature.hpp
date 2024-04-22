@@ -48,7 +48,7 @@ struct Temperature {
     view_type_int last_solidification_event;
     // List of melt-solidification events, each with a tm (melting time), tl (time cell cools below liquidus), and cr
     // (cooling rate from liquidus temperature) value
-    view_type_float_2d layer_time_temp_history;
+    view_type_float layer_time_temp_history;
     // The current undercooling of a CA cell (if superheated liquid or hasn't undergone solidification yet, equals 0)
     // Also maintained for the full multilayer domain
     view_type_float undercooling_current_all_layers, undercooling_current;
@@ -75,8 +75,8 @@ struct Temperature {
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("current_solidification_event"), grid.domain_size))
         , last_solidification_event(
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("last_solidification_event"), grid.domain_size))
-        , layer_time_temp_history(view_type_float_2d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
-                                                     grid.domain_size, 3))
+        , layer_time_temp_history(
+              view_type_float(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"), grid.domain_size * 3))
         , undercooling_current_all_layers(view_type_float("undercooling_current", grid.domain_size_all_layers))
         , raw_temperature_data(view_type_double_2d_host(Kokkos::ViewAllocateWithoutInitializing("raw_temperature_data"),
                                                         grid.domain_size, num_temperature_components))
@@ -102,8 +102,8 @@ struct Temperature {
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("current_solidification_event"), grid.domain_size))
         , last_solidification_event(
               view_type_int(Kokkos::ViewAllocateWithoutInitializing("last_solidification_event"), grid.domain_size))
-        , layer_time_temp_history(view_type_float_2d(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"),
-                                                     grid.domain_size, 3))
+        , layer_time_temp_history(
+              view_type_float(Kokkos::ViewAllocateWithoutInitializing("layer_time_temp_history"), grid.domain_size * 3))
         , undercooling_current_all_layers(view_type_float("undercooling_current", grid.domain_size_all_layers))
         , raw_temperature_data(view_type_double_2d_host(Kokkos::ViewAllocateWithoutInitializing("raw_temperature_data"),
                                                         grid.domain_size, num_temperature_components))
@@ -401,7 +401,7 @@ struct Temperature {
                 _last_solidification_event(index) = index + 1;
 
                 // All cells past melting time step
-                _layer_time_temp_history(index, 0) = -1;
+                _layer_time_temp_history(3 * index) = -1;
                 // Negative dist_from_liquidus and dist_from_init_undercooling values for cells below the liquidus
                 // isotherm
                 const int coord_z = grid.getCoordZ(index);
@@ -410,7 +410,7 @@ struct Temperature {
                 // Cells with negative liquidus time values are already undercooled, should have positive undercooling
                 // and negative liquidus time step
                 if (dist_from_liquidus < 0) {
-                    _layer_time_temp_history(index, 1) = -1;
+                    _layer_time_temp_history(3 * index + 1) = -1;
                     const int dist_from_init_undercooling = coord_z - location_init_undercooling;
                     _undercooling_current(index) = _init_undercooling - dist_from_init_undercooling * _G * grid.deltax;
                 }
@@ -418,10 +418,10 @@ struct Temperature {
                     // Cells with positive liquidus time values are not yet tracked - leave current undercooling as
                     // default zeros and set liquidus time step. R_local will never be zero here, as all cells at a
                     // fixed undercooling must be below the liquidus (distFromLiquidus < 0)
-                    _layer_time_temp_history(index, 1) = dist_from_liquidus * _G * grid.deltax / (_R * deltat);
+                    _layer_time_temp_history(3 * index + 1) = dist_from_liquidus * _G * grid.deltax / (_R * deltat);
                 }
                 // Cells cool at a constant rate
-                _layer_time_temp_history(index, 2) = _R * deltat;
+                _layer_time_temp_history(3 * index + 2) = _R * deltat;
             });
         if (id == 0) {
             std::cout << "Temperature field initialized for unidirectional solidification with G = " << _G
@@ -481,19 +481,19 @@ struct Temperature {
                     _last_solidification_event(index) = current_count + 1;
                     _number_of_solidification_events(index) = 1;
                     // Melt time step (first time step)
-                    _layer_time_temp_history(current_count, 0) = 1;
+                    _layer_time_temp_history(3 * current_count) = 1;
                     // Liquidus time step (related to distance to spot edge)
-                    _layer_time_temp_history(current_count, 1) =
+                    _layer_time_temp_history(3 * current_count + 1) =
                         Kokkos::round((spot_radius - tot_dist) / isotherm_velocity) + 1;
                     // Cooling rate per time step
-                    _layer_time_temp_history(current_count, 2) = _R * deltat;
+                    _layer_time_temp_history(3 * current_count + 2) = _R * deltat;
                 }
             });
         MPI_Barrier(MPI_COMM_WORLD);
         auto event_count_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), event_count);
         number_of_solidification_events =
             Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), _number_of_solidification_events);
-        Kokkos::resize(layer_time_temp_history, event_count_host(0), 3);
+        Kokkos::resize(layer_time_temp_history, 3 * event_count_host(0));
         if (id == 0)
             std::cout << "Spot melt temperature field initialized" << std::endl;
     }
@@ -580,7 +580,7 @@ struct Temperature {
 
         // Place solidification events into the appropriate positions of layer_time_temp_history, which is resized with
         // the number of events to simulate now known
-        Kokkos::resize(layer_time_temp_history, tot_num_events, 3);
+        Kokkos::resize(layer_time_temp_history, 3 * tot_num_events);
         auto _layer_time_temp_history = layer_time_temp_history;
 
         view_type_int current_solidification_event_temp("current_solidification_event_temp", grid.domain_size);
@@ -608,9 +608,9 @@ struct Temperature {
                 const double cooling_rate = raw_temperature_data_device(event, 5);
 
                 // Store event data in layer_time_temp_history
-                _layer_time_temp_history(cell_event_count, 0) = Kokkos::round(t_melting / deltat) + 1;
-                _layer_time_temp_history(cell_event_count, 1) = Kokkos::round(t_liquidus / deltat) + 1;
-                _layer_time_temp_history(cell_event_count, 2) = std::abs(cooling_rate) * deltat;
+                _layer_time_temp_history(3 * cell_event_count) = Kokkos::round(t_melting / deltat) + 1;
+                _layer_time_temp_history(3 * cell_event_count + 1) = Kokkos::round(t_liquidus / deltat) + 1;
+                _layer_time_temp_history(3 * cell_event_count + 2) = std::abs(cooling_rate) * deltat;
             });
         Kokkos::fence();
         MPI_Barrier(MPI_COMM_WORLD);
@@ -626,17 +626,17 @@ struct Temperature {
                         for (int j = (i + 1); j < n_solidification_events_cell; j++) {
                             const int event_a = _current_solidification_event(index) + i;
                             const int event_b = _current_solidification_event(index) + j;
-                            if (_layer_time_temp_history(event_a, 0) > _layer_time_temp_history(event_b, 0)) {
+                            if (_layer_time_temp_history(3 * event_a) > _layer_time_temp_history(3 * event_b)) {
                                 // Swap these two points - melting event "b" happens before event "a"
-                                const float old_melt_val = _layer_time_temp_history(event_a, 0);
-                                const float old_liq_val = _layer_time_temp_history(event_a, 1);
-                                const float old_cr_val = _layer_time_temp_history(event_a, 2);
-                                _layer_time_temp_history(event_a, 0) = _layer_time_temp_history(event_b, 0);
-                                _layer_time_temp_history(event_a, 1) = _layer_time_temp_history(event_b, 1);
-                                _layer_time_temp_history(event_a, 2) = _layer_time_temp_history(event_b, 2);
-                                _layer_time_temp_history(event_b, 0) = old_melt_val;
-                                _layer_time_temp_history(event_b, 1) = old_liq_val;
-                                _layer_time_temp_history(event_b, 2) = old_cr_val;
+                                const float old_melt_val = _layer_time_temp_history(3 * event_a);
+                                const float old_liq_val = _layer_time_temp_history(3 * event_a + 1);
+                                const float old_cr_val = _layer_time_temp_history(3 * event_a + 2);
+                                _layer_time_temp_history(3 * event_a) = _layer_time_temp_history(3 * event_b);
+                                _layer_time_temp_history(3 * event_a + 1) = _layer_time_temp_history(3 * event_b + 1);
+                                _layer_time_temp_history(3 * event_a + 2) = _layer_time_temp_history(3 * event_b + 2);
+                                _layer_time_temp_history(3 * event_b) = old_melt_val;
+                                _layer_time_temp_history(3 * event_b + 1) = old_liq_val;
+                                _layer_time_temp_history(3 * event_b + 2) = old_cr_val;
                             }
                         }
                     }
@@ -652,30 +652,30 @@ struct Temperature {
                 int n_solidification_events_cell = number_of_solidification_events_device(index);
                 if (n_solidification_events_cell > 1) {
                     for (int i = 0; i < n_solidification_events_cell - 1; i++) {
-                        float event_liq = _layer_time_temp_history(_current_solidification_event(index) + i, 1);
+                        float event_liq = _layer_time_temp_history(3 * (_current_solidification_event(index) + i) + 1);
                         float next_event_melt =
-                            _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0);
+                            _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1));
                         if (next_event_melt < event_liq) {
                             // Keep whichever event has the larger liquidus time - ignore the removed event for now and
                             // move other event data into the next location in layer_time_temp_history. In the future,
                             // the ignored event data could be printed to files for debugging
                             float next_event_liq =
-                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1);
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1) + 1);
                             if (next_event_liq > event_liq) {
-                                _layer_time_temp_history(_current_solidification_event(index) + i, 0) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0);
-                                _layer_time_temp_history(_current_solidification_event(index) + i, 1) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1);
-                                _layer_time_temp_history(_current_solidification_event(index) + i, 2) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + i + 1, 2);
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i)) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1));
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i) + 1) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1) + 1);
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i) + 2) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1) + 2);
                             }
                             for (int ii = (i + 1); ii < n_solidification_events_cell - 1; ii++) {
-                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 0) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 0);
-                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 1) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 1);
-                                _layer_time_temp_history(_current_solidification_event(index) + i + 1, 2) =
-                                    _layer_time_temp_history(_current_solidification_event(index) + ii + 1, 2);
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1)) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + ii + 1));
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1) + 1) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + ii + 1) + 1);
+                                _layer_time_temp_history(3 * (_current_solidification_event(index) + i + 1) + 2) =
+                                    _layer_time_temp_history(3 * (_current_solidification_event(index) + ii + 1) + 2);
                             }
                             // Substract one from the number of solidification events, the local
                             // n_solidification_events_cell, and last_solidification_event
@@ -779,7 +779,7 @@ struct Temperature {
     // Update local cell undercooling for the current melt-resolidification event
     KOKKOS_INLINE_FUNCTION
     void updateUndercooling(const int index) const {
-        undercooling_current(index) += layer_time_temp_history(current_solidification_event(index), 2);
+        undercooling_current(index) += layer_time_temp_history(3 * current_solidification_event(index) + 2);
     }
 
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just
@@ -829,14 +829,14 @@ struct Temperature {
     // Extract the next time that this point undergoes melting
     KOKKOS_INLINE_FUNCTION
     int getMeltTimeStep(const int cycle, const int index, const int event_num) const {
-        int melt_time_step = static_cast<int>(layer_time_temp_history(event_num, 0));
+        int melt_time_step = static_cast<int>(3 * layer_time_temp_history(event_num));
         if (cycle > melt_time_step) {
             // If the cell has already exceeded the melt time step for the current melt-solidification event, get the
             // melt time step associated with the next solidification event - or, if there is no next
             // melt-solidification event, return the max possible int as the cell will not melt again during this layer
             // of the multilayer problem
             if (event_num < (last_solidification_event(index) - 1))
-                melt_time_step = static_cast<int>(layer_time_temp_history(event_num + 1, 0));
+                melt_time_step = static_cast<int>(3 * layer_time_temp_history(event_num + 1));
             else
                 melt_time_step = INT_MAX;
         }
@@ -847,7 +847,7 @@ struct Temperature {
     // Uses the current value of the solidification event counter
     KOKKOS_INLINE_FUNCTION
     int getCritTimeStep(const int event_num) const {
-        int crit_time_step = static_cast<int>(layer_time_temp_history(event_num, 1));
+        int crit_time_step = static_cast<int>(3 * layer_time_temp_history(event_num) + 1);
         return crit_time_step;
     }
 
@@ -878,7 +878,7 @@ struct Temperature {
                     extracted_data(index) = static_cast<extracted_value_type>(default_val);
                 else
                     extracted_data(index) = static_cast<extracted_value_type>(
-                        _layer_time_temp_history(_last_solidification_event(index) - 1, extracted_val));
+                        _layer_time_temp_history(3 * (_last_solidification_event(index) - 1) + extracted_val));
             });
         return extracted_data;
     }

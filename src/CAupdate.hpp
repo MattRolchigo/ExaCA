@@ -33,7 +33,7 @@ void fillSteeringVector_NoRemelt(const int cycle, const Grid &grid, CellData<Mem
             int cell_type = celldata.cell_type(index);
             bool is_not_solid = (cell_type != Solid);
             int crit_time_step =
-                temperature.layer_time_temp_history(temperature.current_solidification_event(index), 1);
+                temperature.layer_time_temp_history(3 * temperature.current_solidification_event(index) + 1);
             bool past_crit_time = (cycle > crit_time_step);
             bool cell_active = ((cell_type == Active) || (cell_type == FutureActive));
             if (is_not_solid && past_crit_time) {
@@ -748,7 +748,7 @@ void jumpTimeStep(int &cycle, int remaining_cells_of_interest, const int local_t
                     if (celldata.cell_type(index) == TempSolid) {
                         int solidification_counter_this_cell = temperature.current_solidification_event(index);
                         int next_melt_time_step_this_cell =
-                            static_cast<int>(temperature.layer_time_temp_history(solidification_counter_this_cell, 0));
+                            static_cast<int>(3 * temperature.layer_time_temp_history(solidification_counter_this_cell));
                         if (next_melt_time_step_this_cell < tempv)
                             tempv = next_melt_time_step_this_cell;
                     }

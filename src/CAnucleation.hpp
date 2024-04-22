@@ -183,8 +183,9 @@ struct Nucleation {
                         nuclei_location_myrank_v[possible_nuclei] = nuclei_location_this_layer;
                         const int nuc_associated_s_event =
                             current_solidification_event_host(nuclei_location_this_layer) + meltevent;
-                        float crit_time_step_this_event = layer_time_temp_history_host(nuc_associated_s_event, 1);
-                        float undercooling_change_this_event = layer_time_temp_history_host(nuc_associated_s_event, 2);
+                        float crit_time_step_this_event = layer_time_temp_history_host(3 * nuc_associated_s_event + 1);
+                        float undercooling_change_this_event =
+                            layer_time_temp_history_host(3 * nuc_associated_s_event + 2);
                         float time_to_nuc_und =
                             Kokkos::round(static_cast<float>(crit_time_step_this_event) +
                                           nuclei_undercooling_whole_domain_v[n_event] / undercooling_change_this_event);

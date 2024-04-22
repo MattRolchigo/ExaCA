@@ -263,22 +263,22 @@ void testInit_UnidirectionalGradient(const std::string simulation_type, const do
                 // Each cell solidifies once, and counter should start at 0, associated with the zeroth layer
                 // MeltTimeStep should be -1 for all cells
                 // Cells cool at 1 K per time step
-                EXPECT_FLOAT_EQ(layer_time_temp_history_host(index, 0), -1.0);
-                EXPECT_FLOAT_EQ(layer_time_temp_history_host(index, 2), R_norm);
+                EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * index), -1.0);
+                EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * index + 2), R_norm);
                 EXPECT_EQ(current_solidification_event_host(index), index);
                 EXPECT_EQ(last_solidification_event_host(index), index + 1);
                 // undercooling_current should be zero for cells if a positive G is given, or init_undercooling if being
                 // initialized with a uniform undercooling field (all cells initially below liquidus)
                 if (G == 0) {
                     EXPECT_FLOAT_EQ(undercooling_current_host(index), inputs.temperature.init_undercooling);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(index, 1), -1);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * index + 1), -1);
                 }
                 else {
                     int dist_from_liquidus = coord_z - location_liquidus_isotherm;
                     if (dist_from_liquidus < 0) {
                         // Undercooled cell (liquidus time step already passed, set to -1)
                         // The undercooling at Z = locationOfLiquidus should have been set to init_undercooling
-                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(index, 1), -1);
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * index + 1), -1);
                         int dist_from_init_undercooling = coord_z - location_init_undercooling;
                         EXPECT_FLOAT_EQ(undercooling_current_host(index),
                                         inputs.temperature.init_undercooling -
@@ -287,7 +287,8 @@ void testInit_UnidirectionalGradient(const std::string simulation_type, const do
                     else {
                         // Cell has not yet reached the nonzero liquidus time yet (or reaches it at time = 0), either
                         // does not have an assigned undercooling or the assigned undercooling is zero
-                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(index, 1), dist_from_liquidus * G_norm / R_norm);
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * index + 1),
+                                        dist_from_liquidus * G_norm / R_norm);
                         EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
                     }
                 }
@@ -470,9 +471,9 @@ void testInit_FromFile() {
                               current_solidification_event_host(index) +
                                   temperature.number_of_solidification_events(index));
                     const int event_num = current_solidification_event_host(index);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 0), expected_melt_time_first_event);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 1), expected_liq_time_first_event);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 2), expected_cooling_rate_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num), expected_melt_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num + 1), expected_liq_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num + 2), expected_cooling_rate_first_event);
                 }
             }
         }
@@ -487,16 +488,16 @@ void testInit_FromFile() {
                               current_solidification_event_host(index) +
                                   temperature.number_of_solidification_events(index));
                     const int event_num = current_solidification_event_host(index);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 0), expected_melt_time_first_event);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 1), expected_liq_time_first_event);
-                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(event_num, 2), expected_cooling_rate_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num), expected_melt_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num + 1), expected_liq_time_first_event);
+                    EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * event_num + 2), expected_cooling_rate_first_event);
                     if (coord_z == 2) {
                         const int next_event_num = event_num + 1;
-                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 0),
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * next_event_num),
                                         expected_melt_time_second_event);
-                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 1),
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * next_event_num + 1),
                                         expected_liq_time_second_event);
-                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(next_event_num, 2),
+                        EXPECT_FLOAT_EQ(layer_time_temp_history_host(3 * next_event_num + 2),
                                         expected_cooling_rate_second_event);
                     }
                 }

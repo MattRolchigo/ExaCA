@@ -526,12 +526,12 @@ void testFillSteeringVector_Remelt() {
                 temperature.current_solidification_event(index) = current_count;
                 temperature.last_solidification_event(index) = current_count + 1;
                 temperature.number_of_solidification_events(index) = 1;
-                temperature.layer_time_temp_history(current_count, 0) = coord_y + grid.y_offset + 1;
+                temperature.layer_time_temp_history(3 * current_count) = coord_y + grid.y_offset + 1;
                 // Cells reach liquidus during cooling 2 time steps after melting
-                temperature.layer_time_temp_history(current_count, 1) =
-                    temperature.layer_time_temp_history(current_count, 0) + 2;
+                temperature.layer_time_temp_history(3 * current_count + 1) =
+                    temperature.layer_time_temp_history(3 * current_count) + 2;
                 celldata.cell_type(index) = TempSolid;
-                temperature.layer_time_temp_history(current_count, 2) = 0.2;
+                temperature.layer_time_temp_history(3 * current_count + 2) = 0.2;
             }
             else
                 celldata.cell_type(index) = Solid;
@@ -577,18 +577,18 @@ void testFillSteeringVector_Remelt() {
             EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
         else {
             int event_num = current_solidification_event_host(index);
-            if (numcycles < layer_time_temp_history_host(event_num, 0)) {
+            if (numcycles < layer_time_temp_history_host(3 * event_num)) {
                 EXPECT_EQ(cell_type_host(index), TempSolid);
                 EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
             }
-            else if ((numcycles >= layer_time_temp_history_host(event_num, 0)) &&
-                     (numcycles <= layer_time_temp_history_host(event_num, 1))) {
+            else if ((numcycles >= layer_time_temp_history_host(3 * event_num)) &&
+                     (numcycles <= layer_time_temp_history_host(3 * event_num + 1))) {
                 EXPECT_EQ(cell_type_host(index), Liquid);
                 EXPECT_FLOAT_EQ(undercooling_current_host(index), 0.0);
             }
             else {
                 EXPECT_FLOAT_EQ(undercooling_current_host(index),
-                                (numcycles - layer_time_temp_history_host(event_num, 1)) * 0.2);
+                                (numcycles - layer_time_temp_history_host(3 * event_num + 1)) * 0.2);
                 if (coord_z == 4)
                     EXPECT_EQ(cell_type_host(index), Liquid);
                 else {
