@@ -829,14 +829,14 @@ struct Temperature {
     // Extract the next time that this point undergoes melting
     KOKKOS_INLINE_FUNCTION
     int getMeltTimeStep(const int cycle, const int index, const int event_num) const {
-        int melt_time_step = static_cast<int>(3 * layer_time_temp_history(event_num));
+        int melt_time_step = static_cast<int>(layer_time_temp_history(3 * event_num));
         if (cycle > melt_time_step) {
             // If the cell has already exceeded the melt time step for the current melt-solidification event, get the
             // melt time step associated with the next solidification event - or, if there is no next
             // melt-solidification event, return the max possible int as the cell will not melt again during this layer
             // of the multilayer problem
             if (event_num < (last_solidification_event(index) - 1))
-                melt_time_step = static_cast<int>(3 * layer_time_temp_history(event_num + 1));
+                melt_time_step = static_cast<int>(layer_time_temp_history(3 * event_num + 1));
             else
                 melt_time_step = INT_MAX;
         }
@@ -847,7 +847,7 @@ struct Temperature {
     // Uses the current value of the solidification event counter
     KOKKOS_INLINE_FUNCTION
     int getCritTimeStep(const int event_num) const {
-        int crit_time_step = static_cast<int>(3 * layer_time_temp_history(event_num) + 1);
+        int crit_time_step = static_cast<int>(layer_time_temp_history(3 * event_num + 1));
         return crit_time_step;
     }
 
@@ -878,7 +878,7 @@ struct Temperature {
                     extracted_data(index) = static_cast<extracted_value_type>(default_val);
                 else
                     extracted_data(index) = static_cast<extracted_value_type>(
-                        _layer_time_temp_history(3 * (_last_solidification_event(index) - 1) + extracted_val));
+                        _layer_time_temp_history(3 * _last_solidification_event(index) - 1) + extracted_val);
             });
         return extracted_data;
     }
