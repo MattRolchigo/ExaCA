@@ -55,14 +55,15 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
     auto grain_id = celldata.getGrainIDSubview(grid);
     Kokkos::parallel_for(
         "FillSV_RM", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
-            int celltype = celldata.cell_type(index);
+            const int celltype = celldata.cell_type(index);
             // Only iterate over cells that are not Solid type
             if (celltype != Solid) {
-                int melt_time_step = temperature.getMeltTimeStep(cycle, index);
-                int crit_time_step = temperature.getCritTimeStep(index);
-                bool at_melt_time = (cycle == melt_time_step);
-                bool at_crit_time = (cycle == crit_time_step);
-                bool past_crit_time = (cycle > crit_time_step);
+                const int event_num = temperature.current_solidification_event(index);
+                const int melt_time_step = temperature.getMeltTimeStep(cycle, index, event_num);
+                const int crit_time_step = temperature.getCritTimeStep(event_num);
+                const bool at_melt_time = (cycle == melt_time_step);
+                const bool at_crit_time = (cycle == crit_time_step);
+                const bool past_crit_time = (cycle > crit_time_step);
                 if (at_melt_time) {
                     // Cell melts, undercooling is reset to 0 from the previous value, if any
                     celldata.cell_type(index) = Liquid;

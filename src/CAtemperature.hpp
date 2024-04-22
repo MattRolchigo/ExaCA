@@ -455,6 +455,7 @@ struct Temperature {
         auto _layer_time_temp_history = layer_time_temp_history;
         auto _current_solidification_event = current_solidification_event;
         auto _last_solidification_event = last_solidification_event;
+        view_type_int _number_of_solidification_events("n_s_events_local", grid.domain_size);
         double _R = _inputs.R;
         // event count view init to zero
         view_type_int event_count("event_count", 1);
@@ -478,6 +479,7 @@ struct Temperature {
                     number_of_solidification_events_device(index) = 1;
                     _current_solidification_event(index) = current_count;
                     _last_solidification_event(index) = current_count + 1;
+                    _number_of_solidification_events(index) = 1;
                     // Melt time step (first time step)
                     _layer_time_temp_history(current_count, 0) = 1;
                     // Liquidus time step (related to distance to spot edge)
@@ -488,8 +490,9 @@ struct Temperature {
                 }
             });
         MPI_Barrier(MPI_COMM_WORLD);
-        auto event_count_host = Kokkos::create_mirror_view_and_copy(memory_space(), event_count);
-        std::cout << "Rank " << id << " has " << event_count_host(0) << " total solidification events" << std::endl;
+        auto event_count_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), event_count);
+        number_of_solidification_events =
+            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), _number_of_solidification_events);
         Kokkos::resize(layer_time_temp_history, event_count_host(0), 3);
         if (id == 0)
             std::cout << "Spot melt temperature field initialized" << std::endl;
@@ -545,7 +548,7 @@ struct Temperature {
                     Kokkos::round((raw_temperature_data_device(event, 1) - grid.y_min) / grid.deltax) - grid.y_offset;
                 const int coord_z = Kokkos::round((raw_temperature_data_device(event, 2) +
                                                    grid.deltax * static_cast<double>(grid.layer_height * layernumber) -
-                                                   grid.z_min_layer(layernumber)) /
+                                                   z_min_layer(layernumber)) /
                                                   grid.deltax);
 
                 // 1D cell coordinate on this MPI rank's domain
@@ -590,7 +593,7 @@ struct Temperature {
                     Kokkos::round((raw_temperature_data_device(event, 1) - grid.y_min) / grid.deltax) - grid.y_offset;
                 const int coord_z = Kokkos::round((raw_temperature_data_device(event, 2) +
                                                    grid.deltax * static_cast<double>(grid.layer_height * layernumber) -
-                                                   grid.z_min_layer(layernumber)) /
+                                                   z_min_layer(layernumber)) /
                                                   grid.deltax);
 
                 // 1D cell coordinate on this MPI rank's domain
@@ -825,17 +828,15 @@ struct Temperature {
 
     // Extract the next time that this point undergoes melting
     KOKKOS_INLINE_FUNCTION
-    int getMeltTimeStep(const int cycle, const int index) const {
-        int melt_time_step;
-        int solidification_event_counter_cell = current_solidification_event(index);
-        melt_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell, 0));
+    int getMeltTimeStep(const int cycle, const int index, const int event_num) const {
+        int melt_time_step = static_cast<int>(layer_time_temp_history(event_num, 0));
         if (cycle > melt_time_step) {
             // If the cell has already exceeded the melt time step for the current melt-solidification event, get the
             // melt time step associated with the next solidification event - or, if there is no next
             // melt-solidification event, return the max possible int as the cell will not melt again during this layer
             // of the multilayer problem
-            if (solidification_event_counter_cell < (number_of_solidification_events(index) - 1))
-                melt_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell + 1, 0));
+            if (event_num < (last_solidification_event(index) - 1))
+                melt_time_step = static_cast<int>(layer_time_temp_history(event_num + 1, 0));
             else
                 melt_time_step = INT_MAX;
         }
@@ -845,9 +846,8 @@ struct Temperature {
     // Extract the next time that this point cools below the liquidus
     // Uses the current value of the solidification event counter
     KOKKOS_INLINE_FUNCTION
-    int getCritTimeStep(const int index) const {
-        const int solidification_event_counter_cell = current_solidification_event(index);
-        int crit_time_step = static_cast<int>(layer_time_temp_history(solidification_event_counter_cell, 1));
+    int getCritTimeStep(const int event_num) const {
+        int crit_time_step = static_cast<int>(layer_time_temp_history(event_num, 1));
         return crit_time_step;
     }
 
