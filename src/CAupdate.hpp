@@ -746,9 +746,8 @@ void jumpTimeStep(int &cycle, int remaining_cells_of_interest, const int local_t
                 KOKKOS_LAMBDA(const int &index, int &tempv) {
                     // criteria for a cell to be associated with future work (checking this layer's cells only)
                     if (celldata.cell_type(index) == TempSolid) {
-                        int solidification_counter_this_cell = temperature.current_solidification_event(index);
-                        int next_melt_time_step_this_cell =
-                            static_cast<int>(3 * temperature.layer_time_temp_history(solidification_counter_this_cell));
+                        const int next_melt_time_step_this_cell =
+                            temperature.getMeltTimeStep(cycle, index, temperature.current_solidification_event(index));
                         if (next_melt_time_step_this_cell < tempv)
                             tempv = next_melt_time_step_this_cell;
                     }
@@ -784,8 +783,6 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
                                 Temperature<MemorySpace> &temperature, std::string simulation_type,
                                 const int layernumber, Orientation<MemorySpace> &orientation, Print print,
                                 const double deltat, Interface<MemorySpace> &interface) {
-    // Check for valid simulation type.
-    validSimulationType(simulation_type);
 
     auto grain_id = celldata.getGrainIDSubview(grid);
     int local_superheated_cells, local_undercooled_cells, local_active_cells, local_temp_solid_cells,

@@ -836,7 +836,7 @@ struct Temperature {
             // melt-solidification event, return the max possible int as the cell will not melt again during this layer
             // of the multilayer problem
             if (event_num < (last_solidification_event(index) - 1))
-                melt_time_step = static_cast<int>(layer_time_temp_history(3 * event_num + 1));
+                melt_time_step = static_cast<int>(layer_time_temp_history(3 * (event_num + 1)));
             else
                 melt_time_step = INT_MAX;
         }
