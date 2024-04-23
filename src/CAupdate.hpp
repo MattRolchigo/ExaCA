@@ -793,7 +793,7 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
                       int &sum_temp_solid, int &sum_finished_solid) {
             int cell_type_this_cell = celldata.cell_type(index);
             if (cell_type_this_cell == Liquid) {
-                int crit_time_step = temperature.getCritTimeStep(index);
+                int crit_time_step = temperature.getCritTimeStep(temperature.current_solidification_event(index));
                 if (crit_time_step > cycle)
                     sum_superheated += 1;
                 else
