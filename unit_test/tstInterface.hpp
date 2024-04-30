@@ -545,7 +545,9 @@ void testFillSteeringVector_Remelt() {
     int numcycles = 15;
     for (int cycle = 1; cycle <= numcycles; cycle++) {
         // Update cell types, local undercooling each time step, and fill the steering vector
-        fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
+        fillSteeringVector_RemeltA(cycle, grid, celldata, temperature, interface);
+        fillSteeringVector_RemeltB(cycle, grid, celldata, temperature, interface);
+        fillSteeringVector_RemeltC(cycle, grid, celldata, temperature, interface);
     }
 
     // Copy CellType, SteeringVector, numSteer, UndercoolingCurrent, Buffers back to host to check steering vector

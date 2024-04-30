@@ -51,7 +51,7 @@ struct Timers {
 
     int id;
     Timer init, run, output;
-    Timer nucl, create_sv, capture, ghost;
+    Timer nucl, create_svA, create_svB, create_svC, capture, ghost;
     Timer layer;
     Timer heat_transfer;
 
@@ -61,7 +61,9 @@ struct Timers {
         , run()
         , output()
         , nucl()
-        , create_sv()
+        , create_svA()
+        , create_svB()
+        , create_svC()
         , capture()
         , ghost()
         , layer()
@@ -85,8 +87,12 @@ struct Timers {
     void startNucleation() { nucl.start(); }
     void stopNucleation() { nucl.stop(); }
 
-    void startSV() { create_sv.start(); }
-    void stopSV() { create_sv.stop(); }
+    void startSVA() { create_svA.start(); }
+    void stopSVA() { create_svA.stop(); }
+    void startSVB() { create_svB.start(); }
+    void stopSVB() { create_svB.stop(); }
+    void startSVC() { create_svC.start(); }
+    void stopSVC() { create_svC.stop(); }
 
     void startCapture() { capture.start(); }
     void stopCapture() { capture.stop(); }
@@ -122,7 +128,7 @@ struct Timers {
             << "]," << std::endl;
         log << "       \"MaxMinInitTime\": [" << init.maxTime() << "," << init.minTime() << "]," << std::endl;
         log << "       \"MaxMinNucleationTime\": [" << nucl.maxTime() << "," << nucl.minTime() << "]," << std::endl;
-        log << "       \"MaxMinSteeringVectorCreationTime\": [" << create_sv.maxTime() << "," << create_sv.minTime()
+        log << "       \"MaxMinSteeringVectorCreationTimeA\": [" << create_svA.maxTime() << "," << create_svA.minTime()
             << "]," << std::endl;
         log << "       \"MaxMinCellCaptureTime\": [" << capture.maxTime() << "," << capture.minTime() << "],"
             << std::endl;
@@ -137,7 +143,9 @@ struct Timers {
         // Reduce all times across MPI ranks
         init.reduceMPI();
         nucl.reduceMPI();
-        create_sv.reduceMPI();
+        create_svA.reduceMPI();
+        create_svB.reduceMPI();
+        create_svC.reduceMPI();
         capture.reduceMPI();
         ghost.reduceMPI();
         output.reduceMPI();
@@ -163,7 +171,9 @@ struct Timers {
 
         std::cout << init.printMinMax("initializing data");
         std::cout << nucl.printMinMax("in CA nucleation");
-        std::cout << create_sv.printMinMax("in CA steering vector creation");
+        std::cout << create_svA.printMinMax("in CA steering vector creation part A");
+        std::cout << create_svB.printMinMax("in CA steering vector creation part B");
+        std::cout << create_svC.printMinMax("in CA steering vector creation part C");
         std::cout << capture.printMinMax("in CA cell capture");
         std::cout << ghost.printMinMax("in CA cell communication");
         std::cout << output.printMinMax("exporting data");

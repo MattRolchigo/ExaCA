@@ -77,8 +77,8 @@ void fillOuterSteeringVector_Remelt(const int cycle, const int domain_size, Cell
 // For the case where cells may melt and solidify multiple times, determine which cells are associated with the
 // "steering vector" of cells that are either active, or becoming active this time step - version with remelting
 template <typename MemorySpace>
-void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
-                               Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
+void fillSteeringVector_RemeltA(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
+                                Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
 
     auto grain_id = celldata.getGrainIDSubview(grid);
     Kokkos::parallel_for(
@@ -86,78 +86,108 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
             const int index = interface.steering_vector_outer(num_outer);
             int celltype = celldata.cell_type(index);
             // Only iterate over cells that are not Solid type
-            if (celltype != Solid) {
-                if (cycle == temperature.getMeltTimeStep(cycle, index)) {
-                    // Cell melts, undercooling is reset to 0 from the previous value, if any
-                    celldata.cell_type(index) = Liquid;
-                    temperature.resetUndercooling(index);
-                    if (celltype != TempSolid) {
-                        // This cell either hasn't started or hasn't finished the previous solidification event, but
-                        // has undergone melting - increment the solidification counter to move on to the next
-                        // melt-solidification event
-                        temperature.updateSolidificationCounter(index);
-                    }
-                    // Any adjacent active cells should also be remelted, as these cells are more likely heating up
-                    // than cooling down These are converted to the temporary FutureLiquid state, to be later
-                    // iterated over and loaded into the steering vector as necessary Get the x, y, z coordinates of
-                    // the cell on this MPI rank
-                    int coord_x = grid.getCoordX(index);
-                    int coord_y = grid.getCoordY(index);
-                    int coord_z = grid.getCoordZ(index);
-                    for (int l = 0; l < 26; l++) {
-                        // "l" correpsponds to the specific neighboring cell
-                        // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
-                            (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
-                            (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                            if (celldata.cell_type(neighbor_index) == Active) {
-                                // Mark adjacent active cells to this as cells that should be converted into liquid,
-                                // as they are more likely heating than cooling
-                                celldata.cell_type(neighbor_index) = FutureLiquid;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                    neighbor_index;
-                            }
+            if ((celltype != Solid) && (cycle == temperature.getMeltTimeStep(cycle, index))) {
+                // Cell melts, undercooling is reset to 0 from the previous value, if any
+                celldata.cell_type(index) = Liquid;
+                temperature.resetUndercooling(index);
+                if (celltype != TempSolid) {
+                    // This cell either hasn't started or hasn't finished the previous solidification event, but
+                    // has undergone melting - increment the solidification counter to move on to the next
+                    // melt-solidification event
+                    temperature.updateSolidificationCounter(index);
+                }
+                // Any adjacent active cells should also be remelted, as these cells are more likely heating up
+                // than cooling down These are converted to the temporary FutureLiquid state, to be later
+                // iterated over and loaded into the steering vector as necessary Get the x, y, z coordinates of
+                // the cell on this MPI rank
+                int coord_x = grid.getCoordX(index);
+                int coord_y = grid.getCoordY(index);
+                int coord_z = grid.getCoordZ(index);
+                for (int l = 0; l < 26; l++) {
+                    // "l" correpsponds to the specific neighboring cell
+                    // Local coordinates of adjacent cell center
+                    int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                    int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                    int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                    if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
+                        (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
+                        (neighbor_coord_z >= 0)) {
+                        int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                        if (celldata.cell_type(neighbor_index) == Active) {
+                            // Mark adjacent active cells to this as cells that should be converted into liquid,
+                            // as they are more likely heating than cooling
+                            celldata.cell_type(neighbor_index) = FutureLiquid;
+                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
+                                neighbor_index;
                         }
                     }
                 }
-                else if ((celltype != TempSolid) && (cycle > temperature.getCritTimeStep(index))) {
-                    // Update cell undercooling
-                    temperature.updateUndercooling(index);
-                    if (celltype == Active) {
-                        // Add active cells below liquidus to steering vector
-                        interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
-                    }
+            }
+        });
+    Kokkos::fence();
+}
+
+// For the case where cells may melt and solidify multiple times, determine which cells are associated with the
+// "steering vector" of cells that are either active, or becoming active this time step - version with remelting
+template <typename MemorySpace>
+void fillSteeringVector_RemeltB(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
+                                Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
+
+    auto grain_id = celldata.getGrainIDSubview(grid);
+    Kokkos::parallel_for(
+        "FillSV_RM", interface.num_steer_outer_host(0), KOKKOS_LAMBDA(const int &num_outer) {
+            const int index = interface.steering_vector_outer(num_outer);
+            int celltype = celldata.cell_type(index);
+            // Only iterate over cells that are not Solid type
+            if ((celltype != Solid) && (celltype != TempSolid) && (cycle > temperature.getCritTimeStep(index))) {
+                // Update cell undercooling
+                temperature.updateUndercooling(index);
+                if (celltype == Active) {
+                    // Add active cells below liquidus to steering vector
+                    interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                 }
-                else if ((cycle == temperature.getCritTimeStep(index)) && (celltype == Liquid) && (grain_id(index) != 0)) {
-                    // Get the x, y, z coordinates of the cell on this MPI rank
-                    int coord_x = grid.getCoordX(index);
-                    int coord_y = grid.getCoordY(index);
-                    int coord_z = grid.getCoordZ(index);
-                    // If this cell has cooled to the liquidus temperature, borders at least one solid/tempsolid
-                    // cell, and is part of a grain, it should become active. This only needs to be checked on the
-                    // time step where the cell reaches the liquidus, not every time step beyond this
-                    for (int l = 0; l < 26; l++) {
-                        // "l" correpsponds to the specific neighboring cell
-                        // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
-                            (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
-                            (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                            if ((celldata.cell_type(neighbor_index) == TempSolid) ||
-                                (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
-                                // Cell activation to be performed as part of steering vector
-                                l = 26;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
-                                celldata.cell_type(index) =
-                                    FutureActive; // this cell cannot be captured - is being activated
-                            }
+            }
+        });
+    Kokkos::fence();
+}
+
+// For the case where cells may melt and solidify multiple times, determine which cells are associated with the
+// "steering vector" of cells that are either active, or becoming active this time step - version with remelting
+template <typename MemorySpace>
+void fillSteeringVector_RemeltC(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
+                                Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
+
+    auto grain_id = celldata.getGrainIDSubview(grid);
+    Kokkos::parallel_for(
+        "FillSV_RM", interface.num_steer_outer_host(0), KOKKOS_LAMBDA(const int &num_outer) {
+            const int index = interface.steering_vector_outer(num_outer);
+            int celltype = celldata.cell_type(index);
+            // Only iterate over cells that are not Solid type
+            if ((cycle == temperature.getCritTimeStep(index)) && (celltype == Liquid) && (grain_id(index) != 0)) {
+                // Get the x, y, z coordinates of the cell on this MPI rank
+                int coord_x = grid.getCoordX(index);
+                int coord_y = grid.getCoordY(index);
+                int coord_z = grid.getCoordZ(index);
+                // If this cell has cooled to the liquidus temperature, borders at least one solid/tempsolid
+                // cell, and is part of a grain, it should become active. This only needs to be checked on the
+                // time step where the cell reaches the liquidus, not every time step beyond this
+                for (int l = 0; l < 26; l++) {
+                    // "l" correpsponds to the specific neighboring cell
+                    // Local coordinates of adjacent cell center
+                    int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                    int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                    int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                    if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
+                        (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
+                        (neighbor_coord_z >= 0)) {
+                        int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                        if ((celldata.cell_type(neighbor_index) == TempSolid) ||
+                            (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
+                            // Cell activation to be performed as part of steering vector
+                            l = 26;
+                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
+                            celldata.cell_type(index) =
+                                FutureActive; // this cell cannot be captured - is being activated
                         }
                     }
                 }

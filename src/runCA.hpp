@@ -111,15 +111,21 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // Constrained/directional solidification problem cells only undergo 1 solidificaton event and are
             // initialized as liquid - the steering vector operation for this problem can be constructed using
             // FillSteeringVector_NoRemelt (a simplified version of FillSteeringVector_Remelt
-            timers.startSV();
             if ((simulation_type == "Directional") || (simulation_type == "SingleGrain"))
                 fillSteeringVector_NoRemelt(cycle, grid, celldata, temperature, interface);
             else {
+                timers.startSVA();
                 if (cycle % interface.build_increment_outer == 0)
                     fillOuterSteeringVector_Remelt(cycle, grid.domain_size, celldata, temperature, interface);
-                fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
+                fillSteeringVector_RemeltA(cycle, grid, celldata, temperature, interface);
+                timers.stopSVA();
+                timers.startSVB();
+                fillSteeringVector_RemeltB(cycle, grid, celldata, temperature, interface);
+                timers.stopSVB();
+                timers.startSVC();
+                fillSteeringVector_RemeltC(cycle, grid, celldata, temperature, interface);
+                timers.stopSVC();
             }
-            timers.stopSV();
 
             timers.startCapture();
             // Cell capture and checking of the MPI buffers to ensure that all appropriate interface updates in the halo
