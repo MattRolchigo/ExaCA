@@ -87,12 +87,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
             int celltype = celldata.cell_type(index);
             // Only iterate over cells that are not Solid type
             if (celltype != Solid) {
-                int melt_time_step = temperature.getMeltTimeStep(cycle, index);
-                int crit_time_step = temperature.getCritTimeStep(index);
-                bool at_melt_time = (cycle == melt_time_step);
-                bool at_crit_time = (cycle == crit_time_step);
-                bool past_crit_time = (cycle > crit_time_step);
-                if (at_melt_time) {
+                if (cycle == temperature.getMeltTimeStep(cycle, index)) {
                     // Cell melts, undercooling is reset to 0 from the previous value, if any
                     celldata.cell_type(index) = Liquid;
                     temperature.resetUndercooling(index);
@@ -129,7 +124,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                         }
                     }
                 }
-                else if ((celltype != TempSolid) && (past_crit_time)) {
+                else if ((celltype != TempSolid) && (cycle > temperature.getCritTimeStep(index))) {
                     // Update cell undercooling
                     temperature.updateUndercooling(index);
                     if (celltype == Active) {
@@ -137,7 +132,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                         interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                     }
                 }
-                else if ((at_crit_time) && (celltype == Liquid) && (grain_id(index) != 0)) {
+                else if ((cycle == temperature.getCritTimeStep(index)) && (celltype == Liquid) && (grain_id(index) != 0)) {
                     // Get the x, y, z coordinates of the cell on this MPI rank
                     int coord_x = grid.getCoordX(index);
                     int coord_y = grid.getCoordY(index);
