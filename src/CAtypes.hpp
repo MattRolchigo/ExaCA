@@ -22,4 +22,11 @@ enum TypeNames {
     LiquidFailedBufferLoad = 10
 };
 
+enum StateNames {
+    Done = 0,
+    WaitingToMelt = 1,
+    WaitingToSolidify = 2,
+    WaitingToSolidifyFinal = 3
+};
+
 #endif

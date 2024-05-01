@@ -29,6 +29,7 @@ struct CellData {
     using memory_space = MemorySpace;
     using view_type_int = Kokkos::View<int *, memory_space>;
     using view_type_int_host = typename view_type_int::HostMirror;
+    using view_type_unsigned_short = Kokkos::View<unsigned short *, memory_space>;
     using device_layout = typename view_type_int::array_layout;
     using view_type_int_2d_host = Kokkos::View<int **, device_layout, Kokkos::HostSpace>;
     using view_type_int_unmanaged = Kokkos::View<int *, Kokkos::HostSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
@@ -39,7 +40,8 @@ struct CellData {
     using execution_space = typename memory_space::execution_space;
 
     int next_layer_first_epitaxial_grain_id;
-    view_type_int grain_id_all_layers, cell_type;
+    view_type_int grain_id_all_layers;
+    view_type_unsigned_short cell_type, cell_state;
     view_type_short layer_id_all_layers;
     // Substrate inputs from file
     SubstrateInputs _inputs;
@@ -49,7 +51,8 @@ struct CellData {
     // cell_type only exists for the current layer of a multilayer problem
     CellData(const int domain_size, const int domain_size_all_layers, SubstrateInputs inputs)
         : grain_id_all_layers(view_type_int("GrainID", domain_size_all_layers))
-        , cell_type(view_type_int(Kokkos::ViewAllocateWithoutInitializing("cell_type"), domain_size))
+        , cell_type(view_type_unsigned_short(Kokkos::ViewAllocateWithoutInitializing("cell_type"), domain_size))
+        , cell_state(view_type_unsigned_short(Kokkos::ViewAllocateWithoutInitializing("cell_state"), domain_size))
         , layer_id_all_layers(
               view_type_short(Kokkos::ViewAllocateWithoutInitializing("LayerID"), domain_size_all_layers))
         , _inputs(inputs) {}
@@ -62,6 +65,9 @@ struct CellData {
         int grain_location_x = Kokkos::floorf(static_cast<float>(grid.nx) / 2.0);
         int grain_location_y = Kokkos::floorf(static_cast<float>(grid.ny) / 2.0);
         int grain_location_z = Kokkos::floorf(static_cast<float>(grid.nz) / 2.0);
+
+        // No further melting/solidification is considered beyond the first event
+        Kokkos::deep_copy(cell_state, WaitingToSolidifyFinal);
 
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
@@ -178,8 +184,10 @@ struct CellData {
         auto act_cell_data = Kokkos::create_mirror_view_and_copy(memory_space(), act_cell_data_host);
 
         // Start with all cells as liquid prior to locating substrate grain seeds
+        // No further melting/solidification is considered beyond the first event
         // All cells have LayerID = 0 as this is not a multilayer problem
         Kokkos::deep_copy(cell_type, Liquid);
+        Kokkos::deep_copy(cell_state, WaitingToSolidifyFinal);
         Kokkos::deep_copy(layer_id_all_layers, 0);
 
         // Local copies for lambda capture.
@@ -592,10 +600,12 @@ struct CellData {
                              view_type_int number_of_solidification_events) {
 
         int melt_pool_cell_count;
-        // Realloc celltype to the domain size of the next layer
+        // Realloc celltype and cellstate to the domain size of the next layer
         Kokkos::realloc(cell_type, grid.domain_size);
+        Kokkos::realloc(cell_state, grid.domain_size);
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
+        auto cell_state_local = cell_state;
         auto layer_id_all_layers_local = layer_id_all_layers;
 
         auto policy = Kokkos::RangePolicy<execution_space>(0, grid.domain_size);
@@ -606,11 +616,14 @@ struct CellData {
                 int index_all_layers = index + grid.z_layer_bottom * grid.nx * grid.ny_local;
                 if (number_of_solidification_events(index) > 0) {
                     cell_type_local(index) = TempSolid;
+                    cell_state_local(index) = WaitingToMelt;
                     layer_id_all_layers_local(index_all_layers) = layernumber;
                     local_count++;
                 }
-                else
+                else {
                     cell_type_local(index) = Solid;
+                    cell_state_local(index) = Done;
+                }
             },
             melt_pool_cell_count);
         int total_melt_pool_cell_count;

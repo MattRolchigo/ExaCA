@@ -837,40 +837,44 @@ struct Temperature {
         Kokkos::realloc(solidification_event_counter, grid.domain_size);
         Kokkos::deep_copy(solidification_event_counter, 0);
     }
-
-    // Extract the next time that this point undergoes melting
+    
+    // Get the time step at which the cell heats above the liquidus
     KOKKOS_INLINE_FUNCTION
-    int getMeltTimeStep(const int cycle, const int index) const {
-        int melt_time_step;
-        int solidification_event_counter_cell = solidification_event_counter(index);
-        melt_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 0));
-        if (cycle > melt_time_step) {
-            // If the cell has already exceeded the melt time step for the current melt-solidification event, get the
-            // melt time step associated with the next solidification event - or, if there is no next
-            // melt-solidification event, return the max possible int as the cell will not melt again during this layer
-            // of the multilayer problem
-            if (solidification_event_counter_cell < (number_of_solidification_events(index) - 1))
-                melt_time_step =
-                    static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell + 1, 0));
-            else
-                melt_time_step = INT_MAX;
-        }
-        return melt_time_step;
+    int getMeltTimeStep(const int index, const int celltype) const {
+        // A TempSolid cell has completed the most recent solidification event and melts at least one more time - use the current counter value to get the next time it goes above the liquidus
+        // A liquid or active cell has not completed the most recent solidification event, so the melting time for the next step should be checked instead
+        const int solidification_event_counter_cell = solidification_event_counter(index);
+        int next_melt_time;
+        if (celltype == TempSolid)
+            next_melt_time = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 0));
+        else
+            next_melt_time = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell + 1, 0));
+        return next_melt_time;
     }
 
-    // Extract the next time that this point cools below the liquidus
-    // Uses the current value of the solidification event counter
+    // Determine if this cell has surpassed the time step at which it heats above the liquidus
     KOKKOS_INLINE_FUNCTION
-    int getCritTimeStep(const int index) const {
-        int solidification_event_counter_cell = solidification_event_counter(index);
-        int crit_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
-        return crit_time_step;
+    bool atMeltTimeStep(const int cycle, const int index, const int solidification_event_counter_cell, const int celltype) const {
+        // A TempSolid cell has completed the most recent solidification event and melts at least one more time - use the current counter value to get the next time it goes above the liquidus
+        // A liquid or active cell has not completed the most recent solidification event, so the melting time for the next step should be checked instead
+        bool at_melt;
+        if (celltype == TempSolid)
+            at_melt = (cycle == static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 0)));
+        else
+            at_melt = (cycle == static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell + 1, 0)));
+        return at_melt;
     }
-    // Uses a specified solidification event
+
+    // Determine if this cell has surpassed the time step at which it cools below the liquidus
     KOKKOS_INLINE_FUNCTION
-    int getCritTimeStep(const int index, const int solidification_event_counter_cell) const {
-        int crit_time_step = static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
-        return crit_time_step;
+    bool pastCritTimeStep(const int cycle, const int index, const int solidification_event_counter_cell) const {
+        return cycle > static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
+    }
+
+    // Determine if this cell is at the next time step at which it cools below the liquidus
+    KOKKOS_INLINE_FUNCTION
+    bool atCritTimeStep(const int cycle, const int index, const int solidification_event_counter_cell) const {
+        return cycle == static_cast<int>(layer_time_temp_history(index, solidification_event_counter_cell, 1));
     }
 
     // Extract the cooling rate associated with a specified solidificaiton event

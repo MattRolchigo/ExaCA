@@ -539,9 +539,9 @@ struct Print {
 
     // On rank 0, print grain misorientation, 0-62 for epitaxial grains and 100-162 for nucleated grains, to a vtk
     // file. If printing an intermediate state, print -1 for cells that are liquid
-    template <typename ViewTypeInt3DHost, typename OrientationMemory>
+    template <typename ViewTypeInt3DHost, typename ViewTypeShort3DHost, typename OrientationMemory>
     void printGrainMisorientations(const std::string misorientations_filename, const Grid &grid,
-                                   ViewTypeInt3DHost grain_id_whole_domain, ViewTypeInt3DHost cell_type_whole_domain,
+                                   ViewTypeInt3DHost grain_id_whole_domain, ViewTypeShort3DHost cell_type_whole_domain,
                                    Orientation<OrientationMemory> &orientation) {
 
         // Print grain orientations to file - either all layers (print_region = 2), or if in an intermediate state, the

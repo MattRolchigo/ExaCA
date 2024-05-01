@@ -53,14 +53,12 @@ void fillOuterSteeringVector_Remelt(const int cycle, const int domain_size, Cell
 
     // Reset outer steering vector size to 0 on device
     Kokkos::deep_copy(interface.num_steer_outer, 0);
-    // Add any cells that are currently liquid or active, or any temporarily solid cells that will melt within the next
-    // build_increment_outer time steps, to the outer steering vector
+    // Add cells to the outer steering vector that are currently above the melting temperature (will be cooling in the future) or below the melting temperature if they will go above the liquidus in the next build_increment_outer time steps
     Kokkos::parallel_for(
         "FillOuterSV_RM", domain_size, KOKKOS_LAMBDA(const int &index) {
             int celltype = celldata.cell_type(index);
-            if ((celltype == Active) || (celltype == Liquid) ||
-                ((celltype == TempSolid) &&
-                 (temperature.getMeltTimeStep(cycle, index) < cycle + interface.build_increment_outer)))
+            if ((celltype == Active) || (celltype == Liquid) || ((celltype == TempSolid) &&
+                 (temperature.getMeltTimeStep(index, celldata.cell_type(index)) < cycle + interface.build_increment_outer)))
                 interface.steering_vector_outer(Kokkos::atomic_fetch_add(&interface.num_steer_outer(0), 1)) = index;
         });
     Kokkos::fence();
@@ -84,17 +82,14 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
     Kokkos::parallel_for(
         "FillSV_RM", interface.num_steer_outer_host(0), KOKKOS_LAMBDA(const int &num_outer) {
             const int index = interface.steering_vector_outer(num_outer);
-            int celltype = celldata.cell_type(index);
-            // Only iterate over cells that are not Solid type
-            if (celltype != Solid) {
-                int melt_time_step = temperature.getMeltTimeStep(cycle, index);
-                int crit_time_step = temperature.getCritTimeStep(index);
-                bool at_melt_time = (cycle == melt_time_step);
-                bool at_crit_time = (cycle == crit_time_step);
-                bool past_crit_time = (cycle > crit_time_step);
-                if (at_melt_time) {
+            const int celltype = celldata.cell_type(index);
+            const int cellstate = celldata.cell_state(index);
+            const int solidification_event_counter_cell = temperature.solidification_event_counter(index);
+            if (cellstate == WaitingToMelt) {
+                if (temperature.atMeltTimeStep(cycle, index, solidification_event_counter_cell, celltype)) {
                     // Cell melts, undercooling is reset to 0 from the previous value, if any
                     celldata.cell_type(index) = Liquid;
+                    celldata.cell_state(index) = WaitingToSolidify;
                     temperature.resetUndercooling(index);
                     if (celltype != TempSolid) {
                         // This cell either hasn't started or hasn't finished the previous solidification event, but
@@ -106,65 +101,84 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                     // than cooling down These are converted to the temporary FutureLiquid state, to be later
                     // iterated over and loaded into the steering vector as necessary Get the x, y, z coordinates of
                     // the cell on this MPI rank
-                    int coord_x = grid.getCoordX(index);
-                    int coord_y = grid.getCoordY(index);
-                    int coord_z = grid.getCoordZ(index);
+                    const int coord_x = grid.getCoordX(index);
+                    const int coord_y = grid.getCoordY(index);
+                    const int coord_z = grid.getCoordZ(index);
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                        const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                        const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                        const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
                         if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
                             (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
                             (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                            const int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
                             if (celldata.cell_type(neighbor_index) == Active) {
                                 // Mark adjacent active cells to this as cells that should be converted into liquid,
                                 // as they are more likely heating than cooling
                                 celldata.cell_type(neighbor_index) = FutureLiquid;
+                                // Neighboring liquid cell has also moved onto the next melt-solidification event
+                                temperature.updateSolidificationCounter(neighbor_index);
                                 interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                    neighbor_index;
+                                neighbor_index;
                             }
                         }
                     }
                 }
-                else if ((celltype != TempSolid) && (past_crit_time)) {
-                    // Update cell undercooling
-                    temperature.updateUndercooling(index);
+                else {
+                    // Cell is undercooled - if still solidifying, update the undercooling
+                    if (celltype != TempSolid)
+                        temperature.updateUndercooling(index);
                     if (celltype == Active) {
                         // Add active cells below liquidus to steering vector
                         interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                     }
                 }
-                else if ((at_crit_time) && (celltype == Liquid) && (grain_id(index) != 0)) {
+            }
+            else if ((cellstate == WaitingToSolidify) && (temperature.atCritTimeStep(cycle, index, solidification_event_counter_cell))) {
+                // Solidification can now begin in this cell, mark as either a cell that is waiting to remelt or is on its final solidification event
+                if (solidification_event_counter_cell == (temperature.number_of_solidification_events(index)-1))
+                    celldata.cell_state(index) = WaitingToSolidifyFinal;
+                else
+                    celldata.cell_state(index) = WaitingToMelt;
+                if ((celltype == Liquid) && (grain_id(index) != 0)) {
                     // Get the x, y, z coordinates of the cell on this MPI rank
-                    int coord_x = grid.getCoordX(index);
-                    int coord_y = grid.getCoordY(index);
-                    int coord_z = grid.getCoordZ(index);
+                    const int coord_x = grid.getCoordX(index);
+                    const int coord_y = grid.getCoordY(index);
+                    const int coord_z = grid.getCoordZ(index);
+                    
                     // If this cell has cooled to the liquidus temperature, borders at least one solid/tempsolid
                     // cell, and is part of a grain, it should become active. This only needs to be checked on the
                     // time step where the cell reaches the liquidus, not every time step beyond this
                     for (int l = 0; l < 26; l++) {
                         // "l" correpsponds to the specific neighboring cell
                         // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                        const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                        const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                        const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
                         if ((neighbor_coord_x >= 0) && (neighbor_coord_x < grid.nx) && (neighbor_coord_y >= 0) &&
                             (neighbor_coord_y < grid.ny_local) && (neighbor_coord_z < grid.nz_layer) &&
                             (neighbor_coord_z >= 0)) {
-                            int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                            const int neighbor_index = grid.get1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
                             if ((celldata.cell_type(neighbor_index) == TempSolid) ||
                                 (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
                                 // Cell activation to be performed as part of steering vector
                                 l = 26;
                                 interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                                 celldata.cell_type(index) =
-                                    FutureActive; // this cell cannot be captured - is being activated
+                                FutureActive; // this cell cannot be captured - is being activated
                             }
                         }
                     }
+                }
+            }
+            else if (cellstate == WaitingToSolidifyFinal) {
+                // This cell is undercooled and either liquid or active awaiting solidification for the final time
+                temperature.updateUndercooling(index);
+                if (celltype == Active) {
+                    // Add active cells below liquidus to steering vector
+                    interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                 }
             }
         });
@@ -463,8 +477,10 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                     // Did the cell solidify for the last time in the layer?
                     // If so, this cell is solid - ignore until next layer (if needed)
                     // If not, this cell is tempsolid, will become liquid again
-                    if (solidification_complete_y_n)
+                    if (solidification_complete_y_n) {
                         celldata.cell_type(index) = Solid;
+                        celldata.cell_state(index) = Done;
+                    }
                     else
                         celldata.cell_type(index) = TempSolid;
                 }
@@ -824,13 +840,13 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
         "IntermediateOutput", grid.domain_size,
         KOKKOS_LAMBDA(const int &index, int &sum_superheated, int &sum_undercooled, int &sum_active,
                       int &sum_temp_solid, int &sum_finished_solid) {
-            int cell_type_this_cell = celldata.cell_type(index);
+            const int cell_type_this_cell = celldata.cell_type(index);
+            const int solidification_event_counter_cell = temperature.solidification_event_counter(index);
             if (cell_type_this_cell == Liquid) {
-                int crit_time_step = temperature.getCritTimeStep(index);
-                if (crit_time_step > cycle)
-                    sum_superheated += 1;
-                else
+                if (temperature.pastCritTimeStep(cycle, index, solidification_event_counter_cell))
                     sum_undercooled += 1;
+                else
+                    sum_superheated += 1;
             }
             else if (cell_type_this_cell == Active)
                 sum_active += 1;
