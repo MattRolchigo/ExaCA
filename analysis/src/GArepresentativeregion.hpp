@@ -747,10 +747,9 @@ struct RepresentativeRegion {
         grainplot_pf << "% phi1    Phi     phi2    value" << std::endl;
         grainplot_pf << std::fixed << std::setprecision(6);
         for (int i = 0; i < orientation.n_grain_orientations; i++) {
-            grainplot_pf << orientation.grain_bunge_euler_host(3 * i) << " "
-                         << orientation.grain_bunge_euler_host(3 * i + 1) << " "
-                         << orientation.grain_bunge_euler_host(3 * i + 2) << " " << static_cast<float>(go_histogram(i))
-                         << std::endl;
+            grainplot_pf << orientation.grain_bunge_euler_host(i, 0) << " " << orientation.grain_bunge_euler_host(i, 1)
+                         << " " << orientation.grain_bunge_euler_host(i, 2) << " "
+                         << static_cast<float>(go_histogram(i)) << std::endl;
         }
         grainplot_pf.close();
     }
@@ -773,7 +772,7 @@ struct RepresentativeRegion {
         std::vector<float> ipfz_color(number_of_grains);
         for (int n = 0; n < number_of_grains; n++) {
             int my_orientation = getGrainOrientation(unique_grain_id_vector[n], orientation.n_grain_orientations);
-            ipfz_color[n] = orientation.grain_rgb_ipfz_host(3 * my_orientation + color);
+            ipfz_color[n] = orientation.grain_rgb_ipfz_host(my_orientation, color);
         }
         return ipfz_color;
     }
@@ -844,9 +843,9 @@ struct RepresentativeRegion {
                     grainplot_ipf << "0 0 0 0 " << index_1 * deltax * Kokkos::pow(10, 6) << " "
                                   << index_2 * deltax * Kokkos::pow(10, 6) << std::endl;
                 else
-                    grainplot_ipf << orientation.grain_bunge_euler_host(3 * go_val) << " "
-                                  << orientation.grain_bunge_euler_host(3 * go_val + 1) << " "
-                                  << orientation.grain_bunge_euler_host(3 * go_val + 2) << " 1 "
+                    grainplot_ipf << orientation.grain_bunge_euler_host(go_val, 0) << " "
+                                  << orientation.grain_bunge_euler_host(go_val, 1) << " "
+                                  << orientation.grain_bunge_euler_host(go_val, 2) << " 1 "
                                   << index_1 * deltax * Kokkos::pow(10, 6) << " "
                                   << index_2 * deltax * Kokkos::pow(10, 6) << std::endl;
             }

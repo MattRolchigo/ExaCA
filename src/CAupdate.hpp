@@ -228,44 +228,32 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                                 float y0 = yp - cyold;
                                 float z0 = zp - czold;
 
-                                // mag0 is the magnitude of (x0,y0,z0)
-                                float mag0 = Kokkos::sqrtf(x0 * x0 + y0 * y0 + z0 * z0);
-
                                 // Calculate unit vectors for the octahedron that intersect the new cell center
                                 // TODO: Potential inline function in orientation struct that returns Diag1, Diag2, or
                                 // Diag3
-                                float angle_1 = (orientation.grain_unit_vector(9 * my_orientation) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 1) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 2) * z0) /
-                                                mag0;
-                                float angle_2 = (orientation.grain_unit_vector(9 * my_orientation + 3) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 4) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 5) * z0) /
-                                                mag0;
-                                float angle_3 = (orientation.grain_unit_vector(9 * my_orientation + 6) * x0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 7) * y0 +
-                                                 orientation.grain_unit_vector(9 * my_orientation + 8) * z0) /
-                                                mag0;
-                                float diag_1x =
-                                    orientation.grain_unit_vector(9 * my_orientation) * (2 * (angle_1 < 0) - 1);
-                                float diag_1y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 1) * (2 * (angle_1 < 0) - 1);
-                                float diag_1z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 2) * (2 * (angle_1 < 0) - 1);
+                                float unit_vector[9];
+                                for (int comp = 0; comp < 9; comp++)
+                                    unit_vector[comp] = orientation.grain_unit_vector(my_orientation, comp);
 
-                                float diag_2x =
-                                    orientation.grain_unit_vector(9 * my_orientation + 3) * (2 * (angle_2 < 0) - 1);
-                                float diag_2y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 4) * (2 * (angle_2 < 0) - 1);
-                                float diag_2z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 5) * (2 * (angle_2 < 0) - 1);
+                                // Used to select either the positive or negative unit vector
+                                float angle_1_neg =
+                                    2 * ((unit_vector[0] * x0 + unit_vector[1] * y0 + unit_vector[2] * z0) > 0) - 1;
+                                float angle_2_neg =
+                                    2 * ((unit_vector[3] * x0 + unit_vector[4] * y0 + unit_vector[5] * z0) > 0) - 1;
+                                float angle_3_neg =
+                                    2 * ((unit_vector[6] * x0 + unit_vector[7] * y0 + unit_vector[8] * z0) > 0) - 1;
 
-                                float diag_3x =
-                                    orientation.grain_unit_vector(9 * my_orientation + 6) * (2 * (angle_3 < 0) - 1);
-                                float diag_3y =
-                                    orientation.grain_unit_vector(9 * my_orientation + 7) * (2 * (angle_3 < 0) - 1);
-                                float diag_3z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 8) * (2 * (angle_3 < 0) - 1);
+                                float diag_1x = unit_vector[0] * angle_1_neg;
+                                float diag_1y = unit_vector[1] * angle_1_neg;
+                                float diag_1z = unit_vector[2] * angle_1_neg;
+
+                                float diag_2x = unit_vector[3] * angle_2_neg;
+                                float diag_2y = unit_vector[4] * angle_2_neg;
+                                float diag_2z = unit_vector[5] * angle_2_neg;
+
+                                float diag_3x = unit_vector[6] * angle_3_neg;
+                                float diag_3y = unit_vector[7] * angle_3_neg;
+                                float diag_3z = unit_vector[8] * angle_3_neg;
 
                                 float u1[3], u2[3];
                                 u1[0] = diag_2x - diag_1x;

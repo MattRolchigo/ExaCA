@@ -211,34 +211,25 @@ struct Interface {
         // neighbor). The critical diagonal length will be the maximum of these (since all other
         // planes will have passed over the point by then
         // ... meaning it must be in the octahedron)
+        float unit_vector[9];
+        for (int comp = 0; comp < 9; comp++)
+            unit_vector[comp] = grain_unit_vector(my_orientation, comp);
         float fx[4], fy[4], fz[4];
 
-        fx[0] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[1] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[2] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[3] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
+        fx[0] = unit_vector[0] + unit_vector[3] + unit_vector[6];
+        fx[1] = unit_vector[0] - unit_vector[3] + unit_vector[6];
+        fx[2] = unit_vector[0] + unit_vector[3] - unit_vector[6];
+        fx[3] = unit_vector[0] - unit_vector[3] - unit_vector[6];
 
-        fy[0] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[1] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[2] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[3] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
+        fy[0] = unit_vector[1] + unit_vector[4] + unit_vector[7];
+        fy[1] = unit_vector[1] - unit_vector[4] + unit_vector[7];
+        fy[2] = unit_vector[1] + unit_vector[4] - unit_vector[7];
+        fy[3] = unit_vector[1] - unit_vector[4] - unit_vector[7];
 
-        fz[0] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[1] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[2] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[3] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
+        fz[0] = unit_vector[2] + unit_vector[5] + unit_vector[8];
+        fz[1] = unit_vector[2] - unit_vector[5] + unit_vector[8];
+        fz[2] = unit_vector[2] + unit_vector[5] - unit_vector[8];
+        fz[3] = unit_vector[2] - unit_vector[5] - unit_vector[8];
 
         for (int n = 0; n < 26; n++) {
             float x0 = xp + neighbor_x[n] - cx;

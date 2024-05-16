@@ -22,7 +22,9 @@ struct Orientation {
 
     using memory_space = MemorySpace;
     using view_type_float = Kokkos::View<float *, memory_space>;
+    using view_type_float_2d = Kokkos::View<float **, memory_space>;
     using view_type_float_host = typename view_type_float::HostMirror;
+    using view_type_float_2d_host = typename view_type_float_2d::HostMirror;
 
     // Using the default exec space for this memory space.
     using execution_space = typename memory_space::execution_space;
@@ -32,17 +34,18 @@ struct Orientation {
     // maintained in the struct, Euler and RGB representations are only used on the host and no device copy is
     // maintained
     int n_grain_orientations;
-    view_type_float grain_unit_vector;
-    view_type_float_host grain_bunge_euler_host, grain_rgb_ipfz_host;
+    view_type_float_2d grain_unit_vector;
+    view_type_float_2d_host grain_bunge_euler_host, grain_rgb_ipfz_host;
 
     Orientation(const int id, const std::string grain_unit_vector_file, const bool init_euler_rgb_vals)
-        : grain_unit_vector(view_type_float(Kokkos::ViewAllocateWithoutInitializing("grain_unit_vector"), 1))
+        : grain_unit_vector(view_type_float_2d(Kokkos::ViewAllocateWithoutInitializing("grain_unit_vector"), 1, 1))
         , grain_bunge_euler_host(
-              view_type_float_host(Kokkos::ViewAllocateWithoutInitializing("grain_bunge_euler_host"), 1))
-        , grain_rgb_ipfz_host(view_type_float_host(Kokkos::ViewAllocateWithoutInitializing("grain_rgb_ipfz_host"), 1)) {
+              view_type_float_2d_host(Kokkos::ViewAllocateWithoutInitializing("grain_bunge_euler_host"), 1, 1))
+        , grain_rgb_ipfz_host(
+              view_type_float_2d_host(Kokkos::ViewAllocateWithoutInitializing("grain_rgb_ipfz_host"), 1, 1)) {
 
         // Get unit vectors from the grain orientations file (9 vals per line) and store in temporary host view
-        view_type_float_host grain_unit_vector_host_ = getOrientationsFromFile(grain_unit_vector_file, 9, false);
+        auto grain_unit_vector_host_ = getOrientationsFromFile(grain_unit_vector_file, 9, false);
         // Copy unit vector data from temporary host view
         grain_unit_vector = Kokkos::create_mirror_view_and_copy(memory_space(), grain_unit_vector_host_);
 
@@ -60,8 +63,8 @@ struct Orientation {
 
     // Get grain orientations from the specified file and the number of grain orientations and return a host view
     // containing the data
-    view_type_float_host getOrientationsFromFile(const std::string orientation_file, const int vals_per_line,
-                                                 const bool check_n_orientations) {
+    view_type_float_2d_host getOrientationsFromFile(const std::string orientation_file, const int vals_per_line,
+                                                    const bool check_n_orientations) {
 
         // Read file of grain orientations
         std::ifstream orientation_input_stream;
@@ -81,8 +84,8 @@ struct Orientation {
             n_grain_orientations = getInputInt(n_grain_orientations_read);
 
         // Resize view for storing grain orientations read from file based on the known value for n_grain_orientations
-        view_type_float_host orientation_data_host(Kokkos::ViewAllocateWithoutInitializing("orientation_data_host"),
-                                                   vals_per_line * n_grain_orientations);
+        view_type_float_2d_host orientation_data_host(Kokkos::ViewAllocateWithoutInitializing("orientation_data_host"),
+                                                      vals_per_line * n_grain_orientations, vals_per_line);
 
         // Populate data structure for grain orientation data and return the view
         for (int i = 0; i < n_grain_orientations; i++) {
@@ -93,7 +96,7 @@ struct Orientation {
             splitString(read_line, parsed_line, vals_per_line);
             // Place the 3 grain orientation angles or 9 rotation matrix components into the orientation data view
             for (int comp = 0; comp < vals_per_line; comp++) {
-                orientation_data_host(vals_per_line * i + comp) = getInputFloat(parsed_line[comp]);
+                orientation_data_host(i, comp) = getInputFloat(parsed_line[comp]);
             }
         }
         orientation_input_stream.close();
@@ -140,8 +143,7 @@ struct Orientation {
 
         view_type_float_host grain_misorientation(Kokkos::ViewAllocateWithoutInitializing("GrainMisorientation"),
                                                   n_grain_orientations);
-        view_type_float_host grain_unit_vector_host =
-            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), grain_unit_vector);
+        auto grain_unit_vector_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), grain_unit_vector);
 
         // Find the smallest possible misorientation between the specified direction, and this grain orientations' 6
         // possible 001 directions (where 54.7356 degrees is the largest possible misorientation between a 001 and a
@@ -150,7 +152,7 @@ struct Orientation {
             float misorientation_angle_min = 54.7356;
             for (int ll = 0; ll < 3; ll++) {
                 float misorientation =
-                    Kokkos::abs((180 / M_PI) * Kokkos::acos(Kokkos::abs(grain_unit_vector_host(9 * n + 3 * ll + dir))));
+                    Kokkos::abs((180 / M_PI) * Kokkos::acos(Kokkos::abs(grain_unit_vector_host(n, 3 * ll + dir))));
                 if (misorientation < misorientation_angle_min) {
                     misorientation_angle_min = misorientation;
                 }

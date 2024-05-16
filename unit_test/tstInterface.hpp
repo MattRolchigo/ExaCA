@@ -608,7 +608,8 @@ void testFillSteeringVector_Remelt() {
 
 void testCalcCritDiagonalLength() {
     using memory_space = TEST_MEMSPACE;
-    using view_type = Kokkos::View<float *, memory_space>;
+    using view_type_float = Kokkos::View<float *, memory_space>;
+    using view_type_float_2d = Kokkos::View<float **, memory_space>;
 
     // 2 "cells" in the domain
     int domain_size = 2;
@@ -618,10 +619,11 @@ void testCalcCritDiagonalLength() {
                                            0.626272, 0.133778, 0.768041,  0.736425,  -0.530983, 0.419208,
                                            0.664512, 0.683971, -0.301012, -0.126894, 0.500241,  0.856538};
     // Load unit vectors into view
-    view_type grain_unit_vector(Kokkos::ViewAllocateWithoutInitializing("grain_unit_vector"), 9 * domain_size);
+    view_type_float_2d grain_unit_vector(Kokkos::ViewAllocateWithoutInitializing("grain_unit_vector"), domain_size, 9);
     auto grain_unit_vector_host = Kokkos::create_mirror_view(Kokkos::HostSpace(), grain_unit_vector);
-    for (int i = 0; i < 9 * domain_size; i++) {
-        grain_unit_vector_host(i) = grain_unit_vector_v[i];
+    for (int i = 0; i < domain_size; i++) {
+        for (int comp = 0; comp < 9; comp++)
+            grain_unit_vector_host(i, comp) = grain_unit_vector_v[9 * i + comp];
     }
     // Copy octahedron center and grain unit vector data to the device
     grain_unit_vector = Kokkos::create_mirror_view_and_copy(memory_space(), grain_unit_vector_host);
@@ -632,7 +634,7 @@ void testCalcCritDiagonalLength() {
     Interface<memory_space> interface(id, domain_size, 0.01);
 
     // Load octahedron centers into test view
-    view_type octahedron_center_test(Kokkos::ViewAllocateWithoutInitializing("DOCenter"), 3 * domain_size);
+    view_type_float octahedron_center_test(Kokkos::ViewAllocateWithoutInitializing("DOCenter"), 3 * domain_size);
     Kokkos::parallel_for(
         "TestInitCritDiagonalLength", 1, KOKKOS_LAMBDA(const int) {
             // Octahedron center for first cell (does not align with CA cell center, which is at 31.5, 3.5, 1.5)
