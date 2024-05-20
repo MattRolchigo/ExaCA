@@ -68,6 +68,9 @@ struct Temperature {
     // Temperature field inputs from file
     TemperatureInputs _inputs;
 
+    // Empty constructor
+    Temperature()  { }
+
     // Constructor creates views with size based on the grid inputs - each cell assumed to solidify once by default,
     // layer_time_temp_history modified to account for multiple events if needed undercooling_current and
     // solidification_event_counter are default initialized to zeros

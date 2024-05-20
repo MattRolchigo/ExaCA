@@ -300,95 +300,15 @@ struct Grid {
     // the coordinates. Previously in CAinitialize.cpp
     void findXYZBounds(const int id) {
 
-        // Two passes through reading temperature data files- the first pass only reads the headers to
-        // determine units and X/Y/Z bounds of the simulaton domain. Using the X/Y/Z bounds of the simulation domain,
-        // nx, ny, and nz can be calculated and the domain decomposed among MPI processes. The maximum number of
-        // remelting events in the simulation can also be calculated. The second pass reads the actual X/Y/Z/liquidus
-        // time/cooling rate data and each rank stores the data relevant to itself in "RawData" - this is done in the
-        // subroutine "ReadTemperatureData"
-        x_min = std::numeric_limits<double>::max();
-        y_min = std::numeric_limits<double>::max();
-        z_min = std::numeric_limits<double>::max();
-        x_max = std::numeric_limits<double>::lowest();
-        y_max = std::numeric_limits<double>::lowest();
-        z_max = std::numeric_limits<double>::lowest();
-
-        // Read the first temperature file
-        std::ifstream first_temperature_file;
-        first_temperature_file.open(_t_inputs.temp_paths[0]);
-        std::string first_line_first_file;
-        // Header line
-        getline(first_temperature_file, first_line_first_file);
-
-        // Read all data files to determine the domain bounds, max number of remelting events
-        // for simulations with remelting
-        int layers_to_read = std::min(number_of_layers, _t_inputs.temp_files_in_series); // was given in input file
-        for (int layer_read_count = 1; layer_read_count <= layers_to_read; layer_read_count++) {
-
-            std::string tempfile_thislayer = _t_inputs.temp_paths[layer_read_count - 1];
-            // Get min and max x coordinates in this file, which can be a binary or ASCII input file
-            // binary file type uses extension .catemp, all other file types assumed to be comma-separated ASCII input
-            bool binary_input_data = checkTemperatureFileFormat(tempfile_thislayer);
-            // { x_min, x_max, y_min, y_max, z_min, z_max }
-            std::array<double, 6> xyz_min_max_this_layer =
-                parseTemperatureCoordinateMinMax(tempfile_thislayer, binary_input_data);
-
-            // Based on the input file's layer offset, adjust z_min/z_max from the temperature data coordinate
-            // system to the multilayer CA coordinate system Check to see in the XYZ bounds for this layer are
-            // also limiting for the entire multilayer CA coordinate system
-            xyz_min_max_this_layer[4] += deltax * layer_height * (layer_read_count - 1);
-            xyz_min_max_this_layer[5] += deltax * layer_height * (layer_read_count - 1);
-            if (xyz_min_max_this_layer[0] < x_min)
-                x_min = xyz_min_max_this_layer[0];
-            if (xyz_min_max_this_layer[1] > x_max)
-                x_max = xyz_min_max_this_layer[1];
-            if (xyz_min_max_this_layer[2] < y_min)
-                y_min = xyz_min_max_this_layer[2];
-            if (xyz_min_max_this_layer[3] > y_max)
-                y_max = xyz_min_max_this_layer[3];
-            if (xyz_min_max_this_layer[4] < z_min)
-                z_min = xyz_min_max_this_layer[4];
-            if (xyz_min_max_this_layer[5] > z_max)
-                z_max = xyz_min_max_this_layer[5];
-            z_min_layer[layer_read_count - 1] = xyz_min_max_this_layer[4];
-            z_max_layer[layer_read_count - 1] = xyz_min_max_this_layer[5];
-            if (id == 0)
-                std::cout << "Layer = " << layer_read_count << " Z Bounds are " << xyz_min_max_this_layer[4] << " "
-                          << xyz_min_max_this_layer[5] << std::endl;
-        }
-        // Extend domain in Z (build) direction if the number of layers are simulated is greater than the number
-        // of temperature files read
-        if (number_of_layers > _t_inputs.temp_files_in_series) {
-            for (int layer_read_count = _t_inputs.temp_files_in_series; layer_read_count < number_of_layers;
-                 layer_read_count++) {
-                if (_t_inputs.temp_files_in_series == 1) {
-                    // Only one temperature file was read, so the upper Z bound should account for an additional
-                    // "number_of_layers-1" worth of data Since all layers have the same temperature data, each
-                    // layer's "z_min_layer" is just translated from that of the first layer
-                    z_min_layer[layer_read_count] = z_min_layer[layer_read_count - 1] + deltax * layer_height;
-                    z_max_layer[layer_read_count] = z_max_layer[layer_read_count - 1] + deltax * layer_height;
-                    z_max += deltax * layer_height;
-                }
-                else {
-                    // "temp_files_in_series" temperature files was read, so the upper Z bound should account for
-                    // an additional "number_of_layers-temp_files_in_series" worth of data
-                    int repeated_file = (layer_read_count) % _t_inputs.temp_files_in_series;
-                    int repeat_unit = layer_read_count / _t_inputs.temp_files_in_series;
-                    z_min_layer[layer_read_count] = z_min_layer[repeated_file] + repeat_unit *
-                                                                                     _t_inputs.temp_files_in_series *
-                                                                                     deltax * layer_height;
-                    z_max_layer[layer_read_count] = z_max_layer[repeated_file] + repeat_unit *
-                                                                                     _t_inputs.temp_files_in_series *
-                                                                                     deltax * layer_height;
-                    z_max += deltax * layer_height;
-                }
-            }
-        }
-
-        // Now at the conclusion of "Loop 0", the decomposition can be performed as the domain bounds are known
-        // (all header lines from all files have been read)
-        // CA cells in each direction span from the lower to the higher bound of the temperature data - without wall
-        // cells or padding around the simulation edges
+        // Hardcoded XYZ bounds
+        x_min = -100 * pow(10,-6);
+        y_min = -100 * pow(10,-6);
+        z_min = -177 * pow(10,-6);
+        x_max = 1100 * pow(10,-6);
+        y_max = 698 * pow(10,-6);
+        z_max = 0.0;
+        z_min_layer[0] = z_min;
+        z_max_layer[0] = z_max;
         nx = Kokkos::round((x_max - x_min) / deltax) + 1;
         ny = Kokkos::round((y_max - y_min) / deltax) + 1;
         nz = Kokkos::round((z_max - z_min) / deltax) + 1;

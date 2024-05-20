@@ -50,9 +50,22 @@ int main(int argc, char *argv[]) {
             Grid grid(inputs.simulation_type, id, np, inputs.domain.number_of_layers, inputs.domain,
                       inputs.temperature);
             // Temperature fields characterized by data in this structure
-            Temperature<memory_space> temperature(grid, inputs.temperature, inputs.print.store_solidification_start);
+            Temperature<memory_space> temperature;
 
-            runExaCA(id, np, inputs, timers, grid, temperature);
+            CellData<memory_space> celldata(grid.domain_size, grid.domain_size_all_layers, inputs.substrate);
+            int baseplate_size_z = celldata.getBaseplateSizeZ(id, grid);
+            celldata.initBaseplateGrainID(id, grid, inputs.rng_seed, baseplate_size_z);
+            
+            // Initialize printing struct from inputs
+            Print print(grid, np, inputs.print);
+            
+            std::string vtk_filename = "FinchExaCASubstrate.vtk";
+            std::ofstream subfilestream;
+            print.writeHeader(subfilestream, vtk_filename, grid, true);
+            auto grain_id_whole_domain = print.collectViewData(id, np, grid, false, MPI_SHORT, celldata.grain_id_all_layers);
+            print.printViewData(id, subfilestream, grid, false, "int", "GrainID",
+                                grain_id_whole_domain);
+            subfilestream.close();
         }
     }
     // Finalize Kokkos
