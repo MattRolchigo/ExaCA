@@ -786,15 +786,16 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
                                 int successful_nuc_events_this_rank, int &x_switch, CellData<MemorySpace> &celldata,
                                 Temperature<MemorySpace> &temperature, std::string simulation_type,
                                 const int layernumber, Orientation<MemorySpace> &orientation, Print print,
-                                const double deltat, Interface<MemorySpace> &interface) {
+                                const double deltat, Interface<MemorySpace> &interface,
+                                std::ofstream &sv_size_ofstream) {
 
     auto grain_id = celldata.getGrainIDSubview(grid);
     int local_superheated_cells, local_undercooled_cells, local_active_cells, local_temp_solid_cells,
-        local_finished_solid_cells;
+        local_finished_solid_cells, local_active_undercooled_cells;
     Kokkos::parallel_reduce(
         "IntermediateOutput", grid.domain_size,
         KOKKOS_LAMBDA(const int &index, int &sum_superheated, int &sum_undercooled, int &sum_active,
-                      int &sum_temp_solid, int &sum_finished_solid) {
+                      int &sum_active_undercooled, int &sum_temp_solid, int &sum_finished_solid) {
             int cell_type_this_cell = celldata.cell_type(index);
             if (cell_type_this_cell == Liquid) {
                 int crit_time_step = temperature.getCritTimeStep(index);
@@ -803,22 +804,27 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
                 else
                     sum_undercooled += 1;
             }
-            else if (cell_type_this_cell == Active)
+            else if (cell_type_this_cell == Active) {
                 sum_active += 1;
+                if (temperature.undercooling_current(index) > 0)
+                    sum_active_undercooled += 1;
+            }
             else if (cell_type_this_cell == TempSolid)
                 sum_temp_solid += 1;
             else if (cell_type_this_cell == Solid)
                 sum_finished_solid += 1;
         },
-        local_superheated_cells, local_undercooled_cells, local_active_cells, local_temp_solid_cells,
-        local_finished_solid_cells);
+        local_superheated_cells, local_undercooled_cells, local_active_cells, local_active_undercooled_cells,
+        local_temp_solid_cells, local_finished_solid_cells);
 
     int global_successful_nuc_events_this_rank = 0;
-    int global_superheated_cells, global_undercooled_cells, global_active_cells, global_temp_solid_cells,
-        global_finished_solid_cells;
+    int global_superheated_cells, global_undercooled_cells, global_active_cells, global_active_undercooled_cells,
+        global_temp_solid_cells, global_finished_solid_cells;
     MPI_Reduce(&local_superheated_cells, &global_superheated_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_undercooled_cells, &global_undercooled_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_active_cells, &global_active_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_active_undercooled_cells, &global_active_undercooled_cells, 1, MPI_INT, MPI_SUM, 0,
+               MPI_COMM_WORLD);
     MPI_Reduce(&local_temp_solid_cells, &global_temp_solid_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&local_finished_solid_cells, &global_finished_solid_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&successful_nuc_events_this_rank, &global_successful_nuc_events_this_rank, 1, MPI_INT, MPI_SUM, 0,
@@ -828,8 +834,8 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
         std::cout << "Current time step " << cycle << " on layer number " << layernumber << std::endl;
         std::cout << "Number of liquid cells in simulation (superheated/undercooled): " << global_superheated_cells
                   << "/" << global_undercooled_cells << std::endl;
-        std::cout << "Number of active (solid-liquid interface) cells in simulation: " << global_active_cells
-                  << std::endl;
+        std::cout << "Number of active (solid-liquid interface) cells in simulation: " << global_active_cells << " ( "
+                  << global_active_undercooled_cells << " of which are undercooled) " << std::endl;
         std::cout << "Number of solid cells in simulation (finished/to be remelted): " << global_finished_solid_cells
                   << "/" << global_temp_solid_cells << std::endl;
         std::cout << "Number of nucleation events during simulation of this layer: "
@@ -839,6 +845,7 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
         if (global_superheated_cells + global_undercooled_cells + global_active_cells + global_temp_solid_cells == 0)
             x_switch = 1;
     }
+    sv_size_ofstream << global_active_undercooled_cells << std::endl;
     MPI_Bcast(&x_switch, 1, MPI_INT, 0, MPI_COMM_WORLD);
     // Cells of interest are those currently undergoing a melting-solidification cycle
     int remaining_cells_of_interest = global_active_cells + global_superheated_cells + global_undercooled_cells;

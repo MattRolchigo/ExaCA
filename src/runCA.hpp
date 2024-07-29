@@ -73,6 +73,9 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     // Initialize printing struct from inputs
     Print print(grid, np, inputs.print);
 
+    std::ofstream sv_size_ofstream;
+    sv_size_ofstream.open("SteeringVectorExaCA.csv");
+
     // End of initialization
     timers.stopInit();
     MPI_Barrier(MPI_COMM_WORLD);
@@ -129,7 +132,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             if ((cycle % 1000 == 0) && (simulation_type != "SingleGrain")) {
                 intermediateOutputAndCheck(id, np, cycle, grid, nucleation.successful_nucleation_counter, x_switch,
                                            celldata, temperature, inputs.simulation_type, layernumber, orientation,
-                                           print, inputs.domain.deltat, interface);
+                                           print, inputs.domain.deltat, interface, sv_size_ofstream);
             }
             else if (simulation_type == "SingleGrain") {
                 intermediateOutputAndCheck(id, cycle, grid, x_switch, celldata.cell_type);
@@ -137,6 +140,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
 
         } while (x_switch == 0);
 
+        sv_size_ofstream.close();
         // Reset intralayer print counter and print time series file for previous layer's intralayer data (if needed)
         print.resetIntralayer(id, layernumber);
 
