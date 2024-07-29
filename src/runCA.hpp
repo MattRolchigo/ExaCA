@@ -129,14 +129,14 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             }
 
             // Check on progress of solidification simulation of the current layer, setting x_switch = 1 if complete
-            if ((cycle % 1000 == 0) && (simulation_type != "SingleGrain")) {
+            //if ((cycle % 1000 == 0) && (simulation_type != "SingleGrain")) {
                 intermediateOutputAndCheck(id, np, cycle, grid, nucleation.successful_nucleation_counter, x_switch,
                                            celldata, temperature, inputs.simulation_type, layernumber, orientation,
                                            print, inputs.domain.deltat, interface, sv_size_ofstream);
-            }
-            else if (simulation_type == "SingleGrain") {
-                intermediateOutputAndCheck(id, cycle, grid, x_switch, celldata.cell_type);
-            }
+            //}
+            //else if (simulation_type == "SingleGrain") {
+            //    intermediateOutputAndCheck(id, cycle, grid, x_switch, celldata.cell_type);
+            //}
 
         } while (x_switch == 0);
 

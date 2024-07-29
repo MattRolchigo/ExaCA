@@ -829,29 +829,29 @@ void intermediateOutputAndCheck(const int id, const int np, int &cycle, const Gr
     MPI_Reduce(&local_finished_solid_cells, &global_finished_solid_cells, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&successful_nuc_events_this_rank, &global_successful_nuc_events_this_rank, 1, MPI_INT, MPI_SUM, 0,
                MPI_COMM_WORLD);
+    sv_size_ofstream << global_active_undercooled_cells << std::endl;
 
-    if (id == 0) {
+    if ((cycle % 1000 == 0) && (id == 0)) {
         std::cout << "Current time step " << cycle << " on layer number " << layernumber << std::endl;
         std::cout << "Number of liquid cells in simulation (superheated/undercooled): " << global_superheated_cells
-                  << "/" << global_undercooled_cells << std::endl;
+        << "/" << global_undercooled_cells << std::endl;
         std::cout << "Number of active (solid-liquid interface) cells in simulation: " << global_active_cells << " ( "
-                  << global_active_undercooled_cells << " of which are undercooled) " << std::endl;
+        << global_active_undercooled_cells << " of which are undercooled) " << std::endl;
         std::cout << "Number of solid cells in simulation (finished/to be remelted): " << global_finished_solid_cells
-                  << "/" << global_temp_solid_cells << std::endl;
+        << "/" << global_temp_solid_cells << std::endl;
         std::cout << "Number of nucleation events during simulation of this layer: "
-                  << global_successful_nuc_events_this_rank << std::endl;
+        << global_successful_nuc_events_this_rank << std::endl;
         std::cout << "======================================================================================"
-                  << std::endl;
+        << std::endl;
         if (global_superheated_cells + global_undercooled_cells + global_active_cells + global_temp_solid_cells == 0)
             x_switch = 1;
+        MPI_Bcast(&x_switch, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        // Cells of interest are those currently undergoing a melting-solidification cycle
+        int remaining_cells_of_interest = global_active_cells + global_superheated_cells + global_undercooled_cells;
+        if ((x_switch == 0) && ((simulation_type != "Directional")))
+            jumpTimeStep(cycle, remaining_cells_of_interest, local_temp_solid_cells, temperature, grid, celldata, id,
+                         layernumber, np, orientation, print, deltat, interface);
     }
-    sv_size_ofstream << global_active_undercooled_cells << std::endl;
-    MPI_Bcast(&x_switch, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    // Cells of interest are those currently undergoing a melting-solidification cycle
-    int remaining_cells_of_interest = global_active_cells + global_superheated_cells + global_undercooled_cells;
-    if ((x_switch == 0) && ((simulation_type != "Directional")))
-        jumpTimeStep(cycle, remaining_cells_of_interest, local_temp_solid_cells, temperature, grid, celldata, id,
-                     layernumber, np, orientation, print, deltat, interface);
 }
 
 //*****************************************************************************/
