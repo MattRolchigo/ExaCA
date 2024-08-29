@@ -551,7 +551,6 @@ void testFillSteeringVector_Remelt() {
     // Copy data back to host to check steering vector construction results
     auto cell_type_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), celldata.cell_type);
     auto steering_vector_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector);
-    auto num_steer_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer);
     auto undercooling_current_host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.undercooling_current);
     auto liquidus_time_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.liquidus_time);
@@ -592,7 +591,7 @@ void testFillSteeringVector_Remelt() {
         }
     }
     // Check the steering vector values on the host
-    EXPECT_EQ(future_active_cells, num_steer_host(0));
+    EXPECT_EQ(future_active_cells, interface.steering_vector_size);
     for (int i = 0; i < future_active_cells; i++) {
         // This cell should correspond to a cell at GlobalZ = 3 (RankZ = 1), and some X and Y
         int lower_bound_cell_location = grid.nx * grid.ny_local - 1;

@@ -274,18 +274,13 @@ void testNucleateGrain() {
     nucleation.nuclei_locations = Kokkos::create_mirror_view_and_copy(TEST_MEMSPACE(), nuclei_locations_host);
     nucleation.nuclei_grain_id = Kokkos::create_mirror_view_and_copy(TEST_MEMSPACE(), nuclei_grain_id_host);
 
-    // Interface struct
-    Interface<memory_space> interface(id, grid.domain_size, 0.01);
     // Take enough time steps such that every nucleation event has a chance to occur
     for (int cycle = 0; cycle < 10; cycle++) {
-        nucleation.nucleateGrain(cycle, grid, celldata, interface);
+        nucleation.nucleateGrain(cycle, grid, celldata);
     }
 
     // Copy views back to host to check nucleation results
     cell_type_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), celldata.cell_type);
-    auto steering_vector_host_local =
-        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector);
-    auto num_steer_host_local = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer);
     grain_id = celldata.getGrainIDSubview(grid);
     grain_id_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), grain_id);
 
@@ -293,7 +288,6 @@ void testNucleateGrain() {
     EXPECT_EQ(nucleation.nucleation_counter, 10);
     // Check that 7 of the 10 nucleation events were successful
     EXPECT_EQ(nucleation.successful_nucleation_counter, 7);
-    EXPECT_EQ(num_steer_host_local(0), 7);
 
     // Ensure that the 3 events that should not have occurred, did not occur
     // These cells should be untouched - active type, and same grain_id they was initialized with
@@ -306,22 +300,13 @@ void testNucleateGrain() {
 
     // Check that the successful nucleation events occurred as expected
     // For each cell location (relative to the layer bottom) that should be home to a successful nucleation event,
-    // check that the CellType has been set to FutureActive and the grain_id matches the expected value Also check that
-    // the adjusted cell coordinate (relative to the current layer bounds) appears somewhere within the steering vector
+    // check that the CellType has been set to FutureActive and the grain_id matches the expected value
     std::vector<int> successful_nuc_grain_ids{-1, -2, -4, -5, -6, -8, -10};
     std::vector<int> successful_nuc_cell_locations{0, 1, 3, 4, 5, 7, 9};
     for (int nevent = 0; nevent < 7; nevent++) {
         int index = successful_nuc_cell_locations[nevent];
         EXPECT_EQ(cell_type_host(index), FutureActive);
         EXPECT_EQ(grain_id_host(index), successful_nuc_grain_ids[nevent]);
-        bool on_steering_vector = false;
-        for (int svloc = 0; svloc < 7; svloc++) {
-            if (steering_vector_host_local(svloc) == index) {
-                on_steering_vector = true;
-                break;
-            }
-        }
-        EXPECT_TRUE(on_steering_vector);
     }
 }
 

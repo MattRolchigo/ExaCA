@@ -256,8 +256,7 @@ struct Nucleation {
 
     // Check for nucleation events on this time step, updating the corresponding cell appropriately for any successful
     // nucleation event
-    void nucleateGrain(const int cycle, const Grid &grid, CellData<memory_space> &celldata,
-                       Interface<memory_space> interface) {
+    void nucleateGrain(const int cycle, const Grid &grid, CellData<memory_space> &celldata) {
 
         auto grain_id = celldata.getGrainIDSubview(grid);
 
@@ -297,11 +296,10 @@ struct Nucleation {
                             &celldata.cell_type(nucleation_event_location), old_val, update_val);
                         if (old_cell_type_value == Liquid) {
                             // Successful nucleation event - atomic update of cell type, proceeded if the atomic
-                            // exchange is successful (cell was liquid) Add future active cell location to steering
-                            // vector and change cell type, assign new Grain ID
+                            // exchange is successful (cell was liquid) Change cell type to FutureActive and assign new
+                            // Grain ID - but do not add to the steering vector until fillSteeringVector (which will
+                            // check for FutureActive cells)
                             grain_id(nucleation_event_location) = nuclei_grain_id_local(nucleation_counter_device);
-                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                nucleation_event_location;
                             // This cell was not at the edge of the temperature field - set indicator to false if this
                             // is being tracked
                             celldata.setMeltEdge(nucleation_event_location, false);
