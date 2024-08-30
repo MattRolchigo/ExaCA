@@ -37,9 +37,11 @@ void fillSteeringVector_NoRemelt(const int cycle, const Grid &grid, CellData<Mem
             bool past_crit_time = (cycle > crit_time_step);
             bool cell_active = ((cell_type == Active) || (cell_type == FutureActive));
             if (is_not_solid && past_crit_time) {
-                temperature.updateUndercooling(index);
-                if ((cell_active) && (is_final)) {
-                    interface.steering_vector(steer_size_upd) = index;
+                if (is_final)
+                    temperature.updateUndercooling(index);
+                if (cell_active) {
+                    if (is_final)
+                        interface.steering_vector(steer_size_upd) = index;
                     steer_size_upd++;
                 }
             }
@@ -86,13 +88,15 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                 bool past_crit_time = (cycle > crit_time_step);
                 if (at_melt_time) {
                     // Cell melts, undercooling is reset to 0 from the previous value, if any
-                    celldata.cell_type(index) = Liquid;
-                    temperature.resetUndercooling(index);
-                    if (celltype != TempSolid) {
-                        // This cell either hasn't started or hasn't finished the previous solidification event, but
-                        // has undergone melting - increment the solidification counter to move on to the next
-                        // melt-solidification event
-                        temperature.updateSolidificationCounter(index);
+                    if (is_final) {
+                        celldata.cell_type(index) = Liquid;
+                        temperature.resetUndercooling(index);
+                        if (celltype != TempSolid) {
+                            // This cell either hasn't started or hasn't finished the previous solidification event, but
+                            // has undergone melting - increment the solidification counter to move on to the next
+                            // melt-solidification event
+                            temperature.updateSolidificationCounter(index);
+                        }
                     }
                     // Any adjacent active cells should also be remelted, as these cells are more likely heating up
                     // than cooling down These are converted to the temporary FutureLiquid state, to be later
@@ -109,24 +113,26 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                         int neighbor_coord_z = coord_z + interface.neighbor_z[l];
                         const int neighbor_index =
                             grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                        if (neighbor_index != -1) {
-                            if ((celldata.cell_type(neighbor_index) == Active) && (is_final)) {
+                        if (celldata.cell_type(neighbor_index) == Active) {
+                            if (is_final) {
                                 interface.steering_vector(steer_size_upd) = neighbor_index;
-                                steer_size_upd++;
                                 // Mark adjacent active cells to this as cells that should be converted into liquid,
                                 // as they are more likely heating than cooling
                                 celldata.cell_type(neighbor_index) = FutureLiquid;
                             }
+                            steer_size_upd++;
                         }
                     }
                 }
                 else if ((celltype != TempSolid) && (past_crit_time)) {
                     // Update cell undercooling
-                    temperature.updateUndercooling(index);
-                    if (((celltype == Active) || (celltype == FutureActive)) && (is_final)) {
+                    if (is_final)
+                        temperature.updateUndercooling(index);
+                    if ((celltype == Active) || (celltype == FutureActive)) {
                         // Add active cells below liquidus or future active cells formed this time step via a nucleation
                         // event to the steering vector
-                        interface.steering_vector(steer_size_upd) = index;
+                        if (is_final)
+                            interface.steering_vector(steer_size_upd) = index;
                         steer_size_upd++;
                     }
                 }
@@ -158,8 +164,8 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                                     // This cell was at the edge of the temperature field - set indicator to true if
                                     // this is being tracked
                                     celldata.setMeltEdge(index, true);
-                                    steer_size_upd++;
                                 }
+                                steer_size_upd++;
                             }
                         }
                     }
