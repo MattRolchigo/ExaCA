@@ -242,12 +242,13 @@ struct Print {
                 auto cell_type_whole_domain = collectViewData(id, np, grid, true, MPI_INT, celldata.cell_type);
                 printViewData(id, intralayer_ofstream, grid, true, "int", "CellType", cell_type_whole_domain);
             }
-            if (_inputs.intralayer_diagonal_length) {
-                auto diagonal_length_whole_domain =
-                    collectViewData(id, np, grid, true, MPI_FLOAT, interface.diagonal_length);
-                printViewData(id, intralayer_ofstream, grid, true, "float", "DiagonalLength",
-                              diagonal_length_whole_domain);
-            }
+            // TODO: Should be modified as there are now 26 diagonal lengths
+//            if (_inputs.intralayer_diagonal_length) {
+//                auto diagonal_length_whole_domain =
+//                    collectViewData(id, np, grid, true, MPI_FLOAT, interface.diagonal_length);
+//                printViewData(id, intralayer_ofstream, grid, true, "float", "DiagonalLength",
+//                              diagonal_length_whole_domain);
+//            }
             if (_inputs.intralayer_solidification_event_counter) {
                 auto solidification_event_counter_whole_domain =
                     collectViewData(id, np, grid, true, MPI_INT, temperature.solidification_event_counter);
@@ -402,12 +403,13 @@ struct Print {
                     auto cell_type_whole_domain = collectViewData(id, np, grid, true, MPI_INT, celldata.cell_type);
                     printViewData(id, currentlayer_ofstream, grid, true, "int", "CellType", cell_type_whole_domain);
                 }
-                if (_inputs.interlayer_diagonal_length) {
-                    auto diagonal_length_whole_domain =
-                        collectViewData(id, np, grid, true, MPI_FLOAT, interface.diagonal_length);
-                    printViewData(id, currentlayer_ofstream, grid, true, "float", "DiagonalLength",
-                                  diagonal_length_whole_domain);
-                }
+                // TODO: Should be modified as there are now 26 diagonal lengths
+//                if (_inputs.interlayer_diagonal_length) {
+//                    auto diagonal_length_whole_domain =
+//                        collectViewData(id, np, grid, true, MPI_FLOAT, interface.diagonal_length);
+//                    printViewData(id, currentlayer_ofstream, grid, true, "float", "DiagonalLength",
+//                                  diagonal_length_whole_domain);
+//                }
                 if (_inputs.interlayer_solidification_event_counter) {
                     auto solidification_event_counter_whole_domain =
                         collectViewData(id, np, grid, true, MPI_INT, temperature.solidification_event_counter);

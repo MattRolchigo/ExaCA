@@ -870,6 +870,14 @@ struct Temperature {
         undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
     }
 
+    // Get the effective undercooling used for update of the octahedron for cell "index", for capture of cell "neighbor_index"
+    KOKKOS_INLINE_FUNCTION
+    float getEffectiveUndercooling(const int index, const int neighbor_index, const float diagonal_length_cell, const float init_diagonal_length_cell, const float crit_diagonal_length_neighbor) const {
+        const float fract_to_neighbor = Kokkos::min(static_cast<float>(1.0), (diagonal_length_cell - init_diagonal_length_cell) / (crit_diagonal_length_neighbor - init_diagonal_length_cell));
+        const float effective_undercooling = fract_to_neighbor * undercooling_current(neighbor_index) + (1 - fract_to_neighbor) * undercooling_current(index);
+        return effective_undercooling;
+    }
+    
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just
     // started
     KOKKOS_INLINE_FUNCTION
