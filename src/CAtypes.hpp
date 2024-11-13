@@ -21,5 +21,9 @@ enum TypeNames {
     FutureLiquid = 9,
     LiquidFailedBufferLoad = 10
 };
+enum PhaseNames {
+    Ferrite = 0,
+    Austenite = 1
+};
 
 #endif

@@ -40,7 +40,7 @@ struct CellData {
     using execution_space = typename memory_space::execution_space;
 
     int next_layer_first_epitaxial_grain_id = 1;
-    view_type_int grain_id_all_layers, cell_type;
+    view_type_int grain_id_all_layers, phase_id_all_layers, cell_type;
     view_type_short layer_id_all_layers;
     view_type_bool melt_edge, melt_edge_all_layers;
     // Substrate inputs from file
@@ -53,11 +53,14 @@ struct CellData {
     // cell_type only exists for the current layer of a multilayer problem
     CellData(const Grid &grid, SubstrateInputs inputs, const bool store_melt_pool_edge = false)
         : grain_id_all_layers(view_type_int("GrainID", grid.domain_size_all_layers))
+        , phase_id_all_layers(view_type_int(Kokkos::ViewAllocateWithoutInitializing("PhaseID"), grid.domain_size_all_layers))
         , cell_type(view_type_int(Kokkos::ViewAllocateWithoutInitializing("cell_type"), grid.domain_size))
         , layer_id_all_layers(
               view_type_short(Kokkos::ViewAllocateWithoutInitializing("LayerID"), grid.domain_size_all_layers))
         , _inputs(inputs)
         , _store_melt_pool_edge(store_melt_pool_edge) {
+            // Initialize all solid cells as austenite
+            Kokkos::deep_copy(phase_id_all_layers, Austenite);
         if (_store_melt_pool_edge) {
             // Default init to zero
             melt_edge_all_layers = view_type_bool("melt_edge", grid.domain_size_all_layers);
@@ -309,7 +312,7 @@ struct CellData {
         Kokkos::deep_copy(layer_id_all_layers, -1);
 
         // Initialize cell types and layer IDs based on whether cells will solidify in layer 0 or not
-        initCellTypeLayerID(0, id, grid, number_of_solidification_events);
+        initCellTypeLayerID(0, id, grid, number_of_solidification_events, powder_bottom_z, powder_top_z);
 
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0) {
@@ -636,7 +639,7 @@ struct CellData {
         }
 
         // Initialize active cell data structures and nuclei locations for the next layer "layernumber + 1"
-        initCellTypeLayerID(nextlayernumber, id, grid, number_of_solidification_events);
+        initCellTypeLayerID(nextlayernumber, id, grid, number_of_solidification_events, powder_bottom_z, powder_top_z);
         // Current layer melt pool edge indicator, if needed
         if (_store_melt_pool_edge)
             getCurrentLayerMeltEdge(grid.layer_range);
@@ -645,13 +648,14 @@ struct CellData {
     // Initializes cells for the current layer as either solid (don't resolidify) or tempsolid (will melt and
     // resolidify)
     void initCellTypeLayerID(const int layernumber, const int id, const Grid &grid,
-                             view_type_int number_of_solidification_events) {
+                             view_type_int number_of_solidification_events, const int powder_bottom_z, const int powder_top_z) {
 
         int melt_pool_cell_count;
         // Realloc celltype to the domain size of the next layer
         Kokkos::realloc(cell_type, grid.domain_size);
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
+        auto phase_id_all_layers_local = phase_id_all_layers;
         auto layer_id_all_layers_local = layer_id_all_layers;
 
         auto policy = Kokkos::RangePolicy<execution_space>(0, grid.domain_size);
@@ -674,6 +678,15 @@ struct CellData {
         if (id == 0)
             std::cout << "Number of cells across all ranks to undergo solidification at least once: "
                       << total_melt_pool_cell_count << std::endl;
+        
+        const int powder_bottom = powder_bottom_z * grid.nx * grid.ny_local;
+        const int powder_top = powder_top_z * grid.nx * grid.ny_local;
+        auto powder_layer_policy = Kokkos::RangePolicy<execution_space>(powder_bottom, powder_top);
+        Kokkos::parallel_for(
+            "phase_id_powder_init", policy,
+            KOKKOS_LAMBDA(const int &index_all_layers) {
+                phase_id_all_layers_local(index_all_layers) = Austenite;
+            });
     }
 
     // Stores/returns the volume fraction of nucleated grains to the console
@@ -727,6 +740,7 @@ struct CellData {
     // Take a view consisting of data for all layers, and return a subview of the same type consisting of just the cells
     // corresponding to the current layer of a multilayer problem
     auto getGrainIDSubview(const Grid &grid) const { return Kokkos::subview(grain_id_all_layers, grid.layer_range); }
+    auto getPhaseIDSubview(const Grid &grid) const { return Kokkos::subview(phase_id_all_layers, grid.layer_range); }
     auto getLayerIDSubview(const Grid &grid) const { return Kokkos::subview(layer_id_all_layers, grid.layer_range); }
 };
 

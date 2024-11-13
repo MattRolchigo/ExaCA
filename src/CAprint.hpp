@@ -225,10 +225,10 @@ struct Print {
                 auto grain_id_whole_domain = collectViewData(id, np, grid, true, MPI_INT, grain_id_current_layer);
                 printViewData(id, intralayer_ofstream, grid, true, "int", "GrainID", grain_id_whole_domain);
             }
-            if (_inputs.intralayer_layer_id) {
-                auto layer_id_current_layer = celldata.getLayerIDSubview(grid);
-                auto layer_id_whole_domain = collectViewData(id, np, grid, true, MPI_SHORT, layer_id_current_layer);
-                printViewData(id, intralayer_ofstream, grid, true, "short", "LayerID", layer_id_whole_domain);
+            if (_inputs.intralayer_phase_id) {
+                auto phase_id_current_layer = celldata.getPhaseIDSubview(grid);
+                auto phase_id_whole_domain = collectViewData(id, np, grid, true, MPI_INT, phase_id_current_layer);
+                printViewData(id, intralayer_ofstream, grid, true, "int", "PhaseID", phase_id_whole_domain);
             }
             if (_inputs.intralayer_undercooling_current) {
                 // TODO: remove this, the subview undercooling_current_layer is already stored in the temperature struct
@@ -358,11 +358,11 @@ struct Print {
                 if (_inputs.interlayer_grain_id)
                     printViewData(id, interlayer_all_layers_ofstream, grid, false, "int", "GrainID",
                                   grain_id_all_layers_whole_domain);
-                if (_inputs.interlayer_layer_id) {
-                    auto layer_id_all_layers_whole_domain =
-                        collectViewData(id, np, grid, false, MPI_SHORT, celldata.layer_id_all_layers);
-                    printViewData(id, interlayer_all_layers_ofstream, grid, false, "short", "LayerID",
-                                  layer_id_all_layers_whole_domain);
+                if (_inputs.interlayer_phase_id) {
+                    auto phase_id_all_layers_whole_domain =
+                        collectViewData(id, np, grid, false, MPI_INT, celldata.phase_id_all_layers);
+                    printViewData(id, interlayer_all_layers_ofstream, grid, false, "int", "PhaseID",
+                                  phase_id_all_layers_whole_domain);
                 }
                 if (_inputs.interlayer_undercooling_current) {
                     auto undercooling_all_layers_whole_domain =

@@ -31,9 +31,9 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     if ((simulation_type == "Directional") || (simulation_type == "SingleGrain"))
         temperature.initialize(id, simulation_type, grid, inputs.domain.deltat);
     else if (simulation_type == "Spot")
-        temperature.initialize(id, grid, irf.freezingRange(), inputs.domain.deltat, inputs.domain.spot_radius);
+        temperature.initialize(id, grid, irf.freezingRange_austenite(), inputs.domain.deltat, inputs.domain.spot_radius);
     else if ((simulation_type == "FromFile") || (simulation_type == "FromFinch"))
-        temperature.initialize(0, id, grid, irf.freezingRange(), inputs.domain.deltat, simulation_type);
+        temperature.initialize(0, id, grid, irf.freezingRange_austenite(), inputs.domain.deltat, simulation_type);
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Initialize grain orientations
@@ -64,7 +64,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     // Fill in nucleation data structures, and assign nucleation undercooling values to potential nucleation events
     // Potential nucleation grains are only associated with liquid cells in layer 0 - they will be initialized for each
     // successive layer when layer 0 is complete
-    nucleation.placeNuclei(temperature, inputs.rng_seed, 0, grid, id);
+    nucleation.placeNuclei(temperature, irf, inputs.rng_seed, 0, grid, id);
 
     // Initialize printing struct from inputs
     Print print(grid, np, inputs.print);
@@ -154,7 +154,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
                 temperature.readTemperatureData(id, grid, layernumber + 1);
             MPI_Barrier(MPI_COMM_WORLD);
             // Initialize next layer's temperature data
-            temperature.initialize(layernumber + 1, id, grid, irf.freezingRange(), inputs.domain.deltat,
+            temperature.initialize(layernumber + 1, id, grid, irf.freezingRange_austenite(), inputs.domain.deltat,
                                    simulation_type);
 
             // Reset solidification event counter of all cells to zeros for the next layer, resizing to number of cells
@@ -173,7 +173,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // Views containing nucleation data will be resized to the possible number of nuclei on a given MPI rank for
             // the next layer
             nucleation.resetNucleiCounters(); // start counters at 0
-            nucleation.placeNuclei(temperature, inputs.rng_seed, layernumber + 1, grid, id);
+            nucleation.placeNuclei(temperature, irf, inputs.rng_seed, layernumber + 1, grid, id);
 
             x_switch = 0;
             MPI_Barrier(MPI_COMM_WORLD);

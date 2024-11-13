@@ -36,7 +36,7 @@ void fillSteeringVector_NoRemelt(const int cycle, const Grid &grid, CellData<Mem
             bool past_crit_time = (cycle > crit_time_step);
             bool cell_active = ((cell_type == Active) || (cell_type == FutureActive));
             if (is_not_solid && past_crit_time) {
-                temperature.updateUndercooling(index);
+                temperature.updateUndercooling(index, celldata.phase_id_all_layers(index));
                 if (cell_active) {
                     interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                 }
@@ -52,6 +52,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                                Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
 
     auto grain_id = celldata.getGrainIDSubview(grid);
+    auto phase_id = celldata.getPhaseIDSubview(grid);
     Kokkos::parallel_for(
         "FillSV_RM", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
             int celltype = celldata.cell_type(index);
@@ -100,7 +101,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                 }
                 else if ((celltype != TempSolid) && (past_crit_time)) {
                     // Update cell undercooling
-                    temperature.updateUndercooling(index);
+                    temperature.updateUndercooling(index, phase_id(index));
                     if (celltype == Active) {
                         // Add active cells below liquidus to steering vector
                         interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
@@ -129,6 +130,7 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                                 l = 26;
                                 interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                                 celldata.cell_type(index) = FutureActive;
+                                phase_id(index) = Austenite;
                                 // This cell was at the edge of the temperature field - set indicator to true if this is
                                 // being tracked
                                 celldata.setMeltEdge(index, true);
@@ -152,6 +154,7 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
 
     // Get grain_id subview for this layer
     auto grain_id = celldata.getGrainIDSubview(grid);
+    auto phase_id = celldata.getPhaseIDSubview(grid);
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
     Kokkos::parallel_for(
@@ -170,7 +173,10 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 // Get undercooling of active cell
                 const float local_undercooling = temperature.undercooling_current(index);
                 // Update diagonal length of octahedron based on local undercooling and interfacial response function
-                interface.diagonal_length(index) += irf.compute(local_undercooling);
+                if (phase_id(index) == Ferrite)
+                    interface.diagonal_length(index) += irf.compute_ferrite(local_undercooling);
+                else
+                    interface.diagonal_length(index) += irf.compute_austenite(local_undercooling);
                 const float diagonal_length_cell = interface.diagonal_length(index);
                 // Switch that becomes false if the cell has at least 1 liquid type neighbor
                 bool deactivate_cell = true;
@@ -214,6 +220,8 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
 
                                 // The new cell is captured by this cell's growing octahedron
                                 grain_id(neighbor_index) = my_grain_id;
+                                phase_id(neighbor_index) = phase_id(index);
+
                                 // Store the initial undercooling for the newly captured cell, if this output was
                                 // toggled
                                 temperature.setStartingUndercooling(neighbor_index);
@@ -410,11 +418,12 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                                     const float ghost_octahedron_center_y = cy;
                                     const float ghost_octahedron_center_z = cz;
                                     const float ghost_diagonal_length = new_octahedron_diag_length;
+                                    const float ghost_phase_id = phase_id(neighbor_index);
                                     // Collect data for the ghost nodes, if necessary
                                     // Data loaded into the ghost nodes is for the cell that was just captured
                                     bool data_fits_in_buffer = interface.loadGhostNodes(
                                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
-                                        ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local,
+                                        ghost_octahedron_center_z, ghost_diagonal_length, ghost_phase_id, grid.ny_local,
                                         neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
                                         grid.at_south_boundary, orientation.n_grain_orientations);
                                     if (!(data_fits_in_buffer)) {
@@ -482,10 +491,11 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                     const float ghost_octahedron_center_y = cy;
                     const float ghost_octahedron_center_z = cz;
                     const float ghost_diagonal_length = interface._init_oct_size;
+                    const int ghost_phase_id = phase_id(index);
                     // Collect data for the ghost nodes, if necessary
                     bool data_fits_in_buffer = interface.loadGhostNodes(
                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
+                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
                         grid.at_south_boundary, orientation.n_grain_orientations);
                     if (!(data_fits_in_buffer)) {
                         // This cell's data did not fit in the buffer with current size buf_size - mark with
@@ -508,7 +518,7 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                 // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
                 // length
                 bool data_fits_in_buffer = interface.loadGhostNodes(
-                    -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
+                    -1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
                     grid.at_south_boundary, orientation.n_grain_orientations);
                 if (!(data_fits_in_buffer)) {
                     // This cell's data did not fit in the buffer with current size buf_size - mark with temporary
@@ -544,6 +554,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                    const int n_grain_orientations) {
 
     auto grain_id = celldata.getGrainIDSubview(grid);
+    auto phase_id = celldata.getPhaseIDSubview(grid);
     Kokkos::parallel_for(
         "FillSendBuffersOverflow", grid.nx, KOKKOS_LAMBDA(const int &coord_x) {
             for (int coord_z = 0; coord_z < grid.nz_layer; coord_z++) {
@@ -555,11 +566,12 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     float ghost_octahedron_center_y = interface.octahedron_center(3 * index_south_buffer + 1);
                     float ghost_octahedron_center_z = interface.octahedron_center(3 * index_south_buffer + 2);
                     float ghost_diagonal_length = interface.diagonal_length(index_south_buffer);
+                    float ghost_phase_id = phase_id(index_south_buffer);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool data_fits_in_buffer = interface.loadGhostNodes(
                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, 1, coord_z, grid.at_north_boundary,
+                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, 1, coord_z, grid.at_north_boundary,
                         grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_south_buffer) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -569,7 +581,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
                     bool data_fits_in_buffer =
-                        interface.loadGhostNodes(-1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, 1, coord_z,
+                        interface.loadGhostNodes(-1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, 1, coord_z,
                                                  grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_south_buffer) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -581,11 +593,12 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     float ghost_octahedron_center_y = interface.octahedron_center(3 * index_north_buffer + 1);
                     float ghost_octahedron_center_z = interface.octahedron_center(3 * index_north_buffer + 2);
                     float ghost_diagonal_length = interface.diagonal_length(index_north_buffer);
+                    float ghost_phase_id = phase_id(index_north_buffer);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
                     bool data_fits_in_buffer = interface.loadGhostNodes(
                         ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
+                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
                         grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_north_buffer) = Active;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -595,7 +608,7 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
                     bool data_fits_in_buffer = interface.loadGhostNodes(
-                        -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
+                        -1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
                         grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     celldata.cell_type(index_north_buffer) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
@@ -629,6 +642,7 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
     // unpack in any order
     bool unpack_complete = false;
     auto grain_id = celldata.getGrainIDSubview(grid);
+    auto phase_id = celldata.getPhaseIDSubview(grid);
     while (!unpack_complete) {
         // Get the next buffer to unpack from rank "unpack_index"
         int unpack_index = MPI_UNDEFINED;
@@ -641,7 +655,7 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
         else {
             Kokkos::parallel_for(
                 "BufferUnpack", interface.buf_size, KOKKOS_LAMBDA(const int &buf_position) {
-                    int coord_x, coord_y, coord_z, index, new_grain_id;
+                    int coord_x, coord_y, coord_z, index, new_grain_id, new_phase_id;
                     float new_octahedron_center_x, new_octahedron_center_y, new_octahedron_center_z,
                         new_diagonal_length;
                     bool place = false;
@@ -667,6 +681,7 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
                             new_octahedron_center_y = interface.buffer_south_recv(buf_position, 5);
                             new_octahedron_center_z = interface.buffer_south_recv(buf_position, 6);
                             new_diagonal_length = interface.buffer_south_recv(buf_position, 7);
+                            new_phase_id = interface.buffer_south_recv(buf_position, 8);
                         }
                         else if ((celldata.cell_type(index) == Active) &&
                                  (interface.buffer_south_recv(buf_position, 7) == 0.0)) {
@@ -693,6 +708,7 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
                             new_octahedron_center_y = interface.buffer_north_recv(buf_position, 5);
                             new_octahedron_center_z = interface.buffer_north_recv(buf_position, 6);
                             new_diagonal_length = interface.buffer_north_recv(buf_position, 7);
+                            new_phase_id = interface.buffer_north_recv(buf_position, 8);
                         }
                         else if ((celldata.cell_type(index) == Active) &&
                                  (interface.buffer_north_recv(buf_position, 7) == 0.0)) {
@@ -707,6 +723,7 @@ void haloUpdate(const int, const int, const Grid &grid, CellData<MemorySpace> &c
                         interface.octahedron_center(3 * index + 2) = new_octahedron_center_z;
                         int my_orientation = getGrainOrientation(grain_id(index), orientation.n_grain_orientations);
                         interface.diagonal_length(index) = static_cast<float>(new_diagonal_length);
+                        phase_id(index) = new_phase_id;
                         // Cell center - note that the Y coordinate is relative to the domain origin to keep the
                         // coordinate system continuous across ranks
                         float xp = coord_x + 0.5;

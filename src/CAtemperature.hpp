@@ -9,6 +9,7 @@
 #include "CAgrid.hpp"
 #include "CAinputdata.hpp"
 #include "CAparsefiles.hpp"
+#include "CAtypes.hpp"
 #include "mpi.h"
 
 #include <Kokkos_Core.hpp>
@@ -867,8 +868,14 @@ struct Temperature {
 
     // Update local cell undercooling for the current melt-resolidification event
     KOKKOS_INLINE_FUNCTION
-    void updateUndercooling(const int index) const {
-        undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
+    void updateUndercooling(const int index, const int phase_id) const {
+//        float undercooling_max;
+//        if (phase_id == Ferrite)
+//            undercooling_max = 18.2;
+//        else
+//            undercooling_max = 23.9;
+//        if (undercooling_current(index) < undercooling_max)
+            undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
     }
 
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just

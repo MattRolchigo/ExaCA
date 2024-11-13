@@ -1,0 +1,16 @@
+{
+   "function_austenite": "power",
+   "coefficients_austenite": {
+      "A_austenite": 1.90855E-19,
+      "B_austenite": 12.9626,
+      "C_austenite": 0
+    },
+    "freezing_range_austenite": 26.5,
+    "function_ferrite": "power",
+    "coefficients_ferrite": {
+       "A_ferrite": 2.46913E-6,
+       "B_ferrite": 3.64106,
+       "C_ferrite": 0
+     },
+     "freezing_range_ferrite": 26.5
+}

@@ -567,7 +567,7 @@ struct Inputs {
             if (print_fields_intralayer[0])
                 print.intralayer_grain_id = true;
             if (print_fields_intralayer[1])
-                print.intralayer_layer_id = true;
+                print.intralayer_phase_id = true;
             if (print_fields_intralayer[2])
                 print.intralayer_grain_misorientation = true;
             if (print_fields_intralayer[3])
@@ -642,7 +642,7 @@ struct Inputs {
         if (print_fields_interlayer[0])
             print.interlayer_grain_id = true;
         if (print_fields_interlayer[1])
-            print.interlayer_layer_id = true;
+            print.interlayer_phase_id = true;
         if (print_fields_interlayer[2])
             print.interlayer_grain_misorientation = true;
         if (print_fields_interlayer[3])
@@ -665,7 +665,7 @@ struct Inputs {
             print.interlayer_solidification_event_counter = true;
         if (print_fields_interlayer[12])
             print.interlayer_number_of_solidification_events = true;
-        if ((print.interlayer_grain_id) || (print.interlayer_layer_id) || (print.interlayer_undercooling_current) ||
+        if ((print.interlayer_grain_id) || (print.interlayer_phase_id) || (print.interlayer_undercooling_current) ||
             (print.interlayer_undercooling_solidification_start))
             print.interlayer_full = true;
         // First 6 inputs are full domain inputs - check if any of the others were toggled
@@ -768,16 +768,16 @@ struct Inputs {
                 }
             }
             exaca_log << "   }," << std::endl;
-            exaca_log << "   \"InterfacialResponse\": {" << std::endl;
-            exaca_log << "       \"Function\": "
-                      << "\"" << irf.function << "\"," << std::endl;
-            exaca_log << "       \"A\": " << (irf.A) << "," << std::endl;
-            exaca_log << "       \"B\": " << (irf.B) << "," << std::endl;
-            exaca_log << "       \"C\": " << (irf.C) << "," << std::endl;
-            if (irf.function == irf.cubic)
-                exaca_log << "       \"D\": " << (irf.D) << "," << std::endl;
-            exaca_log << "       \"FreezingRange\": " << (irf.freezing_range) << std::endl;
-            exaca_log << "   }," << std::endl;
+//            exaca_log << "   \"InterfacialResponse\": {" << std::endl;
+//            exaca_log << "       \"Function\": "
+//                      << "\"" << irf.function << "\"," << std::endl;
+//            exaca_log << "       \"A\": " << (irf.A) << "," << std::endl;
+//            exaca_log << "       \"B\": " << (irf.B) << "," << std::endl;
+//            exaca_log << "       \"C\": " << (irf.C) << "," << std::endl;
+//            if (irf.function == irf.cubic)
+//                exaca_log << "       \"D\": " << (irf.D) << "," << std::endl;
+//            exaca_log << "       \"FreezingRange\": " << (irf.freezing_range) << std::endl;
+//            exaca_log << "   }," << std::endl;
             exaca_log << "   \"NumberMPIRanks\": " << np << "," << std::endl;
             exaca_log << "   \"Decomposition\": {" << std::endl;
             exaca_log << "       \"SubdomainYSize\": [";
@@ -801,29 +801,57 @@ struct Inputs {
             std::cout << "Parsing material file using json input format" << std::endl;
         std::ifstream material_data(material_filename);
         nlohmann::json data = nlohmann::json::parse(material_data);
-        irf.A = data["coefficients"]["A"];
-        irf.B = data["coefficients"]["B"];
-        irf.C = data["coefficients"]["C"];
-        std::string functionform = data["function"];
-        if (functionform == "cubic") {
-            irf.D = data["coefficients"]["D"];
-            irf.function = irf.cubic;
+
+        // Ferrite phase
+        irf.A_ferrite = data["coefficients_ferrite"]["A_ferrite"];
+        irf.B_ferrite = data["coefficients_ferrite"]["B_ferrite"];
+        irf.C_ferrite = data["coefficients_ferrite"]["C_ferrite"];
+        std::string functionform_ferrite = data["function_ferrite"];
+        if (functionform_ferrite == "cubic") {
+            irf.D_ferrite = data["coefficients_ferrite"]["D_ferrite"];
+            irf.function_ferrite = irf.cubic;
         }
-        else if ((functionform == "quadratic") || (functionform == "power")) {
+        else if ((functionform_ferrite == "quadratic") || (functionform_ferrite == "power")) {
             // D should not have been given, this functional form only takes 3 input fitting parameters
-            if (data["coefficients"]["D"] != nullptr) {
+            if (data["coefficients"]["D_ferrite"] != nullptr) {
                 std::string error = "Error: functional form of this type takes only A, B, and C as inputs";
                 throw std::runtime_error(error);
             }
-            if (functionform == "quadratic")
-                irf.function = irf.quadratic;
-            else if (functionform == "power")
-                irf.function = irf.power;
+            if (functionform_ferrite == "quadratic")
+                irf.function_ferrite = irf.quadratic;
+            else if (functionform_ferrite == "power")
+                irf.function_ferrite = irf.power;
         }
         else
             throw std::runtime_error("Error: Unrecognized functional form for interfacial response function, currently "
                                      "supported options are quadratic, cubic, and exponential");
-        irf.freezing_range = data["freezing_range"];
+        irf.freezing_range_ferrite = data["freezing_range_ferrite"];
+        
+        // Austenite phase
+        irf.A_austenite = data["coefficients_austenite"]["A_austenite"];
+        irf.B_austenite = data["coefficients_austenite"]["B_austenite"];
+        irf.C_austenite = data["coefficients_austenite"]["C_austenite"];
+        std::string functionform_austenite = data["function_austenite"];
+        if (functionform_austenite == "cubic") {
+            irf.D_austenite = data["coefficients_austenite"]["D_austenite"];
+            irf.function_austenite = irf.cubic;
+        }
+        else if ((functionform_austenite == "quadratic") || (functionform_austenite == "power")) {
+            // D should not have been given, this functional form only takes 3 input fitting parameters
+            if (data["coefficients"]["D_austenite"] != nullptr) {
+                std::string error = "Error: functional form of this type takes only A, B, and C as inputs";
+                throw std::runtime_error(error);
+            }
+            if (functionform_austenite == "quadratic")
+                irf.function_austenite = irf.quadratic;
+            else if (functionform_austenite == "power")
+                irf.function_austenite = irf.power;
+        }
+        else
+            throw std::runtime_error("Error: Unrecognized functional form for interfacial response function, currently "
+                                     "supported options are quadratic, cubic, and exponential");
+        irf.freezing_range_austenite = data["freezing_range_austenite"];
+
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0)
             std::cout << "Successfully parsed material input file" << std::endl;

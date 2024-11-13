@@ -44,17 +44,23 @@ struct NucleationInputs {
 };
 
 struct InterfacialResponseInputs {
-    float freezing_range;
-    float A;
-    float B;
-    float C;
-    float D = 0.0;
+    float freezing_range_ferrite;
+    float A_ferrite;
+    float B_ferrite;
+    float C_ferrite;
+    float D_ferrite = 0.0;
+    float freezing_range_austenite;
+    float A_austenite;
+    float B_austenite;
+    float C_austenite;
+    float D_austenite = 0.0;
     enum IRFtypes {
         cubic = 0,
         quadratic = 1,
         power = 2,
     };
-    int function = cubic;
+    int function_ferrite = cubic;
+    int function_austenite = cubic;
 };
 
 struct TemperatureInputs {
@@ -116,7 +122,7 @@ struct PrintInputs {
 
     // Names of output fields that can be printed to files during or at the end of a simulation
     std::vector<std::string> fieldnames_key = {"GrainID",
-                                               "LayerID",
+                                               "PhaseID",
                                                "GrainMisorientation",
                                                "UndercoolingCurrent",
                                                "UndercoolingSolidificationStart",
@@ -134,7 +140,7 @@ struct PrintInputs {
     bool intralayer_idle_frames = false;
     bool intralayer_non_misorientation_fields = false;
     bool intralayer_grain_id = false;
-    bool intralayer_layer_id = false;
+    bool intralayer_phase_id = false;
     bool intralayer_grain_misorientation = false;
     bool intralayer_undercooling_current = false;
     bool intralayer_undercooling_solidification_start = false;
@@ -150,7 +156,7 @@ struct PrintInputs {
     bool interlayer_full = false;
     bool interlayer_current = false;
     bool interlayer_grain_id = false;
-    bool interlayer_layer_id = false;
+    bool interlayer_phase_id = false;
     bool interlayer_grain_misorientation = false;
     bool interlayer_undercooling_solidification_start = false;
     bool interlayer_undercooling_current = false;

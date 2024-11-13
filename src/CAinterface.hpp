@@ -54,7 +54,7 @@ struct Interface {
     // Constructor for views and view bounds for current layer
     // Use default initialization to 0 for num_steer_host and num_steer and buffer counts
     Interface(const int id, const int domain_size, const float init_oct_size, const int buf_size_initial_estimate = 25,
-              const int buf_components_temp = 8)
+              const int buf_components_temp = 9)
         : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), domain_size))
         , octahedron_center(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center"), 3 * domain_size))
@@ -260,7 +260,7 @@ struct Interface {
     KOKKOS_INLINE_FUNCTION
     bool loadGhostNodes(const int ghost_grain_id, const float ghost_octahedron_center_x,
                         const float ghost_octahedron_center_y, const float ghost_octahedron_center_z,
-                        const float ghost_diagonal_length, const int ny_local, const int coord_x, const int coord_y,
+                        const float ghost_diagonal_length, const int ghost_phase_id, const int ny_local, const int coord_x, const int coord_y,
                         const int coord_z, const bool at_north_boundary, const bool at_south_boundary,
                         const int n_grain_orientations) const {
         bool data_fits_in_buffer = true;
@@ -279,6 +279,7 @@ struct Interface {
                 buffer_south_send(ghost_position_south, 5) = ghost_octahedron_center_y;
                 buffer_south_send(ghost_position_south, 6) = ghost_octahedron_center_z;
                 buffer_south_send(ghost_position_south, 7) = ghost_diagonal_length;
+                buffer_south_send(ghost_position_south, 8) = ghost_phase_id;
             }
         }
         else if ((coord_y == ny_local - 2) && (!(at_north_boundary))) {
@@ -296,6 +297,7 @@ struct Interface {
                 buffer_north_send(ghost_position_north, 5) = ghost_octahedron_center_y;
                 buffer_north_send(ghost_position_north, 6) = ghost_octahedron_center_z;
                 buffer_north_send(ghost_position_north, 7) = ghost_diagonal_length;
+                buffer_north_send(ghost_position_north, 8) = ghost_phase_id;
             }
         }
         return data_fits_in_buffer;
