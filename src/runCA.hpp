@@ -100,9 +100,9 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // fillSteeringVector_Remelt
             timers.startSV();
             if ((simulation_type == "Directional") || (simulation_type == "SingleGrain"))
-                fillSteeringVector_NoRemelt(cycle, grid, celldata, temperature, interface);
+                fillSteeringVector_NoRemelt(cycle, grid, celldata, temperature, interface, irf);
             else
-                fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
+                fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface, irf);
             timers.stopSV();
 
             // Iterate over the steering vector to perform active cell creation and capture operations, and if needed,

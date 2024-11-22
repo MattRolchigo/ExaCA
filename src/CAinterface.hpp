@@ -38,7 +38,7 @@ struct Interface {
 
     // Size of send/recv buffers
     int buf_size, buf_components;
-    view_type_float diagonal_length, init_diagonal_length, octahedron_center, crit_diagonal_length;
+    view_type_float diagonal_length, init_diagonal_length, octahedron_center_x, octahedron_center_y, octahedron_center_z, crit_diagonal_length;
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
     view_type_int send_size_south, send_size_north, steering_vector, num_steer;
     view_type_int_host send_size_south_host, send_size_north_host, num_steer_host;
@@ -56,9 +56,13 @@ struct Interface {
     Interface(const int id, const int domain_size, const float init_oct_size, const int buf_size_initial_estimate = 25,
               const int buf_components_temp = 8)
         : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), 26 * domain_size))
-        , init_diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("init_diagonal_length"), domain_size))
-        , octahedron_center(
-              view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center"), 3 * domain_size))
+        , init_diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("init_diagonal_length"), 26 * domain_size))
+        , octahedron_center_x(
+              view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center_x"), 26 * domain_size))
+        , octahedron_center_y(
+          view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center_y"), 26 * domain_size))
+        , octahedron_center_z(
+          view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center_z"), 26 * domain_size))
         , crit_diagonal_length(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("crit_diagonal_length"), 26 * domain_size))
         , buffer_south_send(view_type_buffer(Kokkos::ViewAllocateWithoutInitializing("buffer_south_send"),
@@ -115,11 +119,45 @@ struct Interface {
     // Initialize neighbor list structures (neighbor_x, neighbor_y, neighbor_z)
     void neighborListInit() {
 
-        // Neighbors 0 through 5 are nearest neighbors, 6 through 17 are second nearest neighbors, and 18 through 25 are
-        // third nearest neighbors
-        neighbor_x = {1, 0, 0, -1, 0, 0, 1, 1, 0, -1, -1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 1, 1, -1, -1, 1, -1};
-        neighbor_y = {0, 1, 0, 0, -1, 0, 1, 0, 1, -1, 0, -1, 1, 0, -1, -1, 0, 1, 1, 1, -1, 1, -1, 1, -1, -1};
-        neighbor_z = {0, 0, 1, 0, 0, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, -1, 1, 1, 1, -1, 1, -1, -1, -1};
+        // Set up lists so that adjacent cells are sequential and x,y,z can be converted to 1D indices via getNeighborIndexInitiatingCell. Note that there is no (0,0,0)
+        //             0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12,13, 14,15,16, 17, 18, 19, 20,21,22, 23,24, 25
+        neighbor_x = {-1, -1, -1,  0,  0,  0,  1,  1,  1, -1, -1, -1,  0, 0,  1, 1, 1, -1, -1, -1,  0, 0, 0,  1, 1, 1};
+        neighbor_y = {-1,  0,  1, -1,  0,  1, -1,  0,  1, -1,  0,  1, -1, 1, -1, 0, 1, -1,  0,  1, -1, 0, 1, -1, 0, 1};
+        neighbor_z = {-1, -1, -1, -1, -1, -1, -1, -1, -1,  0,  0,  0,  0, 0,  0, 0, 0,  1,  1,  1,  1, 1, 1,  1, 1, 1};
+    }
+
+    // Cell at init_coord_x, init_coord_y, init_coord_z initiated the capture event
+    // Cell at capt_coord_x, capt_coord_y, capt_coord_z was captured
+    // The index neighbor_index_of_capt gives the coordinate of a cell adjacent to the captured cell
+    // Return the index such that init_coord_x + neighbor_x[neighbor_index_of_init] = capt_coord_x + neighbor_coord_x[neighbor_index_of_capt], etc for y and z. If there is no value for neighbor_index_of_init to make these conditions true, return -1
+    KOKKOS_INLINE_FUNCTION
+    int getNeighborIndexInitiatingCell(const int init_coord_x, const int init_coord_y, const int init_coord_z, const int capt_coord_x, const int capt_coord_y, const int capt_coord_z, const int nx, const int ny_local, const int nz_layer, const int neighbor_index_of_capt) const {
+        int neighbor_index_of_init;
+        // Cell adjacent to to captured cell
+        const int adjacent_capt_center_x = capt_coord_x + neighbor_x[neighbor_index_of_capt];
+        const int adjacent_capt_center_y = capt_coord_y + neighbor_y[neighbor_index_of_capt];
+        const int adjacent_capt_center_z = capt_coord_z + neighbor_z[neighbor_index_of_capt];
+        // Distance between the cell adjacent to the captured cell center and the initiating cell
+        int dist_adjacent_init_x = adjacent_capt_center_x - init_coord_x;
+        int dist_adjacent_init_y = adjacent_capt_center_y - init_coord_y;
+        int dist_adjacent_init_z = adjacent_capt_center_z - init_coord_z;
+        const bool adjacent_capt_no_border_init = ((Kokkos::abs(dist_adjacent_init_x) > 1) || (Kokkos::abs(dist_adjacent_init_y) > 1) || (Kokkos::abs(dist_adjacent_init_z) > 1));
+        const bool adjacent_capt_same_as_init = (Kokkos::abs(dist_adjacent_init_x) + Kokkos::abs(dist_adjacent_init_y) + Kokkos::abs(dist_adjacent_init_z) == 0);
+        const bool adjacent_capt_not_in_bounds = ((adjacent_capt_center_x < 0) || (adjacent_capt_center_x >= nx) || (adjacent_capt_center_y < 0) || (adjacent_capt_center_x >= ny_local) || (adjacent_capt_center_z < 0) || (adjacent_capt_center_z >= nz_layer));
+        // Return -1 if either of the following conditions are satisfied. 1) The cell adjacent to the captured cell is the initiating cell. 2) The distance between the cell adjacent to the captured cell center and the initiating cell is 2 or more in any cardinal direction. 3) The cell adjacent to the captured cell is out of bounds
+        if ((adjacent_capt_no_border_init) || (adjacent_capt_same_as_init) || (adjacent_capt_not_in_bounds))
+            neighbor_index_of_init = -1;
+        else {
+            // Add 1 so that capt_dir_x, capt_dir_y, capt_dir_z go from 0 to 2 for consistent indexing with the ordering in neighborListInit
+            dist_adjacent_init_x++;
+            dist_adjacent_init_y++;
+            dist_adjacent_init_z++;
+            // Convert the (i,j,k) to the relevant index in neighbor_x,neighbor_y,neighbor_z. Because (0,0,0) isn't an indexed direction in the neighbor lists, subtract one from the 1D index for cells past the midway index of the capture directions
+            neighbor_index_of_init = 9 * dist_adjacent_init_z + 3 * dist_adjacent_init_x + dist_adjacent_init_y;
+            if (neighbor_index_of_init >= 14)
+                neighbor_index_of_init = neighbor_index_of_init - 1;
+        }
+        return neighbor_index_of_init;
     }
 
     // Increase size of buffers if necessary, returning the new buffer size. Return true if the buffers were resized
@@ -176,15 +214,15 @@ struct Interface {
         // Realloc steering vector as domain_size for the next layer may be different
         Kokkos::realloc(steering_vector, domain_size);
 
-        // Realloc active cell data structure and halo regions
-        Kokkos::realloc(diagonal_length, 26 * domain_size);
-        Kokkos::realloc(octahedron_center, 3 * domain_size);
-        Kokkos::realloc(crit_diagonal_length, 26 * domain_size);
-
-        // Reset active cell data structures to zeros
-        Kokkos::deep_copy(diagonal_length, 0);
-        Kokkos::deep_copy(octahedron_center, 0);
-        Kokkos::deep_copy(crit_diagonal_length, 0);
+//        // Realloc active cell data structure and halo regions
+//        Kokkos::realloc(diagonal_length, 26 * domain_size);
+//        Kokkos::realloc(octahedron_center, 3 * domain_size);
+//        Kokkos::realloc(crit_diagonal_length, 26 * domain_size);
+//
+//        // Reset active cell data structures to zeros
+//        Kokkos::deep_copy(diagonal_length, 0);
+//        Kokkos::deep_copy(octahedron_center, 0);
+//        Kokkos::deep_copy(crit_diagonal_length, 0);
     }
 
     // Assign octahedron a small initial size, and a center location
@@ -192,12 +230,13 @@ struct Interface {
     KOKKOS_INLINE_FUNCTION
     void createNewOctahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
                              const int coord_z) const {
-        for (int capt_dir=0; capt_dir<26; capt_dir++)
+        for (int capt_dir=0; capt_dir<26; capt_dir++) {
             diagonal_length(26 * index + capt_dir) = _init_oct_size;
-        init_diagonal_length(index) = _init_oct_size;
-        octahedron_center(3 * index) = coord_x + 0.5;
-        octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
-        octahedron_center(3 * index + 2) = coord_z + 0.5;
+            init_diagonal_length(26 * index + capt_dir) = _init_oct_size;
+            octahedron_center_x(26 * index + capt_dir) = coord_x + 0.5;
+            octahedron_center_y(26 * index + capt_dir) = coord_y + y_offset + 0.5;
+            octahedron_center_z(26 * index + capt_dir) = coord_z + 0.5;
+        }
     }
 
     // For the newly active cell located at 1D array position index (3D center coordinate of xp, yp, zp),
@@ -208,7 +247,7 @@ struct Interface {
     KOKKOS_INLINE_FUNCTION void calcCritDiagonalLength(const int index, const float xp, const float yp, const float zp,
                                                        const float cx, const float cy, const float cz,
                                                        const int my_orientation,
-                                                       const ViewType grain_unit_vector) const {
+                                                       const ViewType grain_unit_vector, const int capt_dir) const {
         // Calculate critical octahedron diagonal length to activate nearest neighbor.
         // First, calculate the unique planes (4) associated with all octahedron faces (8)
         // Then just look at distance between face and the point of interest (cell center of
@@ -244,17 +283,15 @@ struct Interface {
         fz[3] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) -
                 grain_unit_vector(9 * my_orientation + 8);
 
-        for (int n = 0; n < 26; n++) {
-            float x0 = xp + neighbor_x[n] - cx;
-            float y0 = yp + neighbor_y[n] - cy;
-            float z0 = zp + neighbor_z[n] - cz;
-            float d0 = x0 * fx[0] + y0 * fy[0] + z0 * fz[0];
-            float d1 = x0 * fx[1] + y0 * fy[1] + z0 * fz[1];
-            float d2 = x0 * fx[2] + y0 * fy[2] + z0 * fz[2];
-            float d3 = x0 * fx[3] + y0 * fy[3] + z0 * fz[3];
-            float dfabs = fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
-            crit_diagonal_length(26 * index + n) = dfabs;
-        }
+        float x0 = xp + neighbor_x[capt_dir] - cx;
+        float y0 = yp + neighbor_y[capt_dir] - cy;
+        float z0 = zp + neighbor_z[capt_dir] - cz;
+        float d0 = x0 * fx[0] + y0 * fy[0] + z0 * fz[0];
+        float d1 = x0 * fx[1] + y0 * fy[1] + z0 * fz[1];
+        float d2 = x0 * fx[2] + y0 * fy[2] + z0 * fz[2];
+        float d3 = x0 * fx[3] + y0 * fy[3] + z0 * fz[3];
+        float dfabs = fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
+        crit_diagonal_length(26 * index + capt_dir) = dfabs;
     }
 
     // Load data (grain_id, octahedron_center, diagonal_length) into ghost nodes if the given coord_y is associated with
