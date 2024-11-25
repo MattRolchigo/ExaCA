@@ -38,7 +38,7 @@ struct Interface {
 
     // Size of send/recv buffers
     int buf_size, buf_components;
-    view_type_float diagonal_length, init_diagonal_length, octahedron_center_x, octahedron_center_y, octahedron_center_z, crit_diagonal_length;
+    view_type_float diagonal_length, init_diagonal_length, octahedron_center_x, octahedron_center_y, octahedron_center_z, crit_diagonal_length, intermediate_diagonal_length;
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
     view_type_int send_size_south, send_size_north, steering_vector, num_steer;
     view_type_int_host send_size_south_host, send_size_north_host, num_steer_host;
@@ -65,6 +65,8 @@ struct Interface {
           view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center_z"), 26 * domain_size))
         , crit_diagonal_length(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("crit_diagonal_length"), 26 * domain_size))
+        , intermediate_diagonal_length(
+          view_type_float(Kokkos::ViewAllocateWithoutInitializing("intermediate_diagonal_length"), 26 * domain_size))
         , buffer_south_send(view_type_buffer(Kokkos::ViewAllocateWithoutInitializing("buffer_south_send"),
                                              buf_size_initial_estimate, buf_components_temp))
         , buffer_north_send(view_type_buffer(Kokkos::ViewAllocateWithoutInitializing("buffer_north_send"),
@@ -247,7 +249,7 @@ struct Interface {
     KOKKOS_INLINE_FUNCTION void calcCritDiagonalLength(const int index, const float xp, const float yp, const float zp,
                                                        const float cx, const float cy, const float cz,
                                                        const int my_orientation,
-                                                       const ViewType grain_unit_vector, const int capt_dir) const {
+                                                       const ViewType grain_unit_vector, const int capt_dir, const float new_octahedron_diag_length, const int coord_x, const int coord_y, const int coord_z) const {
         // Calculate critical octahedron diagonal length to activate nearest neighbor.
         // First, calculate the unique planes (4) associated with all octahedron faces (8)
         // Then just look at distance between face and the point of interest (cell center of
@@ -255,37 +257,62 @@ struct Interface {
         // planes will have passed over the point by then
         // ... meaning it must be in the octahedron)
         float fx[4], fy[4], fz[4];
-
+        
         fx[0] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
+        grain_unit_vector(9 * my_orientation + 6);
         fx[1] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
+        grain_unit_vector(9 * my_orientation + 6);
         fx[2] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
+        grain_unit_vector(9 * my_orientation + 6);
         fx[3] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
-
+        grain_unit_vector(9 * my_orientation + 6);
+        
         fy[0] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
+        grain_unit_vector(9 * my_orientation + 7);
         fy[1] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
+        grain_unit_vector(9 * my_orientation + 7);
         fy[2] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
+        grain_unit_vector(9 * my_orientation + 7);
         fy[3] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
-
+        grain_unit_vector(9 * my_orientation + 7);
+        
         fz[0] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
+        grain_unit_vector(9 * my_orientation + 8);
         fz[1] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
+        grain_unit_vector(9 * my_orientation + 8);
         fz[2] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
+        grain_unit_vector(9 * my_orientation + 8);
         fz[3] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
-
+        grain_unit_vector(9 * my_orientation + 8);
+        
         float x0 = xp + neighbor_x[capt_dir] - cx;
         float y0 = yp + neighbor_y[capt_dir] - cy;
         float z0 = zp + neighbor_z[capt_dir] - cz;
+        // dx,dy,dz: distance from the octahedron center to the center of a neighbor of the captured cell center
+        float dx = xp + neighbor_x[capt_dir] - cx;
+        float dy = yp + neighbor_y[capt_dir] - cy;
+        float dz = zp + neighbor_z[capt_dir] - cz;
+        float dxdydzmag = Kokkos::sqrt(dx * dx + dy * dy + dz * dz);
+        float dxnorm = dx / dxdydzmag;
+        float dynorm = dy / dxdydzmag;
+        float dznorm = dz / dxdydzmag;
+        // Which <100> is best aligned with x0,y0,z0?
+        // The larger the cosine of the angle, the smaller the angle/better the alignment
+        if (dxdydzmag != 0) {
+            int guv_idx = 0;
+            float cos_ang_100 = 0.0;
+            for (int uv=0; uv<3; uv++) {
+                float cos_ang_100_candidate = Kokkos::abs(dxnorm * grain_unit_vector(9 * my_orientation + 3 * uv) +  dynorm * grain_unit_vector(9 * my_orientation + 3 * uv + 1) +  dznorm * grain_unit_vector(9 * my_orientation + 3 * uv + 2));
+//                printf("cos ang candidate = %f for uv = %d\n",cos_ang_100_candidate,uv);
+                if (cos_ang_100_candidate > cos_ang_100) {
+                    cos_ang_100 = cos_ang_100_candidate;
+                    guv_idx = uv;
+                }
+            }
+            intermediate_diagonal_length(26 * index + capt_dir) = dxdydzmag * cos_ang_100;
+//            if (capt_dir == 22)
+//                printf("For the cell at %f %f %f cos ang is %f, dxdydzmag is %f IDR is %f\n",xp,yp,zp,cos_ang_100,dxdydzmag,intermediate_diagonal_length(26 * index + capt_dir));
+        }
         float d0 = x0 * fx[0] + y0 * fy[0] + z0 * fz[0];
         float d1 = x0 * fx[1] + y0 * fy[1] + z0 * fz[1];
         float d2 = x0 * fx[2] + y0 * fy[2] + z0 * fz[2];

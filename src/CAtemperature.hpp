@@ -873,11 +873,11 @@ struct Temperature {
 
     // Get the effective undercooling used for update of the octahedron for cell "index", for capture of cell "neighbor_index"
     KOKKOS_INLINE_FUNCTION
-    float getEffectiveUndercooling(const int index, const int neighbor_index, const float diagonal_length_cell, const float init_diagonal_length_cell, const float crit_diagonal_length_neighbor, bool printu) const {
-        const float fract_to_neighbor = Kokkos::min(static_cast<float>(1.0), (diagonal_length_cell - init_diagonal_length_cell) / (crit_diagonal_length_neighbor - init_diagonal_length_cell));
+    float getEffectiveUndercooling(const int index, const int neighbor_index, const float diagonal_length_cell, const float init_diagonal_length_cell, const float intermediate_diagonal_length_neighbor, const bool printu) const {
+        const float fract_to_neighbor = (diagonal_length_cell - init_diagonal_length_cell) / (intermediate_diagonal_length_neighbor - init_diagonal_length_cell);
         const float effective_undercooling = fract_to_neighbor * undercooling_current(neighbor_index) + (1 - fract_to_neighbor) * undercooling_current(index);
 //        if (printu)
-//            printf("FRACT TO NEIGHBOR = %f, 1-F = %f\n",fract_to_neighbor, 1-fract_to_neighbor);
+//            printf("DL is %f, intermediate_diagonal_length_neighbor %f init_diagonal_length_cell %f\n",diagonal_length_cell,intermediate_diagonal_length_neighbor,init_diagonal_length_cell);
         return effective_undercooling;
     }
     

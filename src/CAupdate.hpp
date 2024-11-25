@@ -157,33 +157,44 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
      "DiagLengthUpdate", interface.num_steer_host(0), KOKKOS_LAMBDA(const int &num) {
          // Get the 1D index of cell from the steering vector
          const int index = interface.steering_vector(num);
-         // Update diagonal lengths simultaneously prior to comparisons against critical diagonal lengths
-         const int coord_x = grid.getCoordX(index);
-         const int coord_y = grid.getCoordY(index);
-         const int coord_z = grid.getCoordZ(index);
-         for (int l = 0; l < 26; l++) {
-             // Local coordinates of adjacent cell center
-             const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-             const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-             const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-             // Check if neighbor is in bounds
-             const int neighbor_index =
-             grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-             if (neighbor_index != -1) {
-                 const int neighbor_cell_type = celldata.cell_type(neighbor_index);
-                 if (neighbor_cell_type == Liquid) {
-                     // Extend the octahedron corresponding to capture of this neighbor based on the local undercooling of this cell and the neighboring cell, and the interfacial response function
-                     const int capture_index = 26 * index + l;
-                     const float diagonal_length_cell = interface.diagonal_length(capture_index);
-                     const float init_diagonal_length_cell = interface.init_diagonal_length(capture_index);
-                     const float crit_diagonal_length_neighbor = interface.crit_diagonal_length(capture_index);
-                     // Effectve undercooling based on the progress this octahedron has made towards capture of neighbor "l"
-                     bool printu = ((coord_x == 3) && (coord_y == 3) && (cycle == 847));
-                     const float local_undercooling_effective = temperature.getEffectiveUndercooling(index, neighbor_index, diagonal_length_cell, init_diagonal_length_cell, crit_diagonal_length_neighbor,printu);
-                     // Update diagonal length of octahedron based on effective undercooling and interfacial response function
-                     interface.diagonal_length(capture_index) += irf.compute(local_undercooling_effective);
-//                     if (coord_x == 4 && coord_y == 2 && coord_z == 0)
-//                         printf("Cycle %d DL to capture %d %d %d is %f\n",cycle,neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,interface.diagonal_length(capture_index));
+         if (celldata.cell_type(index) == Active) {
+             // Update diagonal lengths simultaneously prior to comparisons against critical diagonal lengths
+             const int coord_x = grid.getCoordX(index);
+             const int coord_y = grid.getCoordY(index);
+             const int coord_z = grid.getCoordZ(index);
+             for (int l = 0; l < 26; l++) {
+                 // Local coordinates of adjacent cell center
+                 const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                 const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                 const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                 // Check if neighbor is in bounds
+                 const int neighbor_index =
+                 grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                 if (neighbor_index != -1) {
+                     const int neighbor_cell_type = celldata.cell_type(neighbor_index);
+                     if (neighbor_cell_type == Liquid) {
+                         // Extend the octahedron corresponding to capture of this neighbor based on the local undercooling of this cell and the neighboring cell, and the interfacial response function
+                         const int capture_index = 26 * index + l;
+                         const float diagonal_length_cell = interface.diagonal_length(capture_index);
+                         const float init_diagonal_length_cell = interface.init_diagonal_length(capture_index);
+                         const float intermediate_diagonal_length_neighbor = interface.intermediate_diagonal_length(capture_index);
+                         // Effectve undercooling based on the progress this octahedron has made towards capture of neighbor "l"
+                         bool printu = false;
+                         if (coord_x == 3 && coord_y == 4 && coord_z == 0 && l == 25)
+                             printu = true;
+//                         if ((coord_x == 3) && (coord_y == 3) && (coord_z == 0) && (l == 21))
+//                             printf("Start - NN Capture: Cycle %d, DL = %f, IDL = %f, InitDL %f \n",cycle,diagonal_length_cell,intermediate_diagonal_length_neighbor,init_diagonal_length_cell);
+//                         if ((coord_x == 3) && (coord_y == 2) && (coord_z == 0) && (l == 22))
+//                             printf("Start - NNN Capture: Cycle %d, DL = %f, IDL = %f, InitDL %f\n",cycle,diagonal_length_cell,intermediate_diagonal_length_neighbor,init_diagonal_length_cell);
+
+                         const float local_undercooling_effective = temperature.getEffectiveUndercooling(index, neighbor_index, diagonal_length_cell, init_diagonal_length_cell, intermediate_diagonal_length_neighbor,printu);
+                         // Update diagonal length of octahedron based on effective undercooling and interfacial response function
+                         interface.diagonal_length(capture_index) += irf.compute(local_undercooling_effective);
+//                         if ((coord_x == 3) && (coord_y == 3) && (coord_z == 0) && (l == 21))
+//                             printf("NN Capture: Cycle %d, DL = %f, IDL = %f, InitDL %f\n",cycle,interface.diagonal_length(capture_index),intermediate_diagonal_length_neighbor,init_diagonal_length_cell);
+//                         if ((coord_x == 3) && (coord_y == 2) && (coord_z == 0) && (l == 22))
+//                             printf("NNN Capture: Cycle %d, DL = %f, IDL = %f, InitDL %f\n",cycle,interface.diagonal_length(capture_index),intermediate_diagonal_length_neighbor,init_diagonal_length_cell);
+                     }
                  }
              }
          }
@@ -237,7 +248,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                 // TemporaryUpdate)
                                 if (old_cell_type_value == Liquid) {
                                     // Cell capture event
-                                    printf("Cell at %d %d %d captured cell at %d %d %d, time step %d\n",coord_x,coord_y,coord_z,neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,cycle);
+                                    printf("Cell at %d %d %d captured cell at %d %d %d, time step %d. DL was %f, CDL was %f, IDL was %f\n",coord_x,coord_y,coord_z,neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,cycle,interface.diagonal_length(capture_index),interface.crit_diagonal_length(capture_index),interface.intermediate_diagonal_length(capture_index));
                                     const int my_grain_id = grain_id(index);
                                     const int my_orientation =
                                     getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
@@ -411,7 +422,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                     0.5 * (Kokkos::fmin(proj_nearest_corner_edge_2, Kokkos::sqrt(3.0f)) +
                                            Kokkos::fmin(proj_next_nearest_corner_edge_2, Kokkos::sqrt(3.0f)));
                                     // half diagonal length of new octahedron
-                                    const float new_octahedron_diag_length = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
+                                    float new_octahedron_diag_length = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
                                     
                                     // Calculate coordinates of new decentered octahedron center
                                     const float capt_diag_x = xc - cxold;
@@ -425,23 +436,33 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                     // Calculate center and initial size for each new octahedron placed in the new active cell
                                     // Each octahedron has a max size of new_octahedron_diag_length, but will take an initial size from one of the original cell's octahedra if possible. The center of each octahedron is still placed so that the octahedron's corner overlaps with xc, yc, zc
                                     for (int capt_dir=0; capt_dir<26; capt_dir++) {
-                                        float new_octahedron_diag_length_adjusted;
-                                        const int neighbor_index_of_init = interface.getNeighborIndexInitiatingCell(coord_x, coord_y, coord_z, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.nx, grid.ny_local, grid.nz_layer, capt_dir);
 //                                        if ((neighbor_coord_z == 0) && (neighbor_index_of_init != -1))
 //                                            printf("Diagonal for the initial cell's capture of %d %d %d will be assigned to the new active cell's capture of %d %d %d\n", coord_x + interface.neighbor_x[neighbor_index_of_init], coord_y + interface.neighbor_y[neighbor_index_of_init], coord_z + interface.neighbor_z[neighbor_index_of_init],neighbor_coord_x + interface.neighbor_x[capt_dir], neighbor_coord_y + interface.neighbor_y[capt_dir], neighbor_coord_z + interface.neighbor_z[capt_dir]);
-                                        if (neighbor_index_of_init == -1)
-                                            new_octahedron_diag_length_adjusted = new_octahedron_diag_length;
-                                        else
-                                            new_octahedron_diag_length_adjusted = Kokkos::min(interface.diagonal_length(26 * index + neighbor_index_of_init), new_octahedron_diag_length);
+                                        float cx, cy, cz;
+                                        const int neighbor_index_of_init = interface.getNeighborIndexInitiatingCell(coord_x, coord_y, coord_z, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.nx, grid.ny_local, grid.nz_layer, capt_dir);
+                                        if (neighbor_index_of_init == -1) {
+                                            // This neighbor of the captured cell does not border the original cell - perform decentered octahedron placement as usual
+                                            interface.diagonal_length(26 * neighbor_index + capt_dir) = new_octahedron_diag_length;
+                                            cx = xc - new_octahedron_diag_length * capt_diag_unit_vec_x;
+                                            cy = yc - new_octahedron_diag_length * capt_diag_unit_vec_y;
+                                            cz = zc - new_octahedron_diag_length * capt_diag_unit_vec_z;
+                                            interface.init_diagonal_length(26 * neighbor_index + capt_dir) = interface.diagonal_length(26 * neighbor_index + capt_dir);
+                                        }
+                                        else {
+                                            // Get initial octahedron size from the size of the original cell's octahedron in the same capture direction. Also take the octahedron center from the original cell's octahedron
+                                            interface.diagonal_length(26 * neighbor_index + capt_dir) = Kokkos::min(interface.diagonal_length(26 * index + neighbor_index_of_init), new_octahedron_diag_length);
+                                            new_octahedron_diag_length = interface.diagonal_length(26 * neighbor_index + capt_dir);
+                                            cx = interface.octahedron_center_x(26 * index + neighbor_index_of_init);
+                                            cy = interface.octahedron_center_y(26 * index + neighbor_index_of_init);
+                                            cz = interface.octahedron_center_z(26 * index + neighbor_index_of_init);
+                                            interface.init_diagonal_length(26 * neighbor_index + capt_dir) = interface.init_diagonal_length(26 * index + neighbor_index_of_init);
 
-                                        interface.diagonal_length(26 * neighbor_index + capt_dir) = new_octahedron_diag_length_adjusted;
-                                        interface.init_diagonal_length(26 * neighbor_index + capt_dir) = new_octahedron_diag_length_adjusted;
+                                        }
+//                                        if ((neighbor_coord_x == 3) && (neighbor_coord_y == 2) && (neighbor_coord_z == 0) && (capt_dir == 22))
+//                                            printf("Octahedron at 3,2,0 is placed with a center at %f %f %f\n",cx,cy,cz);
 //                                        if (neighbor_coord_z == 0)
 //                                            printf("Captured neighbor at X = %d, Y = %d on time step %d, new diag length for capture of cell at %d %d %d is %f or %f\n",neighbor_coord_x,neighbor_coord_y,cycle,neighbor_coord_x + interface.neighbor_x[capt_dir],neighbor_coord_y + interface.neighbor_y[capt_dir],neighbor_coord_z + interface.neighbor_z[capt_dir],new_octahedron_diag_length_adjusted, new_octahedron_diag_length);
                                         // (cx, cy, cz) are the coordinates of the new active cell's decentered octahedron
-                                        const float cx = xc - new_octahedron_diag_length_adjusted * capt_diag_unit_vec_x;
-                                        const float cy = yc - new_octahedron_diag_length_adjusted * capt_diag_unit_vec_y;
-                                        const float cz = zc - new_octahedron_diag_length_adjusted * capt_diag_unit_vec_z;
 //                                        interface.diagonal_length(26 * neighbor_index + capt_dir) = new_octahedron_diag_length;
 //                                        interface.init_diagonal_length(26 * neighbor_index + capt_dir) = new_octahedron_diag_length;
 //                                        // (cx, cy, cz) are the coordinates of the new active cell's decentered octahedron
@@ -454,7 +475,11 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                         // Get new critical diagonal length values for the newly activated cell (at array
                                         // position "neighbor_index")
                                         interface.calcCritDiagonalLength(neighbor_index, xp, yp, zp, cx, cy, cz, my_orientation,
-                                                                         orientation.grain_unit_vector, capt_dir);
+                                                                         orientation.grain_unit_vector, capt_dir, new_octahedron_diag_length, coord_x, coord_y,coord_z);
+//                                        if ((neighbor_coord_x == 1) && (neighbor_coord_y == 3) && (neighbor_coord_z == 0) && (capt_dir == 24))
+//                                            printf("Capture distance to cell 2,3,1: %f, initial size %f, IDL %f, oct center %f %f %f\n",interface.crit_diagonal_length(26 * neighbor_index + capt_dir),interface.init_diagonal_length(26 * neighbor_index + capt_dir),interface.intermediate_diagonal_length(26 * neighbor_index + capt_dir), cx,cy,cz);
+//                                        printf("Init/Intermediate/Crit DL for capture of %d %d %d: %f %f %f\n",neighbor_coord_x+interface.neighbor_x[capt_dir],neighbor_coord_y+interface.neighbor_y[capt_dir],neighbor_coord_z+interface.neighbor_z[capt_dir],interface.init_diagonal_length(26 * neighbor_index + capt_dir),interface.intermediate_diagonal_length(26 * neighbor_index + capt_dir),interface.crit_diagonal_length(26 * neighbor_index + capt_dir));
+
                                     }
                                     
                                     if (np > 1) {
@@ -530,7 +555,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                 // grain
                 for (int capt_dir=0; capt_dir<26; capt_dir++)
                     interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                 orientation.grain_unit_vector, capt_dir);
+                                                 orientation.grain_unit_vector, capt_dir, 0.01, coord_x, coord_y, coord_z);
                 if (np > 1) {
                     // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
                     // slowdown is minor
