@@ -30,15 +30,18 @@ struct Interface {
     using view_type_buffer = Kokkos::View<float **, memory_space>;
     using view_type_float = Kokkos::View<float *, memory_space>;
     using view_type_int = Kokkos::View<int *, memory_space>;
+    using view_type_short = Kokkos::View<short *, memory_space>;
     using view_type_int_host = typename view_type_int::HostMirror;
     using neighbor_list_type = Kokkos::Array<int, 26>;
+    using diagonal_list_type = Kokkos::Array<int, 6>;
 
     // Using the default exec space for this memory space.
     using execution_space = typename memory_space::execution_space;
 
     // Size of send/recv buffers
     int buf_size, buf_components;
-    view_type_float diagonal_length, octahedron_center, crit_diagonal_length;
+    view_type_short nearest_diagonals;
+    view_type_float diagonal_length, octahedron_center;
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
     view_type_int send_size_south, send_size_north, steering_vector, num_steer;
     view_type_int_host send_size_south_host, send_size_north_host, num_steer_host;
@@ -48,6 +51,9 @@ struct Interface {
     // Neighbor lists
     neighbor_list_type neighbor_x, neighbor_y, neighbor_z;
 
+    // +/- 1 for positive and negative unit vector directions for each crystallographic <100>
+    diagonal_list_type direction_negative;
+
     // Parallel dispatch tags.
     struct RefillBuffersTag {};
 
@@ -55,11 +61,10 @@ struct Interface {
     // Use default initialization to 0 for num_steer_host and num_steer and buffer counts
     Interface(const int id, const int domain_size, const float init_oct_size, const int buf_size_initial_estimate = 25,
               const int buf_components_temp = 8)
-        : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), domain_size))
+        : nearest_diagonals(view_type_short(Kokkos::ViewAllocateWithoutInitializing("nearest_diagonals"), 72 * domain_size))
+        , diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), 6 * domain_size))
         , octahedron_center(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center"), 3 * domain_size))
-        , crit_diagonal_length(
-              view_type_float(Kokkos::ViewAllocateWithoutInitializing("crit_diagonal_length"), 26 * domain_size))
         , buffer_south_send(view_type_buffer(Kokkos::ViewAllocateWithoutInitializing("buffer_south_send"),
                                              buf_size_initial_estimate, buf_components_temp))
         , buffer_north_send(view_type_buffer(Kokkos::ViewAllocateWithoutInitializing("buffer_north_send"),
@@ -86,6 +91,8 @@ struct Interface {
         resetBuffers();
         // Initialize neighbor lists for iterating over active cells
         neighborListInit();
+        // Initialize positive/negative numbers for unit vector directions
+        directionNegativeInit();
 
         if (id == 0)
             std::cout << "Done with interface initialization" << std::endl;
@@ -119,6 +126,11 @@ struct Interface {
         neighbor_x = {1, 0, 0, -1, 0, 0, 1, 1, 0, -1, -1, 0, -1, -1, 0, 1, 1, 0, 1, -1, 1, 1, -1, -1, 1, -1};
         neighbor_y = {0, 1, 0, 0, -1, 0, 1, 0, 1, -1, 0, -1, 1, 0, -1, -1, 0, 1, 1, 1, -1, 1, -1, 1, -1, -1};
         neighbor_z = {0, 0, 1, 0, 0, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, -1, 1, 1, 1, -1, 1, -1, -1, -1};
+    }
+    
+    // Initialize directionNegativeInit to -1s and +1s for the positive and negative grain unit vector directions
+    void directionNegativeInit() {
+        direction_negative = {1, 1, 1, -1, -1, -1};
     }
 
     // Increase size of buffers if necessary, returning the new buffer size. Return true if the buffers were resized
@@ -178,79 +190,44 @@ struct Interface {
         // Realloc active cell data structure and halo regions
         Kokkos::realloc(diagonal_length, domain_size);
         Kokkos::realloc(octahedron_center, 3 * domain_size);
-        Kokkos::realloc(crit_diagonal_length, 26 * domain_size);
+        Kokkos::realloc(nearest_diagonals, 72 * domain_size);
 
         // Reset active cell data structures to zeros
         Kokkos::deep_copy(diagonal_length, 0);
         Kokkos::deep_copy(octahedron_center, 0);
-        Kokkos::deep_copy(crit_diagonal_length, 0);
+        Kokkos::deep_copy(nearest_diagonals, 0);
     }
 
-    // Assign octahedron a small initial size, and a center location
+    // Assign octahedron a small initial (equiaxed) size, and a center location
     // Note that the Y coordinate is relative to the domain origin to keep the coordinate system continuous across ranks
+    template <typename ViewType>
     KOKKOS_INLINE_FUNCTION
     void createNewOctahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
-                             const int coord_z) const {
-        diagonal_length(index) = _init_oct_size;
+                             const int coord_z, const int my_orientation, const ViewType grain_unit_vector) const {
+        for (int diagonal=0; diagonal<6; diagonal++)
+            diagonal_length(6 * index + diagonal) = _init_oct_size;
         octahedron_center(3 * index) = coord_x + 0.5;
         octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
         octahedron_center(3 * index + 2) = coord_z + 0.5;
-    }
-
-    // For the newly active cell located at 1D array position index (3D center coordinate of xp, yp, zp),
-    // update crit_diagonal_length values for cell capture of neighboring cells. The octahedron has a center located at
-    // (cx, cy, cz) Note that yp and cy are relative to the domain origin to keep the coordinate system continuous
-    // across ranks
-    template <typename ViewType>
-    KOKKOS_INLINE_FUNCTION void calcCritDiagonalLength(const int index, const float xp, const float yp, const float zp,
-                                                       const float cx, const float cy, const float cz,
-                                                       const int my_orientation,
-                                                       const ViewType grain_unit_vector) const {
-        // Calculate critical octahedron diagonal length to activate nearest neighbor.
-        // First, calculate the unique planes (4) associated with all octahedron faces (8)
-        // Then just look at distance between face and the point of interest (cell center of
-        // neighbor). The critical diagonal length will be the maximum of these (since all other
-        // planes will have passed over the point by then
-        // ... meaning it must be in the octahedron)
-        float fx[4], fy[4], fz[4];
-
-        fx[0] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[1] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) +
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[2] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
-        fx[3] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) -
-                grain_unit_vector(9 * my_orientation + 6);
-
-        fy[0] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[1] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) +
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[2] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
-        fy[3] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) -
-                grain_unit_vector(9 * my_orientation + 7);
-
-        fz[0] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[1] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) +
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[2] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
-        fz[3] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) -
-                grain_unit_vector(9 * my_orientation + 8);
-
-        for (int n = 0; n < 26; n++) {
-            float x0 = xp + neighbor_x[n] - cx;
-            float y0 = yp + neighbor_y[n] - cy;
-            float z0 = zp + neighbor_z[n] - cz;
-            float d0 = x0 * fx[0] + y0 * fy[0] + z0 * fz[0];
-            float d1 = x0 * fx[1] + y0 * fy[1] + z0 * fz[1];
-            float d2 = x0 * fx[2] + y0 * fy[2] + z0 * fz[2];
-            float d3 = x0 * fx[3] + y0 * fy[3] + z0 * fz[3];
-            float dfabs = fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
-            crit_diagonal_length(26 * index + n) = dfabs;
+        // Get the indices of the <100> closest aligned with the unit vector in the direction of each neighboring cell
+        for (int n=0; n<26; n++) {
+            // Unit vector in the direction of neighboring cell "n"
+            const float mag = Kokkos::sqrt(neighbor_x[n] * neighbor_x[n] + neighbor_y[n] * neighbor_y[n] + neighbor_z[n] * neighbor_z[n]);
+            const float neighbor_x_norm = neighbor_x[n] / mag;
+            const float neighbor_y_norm = neighbor_y[n] / mag;
+            const float neighbor_z_norm = neighbor_z[n] / mag;
+            for (int diagonal=0; diagonal<3; diagonal++) {
+                const float octahedron_growth_x = grain_unit_vector(9 * my_orientation + 3 * diagonal);
+                const float octahedron_growth_y = grain_unit_vector(9 * my_orientation + 3 * diagonal + 1);
+                const float octahedron_growth_z = grain_unit_vector(9 * my_orientation + 3 * diagonal + 2);
+                // Will be between -1 and 1: use absolute value to get a positive number between 0 and 1 so magnitude can be compared
+                const float cos_ang_neighbor_oct = Kokkos::abs(neighbor_x_norm * octahedron_growth_x + neighbor_y_norm * octahedron_growth_y + neighbor_z_norm * octahedron_growth_z);
+                // Either the index of the unit vector (0,1,2) or the index of the negative unit vector (3,4,5) is stored
+                if (cos_ang_neighbor_oct < 0.5)
+                    nearest_diagonals(72 * index + 3 * n + diagonal) = diagonal;
+                else
+                    nearest_diagonals(72 * index + 3 * n + diagonal) = diagonal + 3;
+            }
         }
     }
 
