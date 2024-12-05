@@ -683,7 +683,7 @@ struct CellData {
         const int powder_top = powder_top_z * grid.nx * grid.ny_local;
         auto powder_layer_policy = Kokkos::RangePolicy<execution_space>(powder_bottom, powder_top);
         Kokkos::parallel_for(
-            "phase_id_powder_init", policy,
+            "phase_id_powder_init", powder_layer_policy,
             KOKKOS_LAMBDA(const int &index_all_layers) {
                 phase_id_all_layers_local(index_all_layers) = Austenite;
             });
