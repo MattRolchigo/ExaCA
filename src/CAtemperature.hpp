@@ -940,7 +940,15 @@ struct Temperature {
         return crit_time_step;
     }
 
-    // Extract the cooling rate associated with a specified solidificaiton event
+    // Extract the rate at which this cell is cooling
+    // Uses the current value of the solidification event counter
+    KOKKOS_INLINE_FUNCTION
+    float getUndercoolingChange(const int index) const {
+        int solidification_event_counter_cell = solidification_event_counter(index);
+        float undercooling_change = cooling_rate(index, solidification_event_counter_cell);
+        return undercooling_change;
+    }
+    // Uses a specified solidification event
     KOKKOS_INLINE_FUNCTION
     float getUndercoolingChange(const int index, const int solidification_event_counter_cell) const {
         float undercooling_change = cooling_rate(index, solidification_event_counter_cell);
