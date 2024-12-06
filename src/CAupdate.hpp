@@ -260,9 +260,9 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                         const float neighbor_vec_z = zp - octahedron_center_z;
                         // Get the integers corresponding to the grain unit vectors from the octahedron center to each of the three closest <100> vertices. If the integers are 0, 1, 2, use the positive versions of the unit vectors, otherwise use the negative versions
                         int diag_index[3];
-                        diag_index[0] = interface.nearest_diagonals(72 * index + 3 * l);
-                        diag_index[1] = interface.nearest_diagonals(72 * index + 3 * l + 1);
-                        diag_index[2] = interface.nearest_diagonals(72 * index + 3 * l + 2);
+                        diag_index[0] = interface.nearest_diagonals(78 * index + 3 * l);
+                        diag_index[1] = interface.nearest_diagonals(78 * index + 3 * l + 1);
+                        diag_index[2] = interface.nearest_diagonals(78 * index + 3 * l + 2);
 //                        if (l == 0)
 //                            printf("Diag index %d, %d, %d\n",diag_index[0],diag_index[1],diag_index[2]);
                         float current_diagonal_length[3];
@@ -285,7 +285,8 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                         diag_position[2][0] = octahedron_center_x + interface.direction_negative[diag_index[2]] * orientation.grain_unit_vector(9 * my_orientation + 3 * diag_index_stored[2]) * current_diagonal_length[2];
                         diag_position[2][1] = octahedron_center_y + interface.direction_negative[diag_index[2]] * orientation.grain_unit_vector(9 * my_orientation + 3 * diag_index_stored[2] + 1) * current_diagonal_length[2];
                         diag_position[2][2] = octahedron_center_z + interface.direction_negative[diag_index[2]] * orientation.grain_unit_vector(9 * my_orientation + 3 * diag_index_stored[2] + 2) * current_diagonal_length[2];
-//                        printf("Diag positions are %f,%f,%f; %f,%f,%f; %f,%f,%f\n",diag_position[0][0],diag_position[0][1],diag_position[0][2],diag_position[1][0],diag_position[1][1],diag_position[1][2],diag_position[2][0],diag_position[2][1],diag_position[2][2]);
+//                        if (l == 25 && coord_x == 9 && coord_y == 9 && coord_z == 9)
+//                            printf("Diag positions are %f,%f,%f; %f,%f,%f; %f,%f,%f\n",diag_position[0][0],diag_position[0][1],diag_position[0][2],diag_position[1][0],diag_position[1][1],diag_position[1][2],diag_position[2][0],diag_position[2][1],diag_position[2][2]);
                         // Plane normal from the cross-product of the vectors connecting the <100> vertices
                         const float vec_1x = diag_position[1][0] - diag_position[0][0];
                         const float vec_1y = diag_position[1][1] - diag_position[0][1];
@@ -303,7 +304,9 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                         const float capt_vec_y = octahedron_center_y - diag_position[0][1];
                         const float capt_vec_z = octahedron_center_z - diag_position[0][2];
                         // capture_fraction: dot product of the capturing plane normal times -1 and capt_vec, divided by dot_plane_normal_line. If this value is 0, the plane intersects the current octahedron center. If this value exceeds 1, the capturing plane has engulfed the neighboring cell center and a cell capture event of the cell located at "neighbor_index" should be performed. More significant overshoots of 1 will occur with coarse time steps leading to some error accumulation
-                        const float dot_plane_normal_capt = - (plane_normal_dir_x * capt_vec_x + plane_normal_dir_y * capt_vec_y + plane_normal_dir_z * capt_vec_z) / dot_plane_normal_line;
+                        float dot_plane_normal_capt = - (plane_normal_dir_x * capt_vec_x + plane_normal_dir_y * capt_vec_y + plane_normal_dir_z * capt_vec_z) / dot_plane_normal_line;
+//                        if ((coord_x != 9) || (coord_y != 9) || (coord_z != 9))
+//                            dot_plane_normal_capt = 0.0;
 //                        if (l == 0)
 //                            printf("diag position vecs = %f,%f,%f and %f,%f,%f\n",diag_position[0][0],diag_position[0][1],diag_position[0][2],diag_position[1][0],diag_position[1][1],diag_position[1][2]);
                         if ((dot_plane_normal_capt >= 1) &&
@@ -434,13 +437,13 @@ void cellCapture(const int, const int np, const Grid &grid, const InterfacialRes
                                         const float octahedron_growth_y = orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal + 1);
                                         const float octahedron_growth_z = orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal + 2);
                                         // Will be between -1 and 1: use absolute value to get a positive number between 0 and 1 so magnitude can be compared
-                                        const float cos_ang_neighbor_oct = Kokkos::abs(neighbor_x_norm * octahedron_growth_x + neighbor_y_norm * octahedron_growth_y + neighbor_z_norm * octahedron_growth_z);
-                                        // Either the index of the unit vector (0,1,2) or the index of the negative unit vector (3,4,5) is stored
-                                        if (cos_ang_neighbor_oct < 0.5)
-                                            interface.nearest_diagonals(72 * neighbor_index + 3 * n + diagonal) = diagonal;
+                                        const float cos_ang_neighbor_oct = neighbor_x_norm * octahedron_growth_x + neighbor_y_norm * octahedron_growth_y + neighbor_z_norm * octahedron_growth_z;
+                                        if (cos_ang_neighbor_oct > 0)
+                                            interface.nearest_diagonals(78 * neighbor_index + 3 * n + diagonal) = diagonal;
                                         else
-                                            interface.nearest_diagonals(72 * neighbor_index + 3 * n + diagonal) = diagonal + 3;
+                                            interface.nearest_diagonals(78 * neighbor_index + 3 * n + diagonal) = diagonal + 3;
                                     }
+//                                    printf("New cell diagonal indexes for direction %d are %d, %d, %d\n",n,interface.nearest_diagonals(78 * neighbor_index + 3 * n),interface.nearest_diagonals(78 * neighbor_index + 3 * n + 1),interface.nearest_diagonals(78 * neighbor_index + 3 * n + 2));
                                 }
 
 //                                if (np > 1) {

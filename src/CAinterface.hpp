@@ -61,7 +61,7 @@ struct Interface {
     // Use default initialization to 0 for num_steer_host and num_steer and buffer counts
     Interface(const int id, const int domain_size, const float init_oct_size, const int buf_size_initial_estimate = 25,
               const int buf_components_temp = 8)
-        : nearest_diagonals(view_type_short(Kokkos::ViewAllocateWithoutInitializing("nearest_diagonals"), 72 * domain_size))
+        : nearest_diagonals(view_type_short(Kokkos::ViewAllocateWithoutInitializing("nearest_diagonals"), 78 * domain_size))
         , diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), 6 * domain_size))
         , octahedron_center(
               view_type_float(Kokkos::ViewAllocateWithoutInitializing("octahedron_center"), 3 * domain_size))
@@ -190,7 +190,7 @@ struct Interface {
         // Realloc active cell data structure and halo regions
         Kokkos::realloc(diagonal_length, domain_size);
         Kokkos::realloc(octahedron_center, 3 * domain_size);
-        Kokkos::realloc(nearest_diagonals, 72 * domain_size);
+        Kokkos::realloc(nearest_diagonals, 78 * domain_size);
 
         // Reset active cell data structures to zeros
         Kokkos::deep_copy(diagonal_length, 0);
@@ -221,13 +221,16 @@ struct Interface {
                 const float octahedron_growth_y = grain_unit_vector(9 * my_orientation + 3 * diagonal + 1);
                 const float octahedron_growth_z = grain_unit_vector(9 * my_orientation + 3 * diagonal + 2);
                 // Will be between -1 and 1: use absolute value to get a positive number between 0 and 1 so magnitude can be compared
-                const float cos_ang_neighbor_oct = Kokkos::abs(neighbor_x_norm * octahedron_growth_x + neighbor_y_norm * octahedron_growth_y + neighbor_z_norm * octahedron_growth_z);
+                const float cos_ang_neighbor_oct = neighbor_x_norm * octahedron_growth_x + neighbor_y_norm * octahedron_growth_y + neighbor_z_norm * octahedron_growth_z;
+//                if (n == 25)
+//                    printf("diagonal %d is %f\n",diagonal,cos_ang_neighbor_oct);
                 // Either the index of the unit vector (0,1,2) or the index of the negative unit vector (3,4,5) is stored
-                if (cos_ang_neighbor_oct < 0.5)
-                    nearest_diagonals(72 * index + 3 * n + diagonal) = diagonal;
+                if (cos_ang_neighbor_oct > 0)
+                    nearest_diagonals(78 * index + 3 * n + diagonal) = diagonal;
                 else
-                    nearest_diagonals(72 * index + 3 * n + diagonal) = diagonal + 3;
+                    nearest_diagonals(78 * index + 3 * n + diagonal) = diagonal + 3;
             }
+//            printf("New cell diagonal indexes for direction %d are %d, %d, %d\n",n,nearest_diagonals(78 * index + 3 * n),nearest_diagonals(78 * index + 3 * n + 1),nearest_diagonals(78 * index + 3 * n + 2));
         }
     }
 
