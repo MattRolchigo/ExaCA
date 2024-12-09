@@ -176,14 +176,17 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                  const float diag_position_x = octahedron_center_x + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored) * current_diagonal_length;
                  const float diag_position_y = octahedron_center_y + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored + 1) * current_diagonal_length;
                  const float diag_position_z = octahedron_center_z + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored + 2) * current_diagonal_length;
-                 // What are the 8 cells around this tip, and what are their undercoolings?
+//                 // Z the only determinant of the undercooling
+//                 const float interpolated_undercooling = diag_position_z * (-5) + 0.01 * cycle;
+
+                 // What are the 8 cells around this tip, and what are their undercoolings? Since the undercooling at cell (0,0,0) is actually the undercooling at the cell center (coordinates 0.5,0.5,0.5), substract 0.5 from the floor/ceiling rounding calculations to get the correct bounding neighbors
                  int low_high_x[2], low_high_y[2], low_high_z[2];
-                 low_high_x[0] = floor(diag_position_x);
-                 low_high_x[1] = ceil(diag_position_x);
-                 low_high_y[0] = floor(diag_position_y);
-                 low_high_y[1] = ceil(diag_position_y);
-                 low_high_z[0] = floor(diag_position_z);
-                 low_high_z[1] = ceil(diag_position_z);
+                 low_high_x[0] = floor(diag_position_x - 0.5);
+                 low_high_x[1] = ceil(diag_position_x - 0.5);
+                 low_high_y[0] = floor(diag_position_y - 0.5);
+                 low_high_y[1] = ceil(diag_position_y - 0.5);
+                 low_high_z[0] = floor(diag_position_z - 0.5);
+                 low_high_z[1] = ceil(diag_position_z - 0.5);
                  float tip_neighbor_undercooling[8];
                  for (int neighbor=0; neighbor<8; neighbor++) {
                      // LowX, LowX, LowX, LowX, HighX, HighX, HighX, HighX
@@ -200,49 +203,87 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
 //                         printf("Diagonal %d Neighbor %d is at %d, %d, %d\n",diagonal,neighbor,tip_neighbor_x,tip_neighbor_y,tip_neighbor_z);
                      int tip_neighbor_1d = grid.getNeighbor1DIndex(tip_neighbor_x, tip_neighbor_y, tip_neighbor_z);
                      // If adjacent cell is active or undercooled liquid, use that undercooling. If adjacent cell is superheated liquid, calculate the superheat (negative undercooling) based on the cooling rate and time at which it will go below the liquidus temperature. If adjacent cell is solid, growth of this diagonal should have a negligible effect on the capture of cells at the interface (given that solid cells are on the opposite side of the solid-liquid interface as the liquid cells being considered for capture) - just use the undercooling at which the cell finished solidifying or, if it never underwent solidification at all, use the undercooling in the cell associated with the octahedron itself.
-                     if (tip_neighbor_1d == -1)
+                     const int neighbor_cell_type = celldata.cell_type(tip_neighbor_1d);
+                     if (neighbor_cell_type == Active) {
                          tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
-                     else {
-                         const int neighbor_cell_type = celldata.cell_type(tip_neighbor_1d);
-                         if (neighbor_cell_type == Active) {
+                     }
+                     else if (neighbor_cell_type == Liquid) {
+                         const int crit_time_step = temperature.getCritTimeStep(tip_neighbor_1d);
+                         if (cycle > crit_time_step)
                              tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
-                         }
-                         else if (neighbor_cell_type == Liquid) {
-                             const int crit_time_step = temperature.getCritTimeStep(tip_neighbor_1d);
-                             if (cycle > crit_time_step)
-                                 tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
-                             else {
-                                 tip_neighbor_undercooling[neighbor] = (crit_time_step - cycle) * temperature.getUndercoolingChange(tip_neighbor_1d);
-                             }
-                         }
-                         else if ((neighbor_cell_type == TempSolid) || (neighbor_cell_type == Solid)) {
-                             if (temperature.number_of_solidification_events(neighbor) == 0)
-                                 tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
-                             else
-                                 tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
+                         else {
+                             tip_neighbor_undercooling[neighbor] = (cycle - crit_time_step) * temperature.getUndercoolingChange(tip_neighbor_1d);
                          }
                      }
+                     else if ((neighbor_cell_type == TempSolid) || (neighbor_cell_type == Solid)) {
+                         if (temperature.number_of_solidification_events(neighbor) == 0)
+                             tip_neighbor_undercooling[neighbor] = temperature.undercooling_current(tip_neighbor_1d);
+                         else {
+                             const int crit_time_step = temperature.getCritTimeStep(tip_neighbor_1d, 0);
+                             tip_neighbor_undercooling[neighbor] = (cycle - crit_time_step) * temperature.getUndercoolingChange(tip_neighbor_1d, 0);
+                         }
+                     }
+//                         if (cycle == 4000)
+//                             printf("Neighbor %d location %d %d %d type %d\n",neighbor,tip_neighbor_x,tip_neighbor_y,tip_neighbor_z,neighbor_cell_type);
+//
                  }
-                 // Trilinear interpolation of the 8 undercooling values to get the undercooling at the <100> tip
-                 const float xd = diag_position_x - low_high_x[0];
-                 const float yd = diag_position_y - low_high_y[0];
-                 const float zd = diag_position_z - low_high_z[0];
+                 // Trilinear interpolation of the 8 undercooling values to get the undercooling at the <100> tip (again accounting for the 0.5 offset between the integer cell coordinate and the physical cell center)
+                 const float xd = diag_position_x - 0.5 - low_high_x[0];
+                 const float yd = diag_position_y - 0.5 - low_high_y[0];
+                 const float zd = diag_position_z - 0.5 - low_high_z[0];
                  const float const_00 = tip_neighbor_undercooling[0] * (1 - xd) + tip_neighbor_undercooling[4] * xd;
                  const float const_01 = tip_neighbor_undercooling[2] * (1 - xd) + tip_neighbor_undercooling[6] * xd;
                  const float const_10 = tip_neighbor_undercooling[1] * (1 - xd) + tip_neighbor_undercooling[5] * xd;
                  const float const_11 = tip_neighbor_undercooling[3] * (1 - xd) + tip_neighbor_undercooling[7] * xd;
                  const float interpolated_undercooling = (const_00 * (1 - yd) + const_10 * yd) * (1 - zd) + (const_01 * (1 - yd) + const_11 * yd) * zd;
+//                 if (cycle == 4000) {
+//                     for (int neighbor=0; neighbor<8; neighbor++) {
+//                         printf("Cell %d, %d, %d tip undercooling for diagonal %d at %f, %f, %f: value %f - interpolated undercooling %f\n",coord_x,coord_y,coord_z,diagonal,diag_position_x,diag_position_y,diag_position_z,tip_neighbor_undercooling[neighbor],interpolated_undercooling);
+//                     }
+//                 }
+//                 if (coord_z == 1)
+//                     printf("Cycle %d cell at %d, %d has Z tip position %f\n",cycle,coord_x,coord_y,diag_position_z);
                  // Update <100> length via the interpolated undercooling at the tip position
-                 interface.diagonal_length(6 * index + diagonal) += irf.compute(interpolated_undercooling);
-//                 if ((coord_x == 2 && coord_y == 2) && (diagonal == 0))
-//                     printf("cycle %d in center column Z = %d: diagonal at a position %f in Z was updated by increment %f\n",cycle,coord_z,diag_position_z,interpolated_undercooling);
-//                 if ((coord_x == 3 && coord_y == 2) && (diagonal == 0))
-//                     printf("cycle %d in off-center column Z = %d: diagonal at a position %f in Z was updated by increment %f\n",cycle,coord_z,diag_position_z,interpolated_undercooling);
+                 if (interpolated_undercooling > 0)
+                     interface.diagonal_length(6 * index + diagonal) += irf.compute(interpolated_undercooling);
              }
          }
      });
     Kokkos::fence();
-
+//
+//    if (cycle == 2200) {
+//        for (int num=0; num<interface.num_steer_host(0); num++) {
+//            const int index = interface.steering_vector(num);
+//            // Octahedron center
+//            const float octahedron_center_x = interface.octahedron_center(3 * index);
+//            const float octahedron_center_y = interface.octahedron_center(3 * index + 1);
+//            const float octahedron_center_z = interface.octahedron_center(3 * index + 2);
+//            const int my_orientation = getGrainOrientation(grain_id(index), orientation.n_grain_orientations);
+//            float diag_position_x[6], diag_position_y[6], diag_position_z[6];
+//            // Update each of the 6 <100> lengths for the active cell's octahedron
+//            std::ofstream oct_pts;
+//            std::string fname = "oct_" + std::to_string(num) + ".csv";
+//            oct_pts.open(fname);
+//            const int coord_x = grid.getCoordX(index);
+//            const int coord_y = grid.getCoordY(index);
+//            const int coord_z = grid.getCoordZ(index);
+//
+//            std::cout << "Oct " << num << " at " << coord_x << ", " << coord_y << ", " << coord_z << std::endl;
+//            oct_pts << "x,y,z" << std::endl;
+//            for (int diagonal=0; diagonal<6; diagonal++) {
+//                // Negative directions aren't stored in grain_unit_vector, use diagonal_stored and direction_negative to access positive and negative unit vectors
+//                const int diagonal_stored = diagonal % 3;
+//                const float current_diagonal_length = interface.diagonal_length(6 * index + diagonal);
+//                // Get x,y,z position of the <100> tip based on the octahedron center, a unit vector, and the current diagonal length
+//                diag_position_x[diagonal] = octahedron_center_x + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored) * current_diagonal_length;
+//                diag_position_y[diagonal] = octahedron_center_y + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored + 1) * current_diagonal_length;
+//                diag_position_z[diagonal] = octahedron_center_z + interface.direction_negative[diagonal] * orientation.grain_unit_vector(9 * my_orientation + 3 * diagonal_stored + 2) * current_diagonal_length;
+//                oct_pts << diag_position_x[diagonal] << "," << diag_position_y[diagonal] << "," << diag_position_z[diagonal] << std::endl;
+//            }
+//            oct_pts.close();
+//        }
+//        
+//    }
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
     Kokkos::parallel_for(
@@ -355,6 +396,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                             // TemporaryUpdate)
                             if (old_cell_type_value == Liquid) {
                                 // Cell capture event
+//                                if (neighbor_coord_z <3)
 //                                printf("Cycle %d: Cell at x,y,z = %d,%d,%d was captured by cell at %d,%d,%d\n",cycle,neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,coord_x,coord_y,coord_z);
 
 //                                if (neighbor_coord_x == 2 && neighbor_coord_y == 2) {
@@ -396,6 +438,8 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                 const float xc = diag_position[triangle_index][0];
                                 const float yc = diag_position[triangle_index][1];
                                 const float zc = diag_position[triangle_index][2];
+//                                if ((xc > neighbor_coord_x + 1.0) || (xc < neighbor_coord_x) || (yc > neighbor_coord_y + 1.0) || (yc < neighbor_coord_y) || (zc > neighbor_coord_z + 1.0) || (zc < neighbor_coord_z))
+//                                    printf("Captured center %d,%d,%d not home to closest octahedron vertex %f, %f, %f\n",neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,xc,yc,zc);
 
                                 const float x1 = diag_position[(triangle_index + 1) % 3][0];
                                 const float y1 = diag_position[(triangle_index + 1) % 3][1];
@@ -447,9 +491,11 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                 const float new_octahedron_diag_length_closest = Kokkos::fmin(interface.diagonal_length(6 * index + closest_diagonal_index), Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13));
 
                                 // For the half diagonal lengths, scale the old octahedron's dimensions using the ratio of new_octahedron_diag_length_closest to the old octahedron's half-diagonal length in the same <100> direction. This should always be 1 or smaller
+//                                printf("Old octahedron diags were %f, %f, %f, %f, %f, %f, best aligned was %f\n",interface.diagonal_length(6 * index), interface.diagonal_length(6 * index + 1),interface.diagonal_length(6 * index + 2),interface.diagonal_length(6 * index + 3), interface.diagonal_length(6 * index + 4), interface.diagonal_length(6 * index + 5), interface.diagonal_length(6 * index + closest_diagonal_index));
                                 const float new_to_old_oct_size_ratio = new_octahedron_diag_length_closest / interface.diagonal_length(6 * index + closest_diagonal_index);
                                 for (int diagonal_index=0; diagonal_index<6; diagonal_index++)
                                     interface.diagonal_length(6 * neighbor_index + diagonal_index) = new_to_old_oct_size_ratio * interface.diagonal_length(6 * index + diagonal_index);
+//                                printf("New octahedron diags are %f, %f, %f, %f, %f, %f\n",interface.diagonal_length(6 * neighbor_index), interface.diagonal_length(6 * neighbor_index + 1),interface.diagonal_length(6 * neighbor_index + 2),interface.diagonal_length(6 * neighbor_index + 3), interface.diagonal_length(6 * neighbor_index + 4), interface.diagonal_length(6 * neighbor_index + 5));
 
                                 // Calculate coordinates of new decentered octahedron center: distance from the closest corner of the old octahedron to the center of the old octahedron
                                 // (cx, cy, cz) are the coordinates of the new active cell's decentered octahedron
