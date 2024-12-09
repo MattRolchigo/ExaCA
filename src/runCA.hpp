@@ -110,7 +110,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // checking the MPI buffers to ensure that all appropriate interface updates in the halo regions were
             // recorded
             timers.startCapture();
-            cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+            cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation, inputs.temperature.G, inputs.domain.deltat, inputs.temperature.R);
             checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             timers.stopCapture();
 
