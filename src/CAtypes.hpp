@@ -19,7 +19,8 @@ enum TypeNames {
     FutureActive = 7,
     ActiveFailedBufferLoad = 8,
     FutureLiquid = 9,
-    LiquidFailedBufferLoad = 10
+    LiquidFailedBufferLoad = 10,
+    PotentialNucleus = 11
 };
 
 #endif

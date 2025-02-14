@@ -869,6 +869,17 @@ struct Temperature {
     KOKKOS_INLINE_FUNCTION
     void updateUndercooling(const int index) const {
         undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
+
+//        float current_undercooling = undercooling_current(index);
+//        if (current_undercooling <= 22)
+//            undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
+//        else if (current_undercooling > 26) {
+//            undercooling_current(index) = 26;
+//        }
+//        else {
+//            float damp_factor = (current_undercooling - 22) / (26.0 - 22);
+//            undercooling_current(index) += (1.0 - pow(damp_factor,(1.0/6.0))) * cooling_rate(index, solidification_event_counter(index));
+//        }
     }
 
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just

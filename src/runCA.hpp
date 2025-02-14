@@ -64,7 +64,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     // Fill in nucleation data structures, and assign nucleation undercooling values to potential nucleation events
     // Potential nucleation grains are only associated with liquid cells in layer 0 - they will be initialized for each
     // successive layer when layer 0 is complete
-    nucleation.placeNuclei(temperature, inputs.rng_seed, 0, grid, id);
+    nucleation.placeNuclei(temperature, interface, orientation, inputs.rng_seed, 0, grid, irf, id);
 
     // Initialize printing struct from inputs
     Print print(grid, np, inputs.print);
@@ -100,7 +100,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // fillSteeringVector_Remelt
             timers.startSV();
             if ((simulation_type == "Directional") || (simulation_type == "SingleGrain"))
-                fillSteeringVector_NoRemelt(cycle, grid, celldata, temperature, interface);
+                fillSteeringVector_NoRemelt(cycle, orientation, grid, celldata, temperature, interface);
             else
                 fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
             timers.stopSV();
@@ -110,7 +110,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // checking the MPI buffers to ensure that all appropriate interface updates in the halo regions were
             // recorded
             timers.startCapture();
-            cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+            cellCapture(id, np, grid, irf, celldata, temperature, interface, orientation, nucleation);
             checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             timers.stopCapture();
 
@@ -123,7 +123,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
 
             // Check on progress of solidification simulation of the current layer, setting x_switch = 1 if complete
             if ((cycle % 1000 == 0) && (simulation_type != "SingleGrain")) {
-                intermediateOutputAndCheck(id, np, cycle, grid, nucleation.successful_nucleation_counter, x_switch,
+                intermediateOutputAndCheck(id, np, cycle, grid, nucleation.getSuccessfulNucleationCounter(), x_switch,
                                            celldata, temperature, inputs.simulation_type, layernumber, orientation,
                                            print, inputs.domain.deltat, interface);
             }
@@ -173,7 +173,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // Views containing nucleation data will be resized to the possible number of nuclei on a given MPI rank for
             // the next layer
             nucleation.resetNucleiCounters(); // start counters at 0
-            nucleation.placeNuclei(temperature, inputs.rng_seed, layernumber + 1, grid, id);
+            nucleation.placeNuclei(temperature, interface, orientation, inputs.rng_seed, layernumber + 1, grid, irf, id);
 
             x_switch = 0;
             MPI_Barrier(MPI_COMM_WORLD);

@@ -8,6 +8,7 @@
 
 #include "CAcelldata.hpp"
 #include "CAconfig.hpp"
+#include "CAinterfacialresponse.hpp"
 #include "CAorientation.hpp"
 #include "CAparsefiles.hpp"
 #include "CAtemperature.hpp"
@@ -185,6 +186,95 @@ struct Interface {
         Kokkos::deep_copy(octahedron_center, 0);
         Kokkos::deep_copy(crit_diagonal_length, 0);
     }
+    
+    // Get the critical diagonal length necessary for an octahedron to capture a location at a specific distance from the octahedron center
+    template <typename ViewType>
+    KOKKOS_INLINE_FUNCTION float calcCritDiagonalLength(const float xdist, const float ydist, const float zdist, const int my_orientation, const ViewType grain_unit_vector) const {
+        // Calculate critical octahedron diagonal length to activate nearest neighbor.
+        // First, calculate the unique planes (4) associated with all octahedron faces (8)
+        // Then just look at distance between face and the point of interest (cell center of
+        // neighbor). The critical diagonal length will be the maximum of these (since all other
+        // planes will have passed over the point by then
+        // ... meaning it must be in the octahedron)
+        float fx[4], fy[4], fz[4];
+
+        fx[0] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) +
+                grain_unit_vector(9 * my_orientation + 6);
+        fx[1] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) +
+                grain_unit_vector(9 * my_orientation + 6);
+        fx[2] = grain_unit_vector(9 * my_orientation) + grain_unit_vector(9 * my_orientation + 3) -
+                grain_unit_vector(9 * my_orientation + 6);
+        fx[3] = grain_unit_vector(9 * my_orientation) - grain_unit_vector(9 * my_orientation + 3) -
+                grain_unit_vector(9 * my_orientation + 6);
+
+        fy[0] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) +
+                grain_unit_vector(9 * my_orientation + 7);
+        fy[1] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) +
+                grain_unit_vector(9 * my_orientation + 7);
+        fy[2] = grain_unit_vector(9 * my_orientation + 1) + grain_unit_vector(9 * my_orientation + 4) -
+                grain_unit_vector(9 * my_orientation + 7);
+        fy[3] = grain_unit_vector(9 * my_orientation + 1) - grain_unit_vector(9 * my_orientation + 4) -
+                grain_unit_vector(9 * my_orientation + 7);
+
+        fz[0] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) +
+                grain_unit_vector(9 * my_orientation + 8);
+        fz[1] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) +
+                grain_unit_vector(9 * my_orientation + 8);
+        fz[2] = grain_unit_vector(9 * my_orientation + 2) + grain_unit_vector(9 * my_orientation + 5) -
+                grain_unit_vector(9 * my_orientation + 8);
+        fz[3] = grain_unit_vector(9 * my_orientation + 2) - grain_unit_vector(9 * my_orientation + 5) -
+                grain_unit_vector(9 * my_orientation + 8);
+
+        float d0 = xdist * fx[0] + ydist * fy[0] + zdist * fz[0];
+        float d1 = xdist * fx[1] + ydist * fy[1] + zdist * fz[1];
+        float d2 = xdist * fx[2] + ydist * fy[2] + zdist * fz[2];
+        float d3 = xdist * fx[3] + ydist * fy[3] + zdist * fz[3];
+        return fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
+    }
+  
+//    KOKKOS_INLINE_FUNCTION float getCaptureTime(const float undercooling_cell, const float time_to_nuc_und, const float cooling_rate_cell, const float capture_length, const InterfacialResponseFunction &irf) const {
+//        float capture_time = time_to_nuc_und;
+//        float oct_size = _init_oct_size;
+//        float _undercooling_cell = undercooling_cell;
+//        while (oct_size < capture_length) {
+//            _undercooling_cell += cooling_rate_cell;
+//            oct_size += irf.compute(_undercooling_cell);
+//            capture_time++;
+//        }
+//        return capture_time;
+//    }
+    
+    KOKKOS_INLINE_FUNCTION float getCaptureTime(const float undercooling_cell, const float undercooling_xyzdist, const float time_to_nuc_und, const float cooling_rate_cell, const float capture_length, const InterfacialResponseFunction &irf) const {
+        float capture_time = time_to_nuc_und;
+        float oct_size = _init_oct_size;
+        float fract_to_capture_size = (oct_size - _init_oct_size) / (capture_length - _init_oct_size);
+        float _undercooling_cell = undercooling_cell;
+        while (oct_size < capture_length) {
+            _undercooling_cell += cooling_rate_cell;
+            float undercooling_effective = (1.0 - fract_to_capture_size) * _undercooling_cell + fract_to_capture_size * undercooling_xyzdist;
+            oct_size += irf.compute(undercooling_effective);
+            fract_to_capture_size = (oct_size - _init_oct_size) / (capture_length - _init_oct_size);
+            capture_time++;
+        }
+        return capture_time;
+    }
+    
+//    KOKKOS_INLINE_FUNCTION float getCaptureTime(const float undercooling_cell, const float undercooling_neighbor, const float time_to_nuc_und, const float cooling_rate_cell, const float cooling_rate_neighbor, const float capture_length, const InterfacialResponseFunction &irf) const {
+//        float capture_time = time_to_nuc_und;
+//        float _undercooling_cell = undercooling_cell;
+//        float _undercooling_neighbor = undercooling_neighbor;
+//        float oct_size = _init_oct_size;
+//        while (oct_size < capture_length) {
+//            _undercooling_cell += cooling_rate_cell;
+//            _undercooling_neighbor += cooling_rate_neighbor;
+//            float fraction_to_capture_size = oct_size / (capture_length - _init_oct_size);
+//            float effective_undercooling = fraction_to_capture_size * _undercooling_neighbor + (1.0 - fraction_to_capture_size) * _undercooling_cell;
+//           // printf("Undercooling %f %f effective %f\n",_undercooling_cell,_undercooling_neighbor,effective_undercooling);
+//            oct_size += irf.compute(effective_undercooling);
+//            capture_time++;
+//        }
+//        return capture_time;
+//    }
 
     // Assign octahedron a small initial size, and a center location
     // Note that the Y coordinate is relative to the domain origin to keep the coordinate system continuous across ranks
@@ -192,6 +282,17 @@ struct Interface {
     void createNewOctahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
                              const int coord_z) const {
         diagonal_length(index) = _init_oct_size;
+        octahedron_center(3 * index) = coord_x + 0.5;
+        octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
+        octahedron_center(3 * index + 2) = coord_z + 0.5;
+    }
+    
+    // Assign octahedron an input initial size, and a center location
+    // Note that the Y coordinate is relative to the domain origin to keep the coordinate system continuous across ranks
+    KOKKOS_INLINE_FUNCTION
+    void createNewOctahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
+                             const int coord_z, const float initial_oct_size) const {
+        diagonal_length(index) = initial_oct_size;
         octahedron_center(3 * index) = coord_x + 0.5;
         octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
         octahedron_center(3 * index + 2) = coord_z + 0.5;
