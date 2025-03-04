@@ -424,7 +424,7 @@ struct Nucleation {
                     KOKKOS_LAMBDA(const int nucleation_counter_device) {
                         int nucleation_event_location = nuclei_locations_local(nucleation_counter_device);
                         // Whether or not this nucleation event is successful depends on the cells around it - checked as part of cellCapture loop over steering vector
-                        int update_val = PotentialNucleus;
+                        int update_val = FutureActive;
                         int old_val = Liquid;
                         int old_cell_type_value = Kokkos::atomic_compare_exchange(
                             &celldata.cell_type(nucleation_event_location), old_val, update_val);
@@ -432,7 +432,8 @@ struct Nucleation {
                             // Successful nucleation event - atomic update of cell type, proceeded if the atomic
                             // exchange is successful (cell was liquid) Add future active cell location to steering
                             // vector, temporarily store nucleation event number in grain ID view for later reference
-                            grain_id(nucleation_event_location) = nucleation_counter_device;
+                            Kokkos::atomic_fetch_add(&successful_nucleation_counter(0), 1);
+                            grain_id(nucleation_event_location) = nuclei_grain_id(nucleation_counter_device);
                             interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
                                 nucleation_event_location;
                             

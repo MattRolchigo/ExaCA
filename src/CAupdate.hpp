@@ -460,31 +460,31 @@ void cellCapture(const int id, const int np, const Grid &grid, const Interfacial
                         celldata.cell_type(index) = TempSolid;
                 }
             }
-            else if (cell_type_old == PotentialNucleus) {
-                // Avoid operating on the new active cell before its associated octahedron data is initialized
-                celldata.cell_type(index) = TemporaryUpdate;
-                // Check neighborhood up to a certain distance d_exclusion away - nucleation event is only possible if all of these cells are liquid
-                int neighboring_cells = 0;
-                int neighboring_liquid_cells = 0;
-                for (int ii=-nucleation.d_exclusion_round; ii<=nucleation.d_exclusion_round; ii++) {
-                    for (int jj=-nucleation.d_exclusion_round; jj<=nucleation.d_exclusion_round; jj++) {
-                        for (int kk=-nucleation.d_exclusion_round; kk<=nucleation.d_exclusion_round; kk++) {
-                            int neighbor_coord_x = coord_x + ii;
-                            int neighbor_coord_y = coord_y + jj;
-                            int neighbor_coord_z = coord_z + kk;
-                            float neighbor_distance = Kokkos::sqrt(ii * ii + jj * jj + kk * kk);
-                            if (neighbor_distance <= nucleation.d_exclusion_round) {
-//                                printf("Neighbor at %d, %d, %d\n",neighbor_coord_x,neighbor_coord_y,neighbor_coord_z);
-                                const int neighbor_index = grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                                if ((neighbor_index != -1) && (neighbor_index != index)) {
-                                    neighboring_cells++;
-                                    if (celldata.cell_type(neighbor_index) == Liquid)
-                                        neighboring_liquid_cells++;
-                                }
-                            }
-                        }
-                    }
-                }
+//            else if (cell_type_old == PotentialNucleus) {
+//                // Avoid operating on the new active cell before its associated octahedron data is initialized
+//                celldata.cell_type(index) = TemporaryUpdate;
+//                // Check neighborhood up to a certain distance d_exclusion away - nucleation event is only possible if all of these cells are liquid
+//                int neighboring_cells = 0;
+//                int neighboring_liquid_cells = 0;
+//                for (int ii=-nucleation.d_exclusion_round; ii<=nucleation.d_exclusion_round; ii++) {
+//                    for (int jj=-nucleation.d_exclusion_round; jj<=nucleation.d_exclusion_round; jj++) {
+//                        for (int kk=-nucleation.d_exclusion_round; kk<=nucleation.d_exclusion_round; kk++) {
+//                            int neighbor_coord_x = coord_x + ii;
+//                            int neighbor_coord_y = coord_y + jj;
+//                            int neighbor_coord_z = coord_z + kk;
+//                            float neighbor_distance = Kokkos::sqrt(ii * ii + jj * jj + kk * kk);
+//                            if (neighbor_distance <= nucleation.d_exclusion_round) {
+////                                printf("Neighbor at %d, %d, %d\n",neighbor_coord_x,neighbor_coord_y,neighbor_coord_z);
+//                                const int neighbor_index = grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+//                                if ((neighbor_index != -1) && (neighbor_index != index)) {
+//                                    neighboring_cells++;
+//                                    if (celldata.cell_type(neighbor_index) == Liquid)
+//                                        neighboring_liquid_cells++;
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
 //                // Check all neighboring cells - nucleation event is only possible if all neighbors are liquid
 //                for (int l = 0; l < 18; l++) {
 //                    // "l" correpsponds to the specific neighboring cell
@@ -502,94 +502,94 @@ void cellCapture(const int id, const int np, const Grid &grid, const Interfacial
 //                }
 //                printf("%d of %d cells in neighborhood were liquid\n",neighboring_cells,neighboring_liquid_cells);
 
-                if (neighboring_cells == neighboring_liquid_cells) {
-                    // Successful nucleation event - cell reached the nucleation undercooling and octahedron grew sufficiently to claim the cell as part of a new grain. Initialize octahedron with the size associated with the octahedron at the current time
-                    const int coord_x = grid.getCoordX(index);
-                    const int coord_y = grid.getCoordY(index);
-                    const int coord_z = grid.getCoordZ(index);
-
-                    // Nucleation event number was temporarily stored in grain ID view
-                    const int nucleation_event_id = grain_id(index);
-                    int my_grain_id = nucleation.nuclei_grain_id(nucleation_event_id);
-
-                    // Increment counter for successful nucleation events
-                    Kokkos::atomic_fetch_add(&nucleation.successful_nucleation_counter(0), 1);
-
-                    // All cells within d_exclusion of nucleus become active cells
-                    for (int ii=-nucleation.d_exclusion_round; ii<=nucleation.d_exclusion_round; ii++) {
-                        for (int jj=-nucleation.d_exclusion_round; jj<=nucleation.d_exclusion_round; jj++) {
-                            for (int kk=-nucleation.d_exclusion_round; kk<=nucleation.d_exclusion_round; kk++) {
-                                int neighbor_coord_x = coord_x + ii;
-                                int neighbor_coord_y = coord_y + jj;
-                                int neighbor_coord_z = coord_z + kk;
-                                float neighbor_distance = Kokkos::sqrt(ii * ii + jj * jj + kk * kk);
-//                                printf("Neighbor dist %f\n",neighbor_distance);
-                                if (neighbor_distance <= nucleation.d_exclusion_round) {
-//                                    printf("Inside radius\n");
-                                    const int neighbor_index = grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                                    if (neighbor_index != -1) {
-                                        if ((celldata.cell_type(neighbor_index) == Liquid) || (index == neighbor_index)) {
-                                            // Initialize new octahedron, with initial size fixed and center at cell center
-                                            interface.createNewOctahedron(neighbor_index, neighbor_coord_x, neighbor_coord_y, grid.y_offset, neighbor_coord_z, 0.75);
-                                            grain_id(neighbor_index) = nucleation.nuclei_grain_id(nucleation_event_id);
-
-                                            // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative
-                                            // grain_id values)
-                                            const int my_orientation = getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
-                                            //printf("Successful nucleation for grain w GID %d \n",my_grain_id);
-
-                                            // This cell was not at the edge of the temperature field - set indicator to false if this
-                                            // is being tracked
-                                            celldata.setMeltEdge(neighbor_index, false);
-
-                                            // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
-                                            // origin to keep the coordinate system continuous across ranks
-                                            const float cx = neighbor_coord_x + 0.5;
-                                            const float cy = neighbor_coord_y + grid.y_offset + 0.5;
-                                            const float cz = neighbor_coord_z + 0.5;
-                                            // Calculate critical values at which this active cell leads to the activation of a neighboring
-                                            // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
-                                            // grain
-                                            interface.calcCritDiagonalLength(neighbor_index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                                             orientation.grain_unit_vector);
-//                                            printf("cell at location %d, CDL %f, %f\n",neighbor_index,interface.crit_diagonal_length(26 * neighbor_index), interface.crit_diagonal_length(26 * neighbor_index + 1));
-                                            if (np > 1) {
-                                                // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
-                                                // slowdown is minor
-                                                const int ghost_grain_id = my_grain_id;
-                                                const float ghost_octahedron_center_x = cx;
-                                                const float ghost_octahedron_center_y = cy;
-                                                const float ghost_octahedron_center_z = cz;
-                                                const float ghost_diagonal_length = interface.diagonal_length(index);
-                                                // Collect data for the ghost nodes, if necessary
-                                                bool data_fits_in_buffer = interface.loadGhostNodes(
-                                                                                                    ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                                                                                                    ghost_diagonal_length, grid.ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
-                                                                                                    grid.at_south_boundary, orientation.n_grain_orientations);
-                                                if (!(data_fits_in_buffer)) {
-                                                    // This cell's data did not fit in the buffer with current size buf_size - mark with
-                                                    // temporary type
-                                                    celldata.cell_type(neighbor_index) = ActiveFailedBufferLoad;
-                                                }
-                                                else {
-                                                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                                                    celldata.cell_type(neighbor_index) = Active;
-                                                }
-                                            } // End if statement for serial/parallel code
-                                            else {
-                                                // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                                                celldata.cell_type(neighbor_index) = Active;
-                                            } // End if statement for serial/parallel code
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else {
+//                if (neighboring_cells == neighboring_liquid_cells) {
+//                    // Successful nucleation event - cell reached the nucleation undercooling and octahedron grew sufficiently to claim the cell as part of a new grain. Initialize octahedron with the size associated with the octahedron at the current time
+//                    const int coord_x = grid.getCoordX(index);
+//                    const int coord_y = grid.getCoordY(index);
+//                    const int coord_z = grid.getCoordZ(index);
+//
+//                    // Nucleation event number was temporarily stored in grain ID view
+//                    const int nucleation_event_id = grain_id(index);
+//                    int my_grain_id = nucleation.nuclei_grain_id(nucleation_event_id);
+//
+//                    // Increment counter for successful nucleation events
+//                    Kokkos::atomic_fetch_add(&nucleation.successful_nucleation_counter(0), 1);
+//
+//                    // All cells within d_exclusion of nucleus become active cells
+//                    for (int ii=-nucleation.d_exclusion_round; ii<=nucleation.d_exclusion_round; ii++) {
+//                        for (int jj=-nucleation.d_exclusion_round; jj<=nucleation.d_exclusion_round; jj++) {
+//                            for (int kk=-nucleation.d_exclusion_round; kk<=nucleation.d_exclusion_round; kk++) {
+//                                int neighbor_coord_x = coord_x + ii;
+//                                int neighbor_coord_y = coord_y + jj;
+//                                int neighbor_coord_z = coord_z + kk;
+//                                float neighbor_distance = Kokkos::sqrt(ii * ii + jj * jj + kk * kk);
+////                                printf("Neighbor dist %f\n",neighbor_distance);
+//                                if (neighbor_distance <= nucleation.d_exclusion_round) {
+////                                    printf("Inside radius\n");
+//                                    const int neighbor_index = grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+//                                    if (neighbor_index != -1) {
+//                                        if ((celldata.cell_type(neighbor_index) == Liquid) || (index == neighbor_index)) {
+//                                            // Initialize new octahedron, with initial size fixed and center at cell center
+//                                            interface.createNewOctahedron(neighbor_index, neighbor_coord_x, neighbor_coord_y, grid.y_offset, neighbor_coord_z, 0.75);
+//                                            grain_id(neighbor_index) = nucleation.nuclei_grain_id(nucleation_event_id);
+//
+//                                            // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative
+//                                            // grain_id values)
+//                                            const int my_orientation = getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
+//                                            //printf("Successful nucleation for grain w GID %d \n",my_grain_id);
+//
+//                                            // This cell was not at the edge of the temperature field - set indicator to false if this
+//                                            // is being tracked
+//                                            celldata.setMeltEdge(neighbor_index, false);
+//
+//                                            // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
+//                                            // origin to keep the coordinate system continuous across ranks
+//                                            const float cx = neighbor_coord_x + 0.5;
+//                                            const float cy = neighbor_coord_y + grid.y_offset + 0.5;
+//                                            const float cz = neighbor_coord_z + 0.5;
+//                                            // Calculate critical values at which this active cell leads to the activation of a neighboring
+//                                            // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
+//                                            // grain
+//                                            interface.calcCritDiagonalLength(neighbor_index, cx, cy, cz, cx, cy, cz, my_orientation,
+//                                                                             orientation.grain_unit_vector);
+////                                            printf("cell at location %d, CDL %f, %f\n",neighbor_index,interface.crit_diagonal_length(26 * neighbor_index), interface.crit_diagonal_length(26 * neighbor_index + 1));
+//                                            if (np > 1) {
+//                                                // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
+//                                                // slowdown is minor
+//                                                const int ghost_grain_id = my_grain_id;
+//                                                const float ghost_octahedron_center_x = cx;
+//                                                const float ghost_octahedron_center_y = cy;
+//                                                const float ghost_octahedron_center_z = cz;
+//                                                const float ghost_diagonal_length = interface.diagonal_length(index);
+//                                                // Collect data for the ghost nodes, if necessary
+//                                                bool data_fits_in_buffer = interface.loadGhostNodes(
+//                                                                                                    ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
+//                                                                                                    ghost_diagonal_length, grid.ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
+//                                                                                                    grid.at_south_boundary, orientation.n_grain_orientations);
+//                                                if (!(data_fits_in_buffer)) {
+//                                                    // This cell's data did not fit in the buffer with current size buf_size - mark with
+//                                                    // temporary type
+//                                                    celldata.cell_type(neighbor_index) = ActiveFailedBufferLoad;
+//                                                }
+//                                                else {
+//                                                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
+//                                                    celldata.cell_type(neighbor_index) = Active;
+//                                                }
+//                                            } // End if statement for serial/parallel code
+//                                            else {
+//                                                // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
+//                                                celldata.cell_type(neighbor_index) = Active;
+//                                            } // End if statement for serial/parallel code
+//                                        }
+//                                    }
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//                else {
                     // Unsuccessful nucleation event - cell is affected by the solutal boundary layer of other cells and cannot be claimed by a new grain
-                    celldata.cell_type(index) = Liquid;
+//                    celldata.cell_type(index) = Liquid;
 //                    const int coord_x = grid.getCoordX(index);
 //                    const int coord_y = grid.getCoordY(index);
 //                    const int coord_z = grid.getCoordZ(index);
@@ -603,8 +603,8 @@ void cellCapture(const int id, const int np, const Grid &grid, const Interfacial
                     //if (id == 0)
                     //    printf("Failed nucleation for cell at %d, %d, %d; liquid neighbors %d / %d\n",coord_x,coord_y,coord_z,neighboring_liquid_cells,neighboring_cells);
 
-                }
-            }
+//                }
+//            }
             else if (cell_type_old == FutureActive) {
                 // Successful nucleation event - this cell is becoming a new active cell
                 celldata.cell_type(index) = TemporaryUpdate; // avoid operating on the new active cell before its
