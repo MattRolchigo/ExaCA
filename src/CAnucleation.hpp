@@ -103,6 +103,8 @@ struct Nucleation {
 //        auto cooling_rate_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.cooling_rate);
 //        auto grain_unit_vector_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), orientation.grain_unit_vector);
 
+        // Threshold for nucleated grains
+        const float misorientation_angle_threshold = 59.0; //20.0;
         // Region around a nucleus that must be clear of non-liquid cells for it to form
         d_exclusion = 1.5 * pow(10,-6) / grid.deltax;
         float _d_exclusion = d_exclusion;
@@ -235,10 +237,10 @@ struct Nucleation {
                             if (liq_time_this_event > time_to_nuc_und)
                                 time_to_nuc_und = liq_time_this_event;
                             // At the time of the nucleation event, what is the coldest neighboring cell? Defaults to current cell location for edge case where no neighboring cells are colder
-                            int coldest_neighbor_location = nucleus_location_this_layer;
-                            int coldest_neighbor_index = -1;
-                            float coldest_neighbor_undercooling = nuclei_undercooling_whole_domain(n_event);
-                            float coldest_neighbor_cooling_rate = cooling_rate_this_event;
+//                            int coldest_neighbor_location = nucleus_location_this_layer;
+//                            int coldest_neighbor_index = -1;
+//                            float coldest_neighbor_undercooling = nuclei_undercooling_whole_domain(n_event);
+//                            float coldest_neighbor_cooling_rate = cooling_rate_this_event;
                             float liquidus_time_neighbors[6];
                             bool liquidus_times_exist = true;
                             for (int l = 0; l < 6; l++) {
@@ -281,23 +283,38 @@ struct Nucleation {
                                const float x_capt = grad_x / grad_mag;
                                const float y_capt = grad_y / grad_mag;
                                const float z_capt = grad_z / grad_mag;
+//                               printf("Cell w/ melt event %d at %d, %d, %d has liquidus time gradient in direction %f, %f, %f\n",meltevent,nuclei_x_whole_domain(n_event),nuclei_y_whole_domain(n_event),nuclei_z_whole_domain(n_event),x_capt,y_capt,z_capt);
                                const int my_orientation = getGrainOrientation(nuclei_grain_id_whole_domain(n_event), orientation.n_grain_orientations);
                                // x_dist, y_dist, z_dist represents a location d_exclusion cell lengths away in the negative liquidus time gradient direction
-                               const float x_dist = - x_capt * _d_exclusion;
-                               const float y_dist = - y_capt * _d_exclusion;
-                               const float z_dist = - z_capt * _d_exclusion;
+//                               const float x_dist = - x_capt * _d_exclusion;
+//                               const float y_dist = - y_capt * _d_exclusion;
+//                               const float z_dist = - z_capt * _d_exclusion;
+                               // Misorientation between the thermal gradient direction and this grain's closest oriented <100>
+                               float misorientation_angle_min = 54.7356;
+                               for (int ll = 0; ll < 3; ll++) {
+                                   float misorientation =
+                                       Kokkos::abs((180 / M_PI) * Kokkos::acos(Kokkos::abs(orientation.grain_unit_vector(9 * my_orientation + 3 * ll) * x_capt + orientation.grain_unit_vector(9 * my_orientation + 3 * ll + 1) * y_capt + orientation.grain_unit_vector(9 * my_orientation + 3 * ll + 2) * z_capt)));
+                                   if (misorientation < misorientation_angle_min) {
+                                       misorientation_angle_min = misorientation;
+                                   }
+                               }
                                // Octahedron size needed to capture a cell at location x_dist, y_dist, z_dist
-                               const float capture_size = interface.calcCritDiagonalLength(x_dist, y_dist, z_dist, my_orientation, orientation.grain_unit_vector);
-                               _nuclei_oct_sizes(possible_nuclei_local) = capture_size;
+                               //const float capture_size = interface.calcCritDiagonalLength(x_dist, y_dist, z_dist, my_orientation, orientation.grain_unit_vector);
+                               _nuclei_oct_sizes(possible_nuclei_local) = interface._init_oct_size; //capture_size;
                                // What time is needed to reach this critical size, based on the nucleation undercooling at the cooling rate of the cell? Use the estimated undercooling at x_dist, y_dist, z_dist and the local undercooling, but only use the local cooling rate to avoid noise
-                               float undercooling_cell = nuclei_undercooling_whole_domain(n_event);
-                               float undercooling_xyzdist = nuclei_undercooling_whole_domain(n_event) + _d_exclusion * grad_mag;
-                               float cooling_rate_cell = cooling_rate_this_event;
-                               nucleation_times(possible_nuclei_local) = interface.getCaptureTime(undercooling_cell, undercooling_xyzdist, time_to_nuc_und, cooling_rate_cell, capture_size, irf);
+                               //float undercooling_cell = nuclei_undercooling_whole_domain(n_event);
+                               //float undercooling_xyzdist = nuclei_undercooling_whole_domain(n_event) + _d_exclusion * grad_mag;
+                               //float cooling_rate_cell = cooling_rate_this_event;
+                               if (misorientation_angle_min < misorientation_angle_threshold)
+                                   nucleation_times(possible_nuclei_local) = time_to_nuc_und;
+                               else
+                                   nucleation_times(possible_nuclei_local) = 900000000;
+                               //interface.getCaptureTime(undercooling_cell, undercooling_xyzdist, time_to_nuc_und, cooling_rate_cell, capture_size, irf);
                                //printf("Nucleus at %d, %d, %d, Capture size %f, angle z %f, growth lag %f\n",nuclei_x_whole_domain(n_event),nuclei_y_whole_domain(n_event),nuclei_z_whole_domain(n_event),capture_size,misorientation_z(my_orientation),nucleation_times(possible_nuclei_local)-time_to_nuc_und);
 
                            }
                            else {
+                               // Nucleation happens as normal
                                _nuclei_oct_sizes(possible_nuclei_local) = interface._init_oct_size;
                                nucleation_times(possible_nuclei_local) = time_to_nuc_und;
                            }
