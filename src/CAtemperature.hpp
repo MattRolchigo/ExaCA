@@ -871,6 +871,15 @@ struct Temperature {
         undercooling_current(index) += cooling_rate(index, solidification_event_counter(index));
     }
 
+    // Get the undercooling of a cell based on its location and the current time step
+    KOKKOS_INLINE_FUNCTION
+    float getLocalUndercooling(const int index, const int cycle) const {
+        const int solidification_event_counter_cell = solidification_event_counter(index);
+        const int liquidus_time_step = liquidus_time(index, solidification_event_counter_cell, 1);
+        const float time_since_liquidus = static_cast<float>(cycle - liquidus_time_step);
+        return time_since_liquidus * cooling_rate(index, solidification_event_counter_cell);
+    }
+
     // (Optional based on inputs) Set the starting undercooling in the cell for the solidification event that just
     // started
     KOKKOS_INLINE_FUNCTION

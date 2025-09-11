@@ -20,6 +20,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     using memory_space = MemorySpace;
 
     std::string simulation_type = inputs.simulation_type;
+    const bool remelting = ((simulation_type != "Directional") && (simulation_type != "SingleGrain"));
 
     // Material response function
     InterfacialResponseFunction irf(inputs.domain.deltat, grid.deltax, inputs.irf);
@@ -53,6 +54,8 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
     // Variables characterizing the active cell region within each rank's grid, including buffers for ghost node data
     // (fixed size) and the steering vector/steering vector size on host/device
     Interface<memory_space> interface(id, grid.domain_size, inputs.substrate.init_oct_size);
+    if (!remelting)
+        interface.fillSteeringVector_NoRemelt(grid, celldata.cell_type);
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Nucleation data structure, containing views of nuclei locations, time steps, and ids, and nucleation event
@@ -99,9 +102,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // added to a steering vector. Logic in fillSteeringVector_NoRemelt is a simpified version of
             // fillSteeringVector_Remelt
             timers.startSV();
-            if ((simulation_type == "Directional") || (simulation_type == "SingleGrain"))
-                fillSteeringVector_NoRemelt(cycle, grid, celldata, temperature, interface);
-            else
+            if (remelting)
                 fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
             timers.stopSV();
 
