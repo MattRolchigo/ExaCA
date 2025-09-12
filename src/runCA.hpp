@@ -95,7 +95,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // Cells with a successful nucleation event are marked and added to a steering vector, later dealt with in
             // cellCapture
             timers.startNucleation();
-            nucleation.nucleateGrain(cycle, grid, celldata, interface);
+            // nucleation.nucleateGrain(cycle, grid, celldata, interface);
             timers.stopNucleation();
 
             // Cells that have a successful nucleation event, and other cells that are at the solid-liquid interface are
@@ -103,7 +103,7 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // fillSteeringVector_Remelt
             timers.startSV();
             if (remelting)
-                fillSteeringVector_Remelt(cycle, grid, celldata, temperature, interface);
+                fillSteeringVector_Remelt(cycle, np, grid, celldata, temperature, interface, orientation);
             timers.stopSV();
 
             // Iterate over the steering vector to perform active cell creation and capture operations, and if needed,

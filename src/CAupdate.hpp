@@ -22,8 +22,9 @@
 // For the case where cells may melt and solidify multiple times, determine which cells are associated with the
 // "steering vector" of cells that are either active, or becoming active this time step, or undergoing melting
 template <typename MemorySpace>
-void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
-                               Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
+void fillSteeringVector_Remelt(const int cycle, const int np, const Grid &grid, CellData<MemorySpace> &celldata,
+                               Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface,
+                               Orientation<MemorySpace> &orientation) {
 
     auto grain_id = celldata.getGrainIDSubview(grid);
     Kokkos::parallel_for(
@@ -65,9 +66,27 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                             if (celldata.cell_type(neighbor_index) == Active) {
                                 // Mark adjacent active cells to this as cells that should be converted into liquid,
                                 // as they are more likely heating than cooling
-                                celldata.cell_type(neighbor_index) = FutureLiquid;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                    neighbor_index;
+                                //                                celldata.cell_type(neighbor_index) = FutureLiquid;
+                                //                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0),
+                                //                                1)) =
+                                //                                    neighbor_index;
+                                // This type was assigned to a cell that was recently transformed from active to liquid,
+                                // due to its bordering of a cell above the liquidus. This information may need to be
+                                // sent to other MPI ranks Dummy values for first 4 arguments (Grain ID and octahedron
+                                // center coordinates), 0 for diagonal length
+                                bool data_fits_in_buffer = interface.loadGhostNodes(
+                                    -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, coord_y, coord_z,
+                                    grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
+                                if (!(data_fits_in_buffer)) {
+                                    // This cell's data did not fit in the buffer with current size buf_size - mark with
+                                    // temporary type
+                                    celldata.cell_type(index) = LiquidFailedBufferLoad;
+                                }
+                                else {
+                                    // Cell activation is now finished - cell type can be changed from FutureLiquid to
+                                    // Active
+                                    celldata.cell_type(index) = Liquid;
+                                }
                             }
                         }
                     }
@@ -108,8 +127,60 @@ void fillSteeringVector_Remelt(const int cycle, const Grid &grid, CellData<Memor
                                 (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
                                 // Cell activation to be performed as part of steering vector
                                 l = 26;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
-                                celldata.cell_type(index) = FutureActive;
+                                // interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
+                                // index;
+                                //  Successful nucleation event - this cell is becoming a new active cell
+                                celldata.cell_type(index) =
+                                    TemporaryUpdate; // avoid operating on the new active cell before its
+                                                     // associated octahedron data is initialized
+                                const int my_grain_id = grain_id(index); // grain_id was assigned as part of Nucleation
+
+                                // Initialize new octahedron
+                                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                                // The orientation for the new grain will depend on its Grain ID (nucleated grains have
+                                // negative grain_id values)
+                                const int my_orientation =
+                                    getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
+                                // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the
+                                // domain origin to keep the coordinate system continuous across ranks
+                                const float cx = coord_x + 0.5;
+                                const float cy = coord_y + grid.y_offset + 0.5;
+                                const float cz = coord_z + 0.5;
+                                // Calculate critical values at which this active cell leads to the activation of a
+                                // neighboring liquid cell. Octahedron center and cell center overlap for octahedra
+                                // created as part of a new grain
+                                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
+                                                                 orientation.grain_unit_vector);
+                                if (np > 1) {
+                                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this
+                                    // change if the slowdown is minor
+                                    const int ghost_grain_id = my_grain_id;
+                                    const float ghost_octahedron_center_x = cx;
+                                    const float ghost_octahedron_center_y = cy;
+                                    const float ghost_octahedron_center_z = cz;
+                                    const float ghost_diagonal_length = interface._init_oct_size;
+                                    // Collect data for the ghost nodes, if necessary
+                                    bool data_fits_in_buffer = interface.loadGhostNodes(
+                                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
+                                        ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local, coord_x,
+                                        coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
+                                        orientation.n_grain_orientations);
+                                    if (!(data_fits_in_buffer)) {
+                                        // This cell's data did not fit in the buffer with current size buf_size - mark
+                                        // with temporary type
+                                        celldata.cell_type(index) = ActiveFailedBufferLoad;
+                                    }
+                                    else {
+                                        // Cell activation is now finished - cell type can be changed from
+                                        // TemporaryUpdate to Active
+                                        celldata.cell_type(index) = Active;
+                                    }
+                                } // End if statement for serial/parallel code
+                                else {
+                                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate
+                                    // to Active
+                                    celldata.cell_type(index) = Active;
+                                } // End if statement for serial/parallel code
                                 // This cell was at the edge of the temperature field - set indicator to true if this is
                                 // being tracked
                                 celldata.setMeltEdge(index, true);
@@ -148,132 +219,144 @@ void cellCaptureSV(const int cycle, const int np, const Grid &grid, const Interf
             const int coord_z = grid.getCoordZ(index);
             const int cell_type_old = celldata.cell_type(index);
             // Cells of interest for the CA - active cells and future active/liquid cells
-            if (celldata.cell_type(index) == Active) {
-                // Get undercooling of active cell
-                const float local_undercooling = temperature.getLocalUndercooling(index, cycle);
-                // Update diagonal length of octahedron based on local undercooling and interfacial response function
-                interface.diagonal_length(index) +=
-                    irf.compute(local_undercooling); // Kokkos::fmax(0.0, local_undercooling));
-                const float diagonal_length_cell = interface.diagonal_length(index);
-                // Switch that becomes false if the cell has at least 1 liquid type neighbor
-                bool deactivate_cell = true;
-                // Cycle through all neighboring cells on this processor to see if they have been captured
-                for (int l = 0; l < 26; l++) {
-                    // Local coordinates of adjacent cell center
-                    const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                    const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                    const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                    // Check if neighbor is in bounds
-                    const int neighbor_index =
-                        grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                    if (neighbor_index != -1) {
-                        const int neighbor_cell_type = celldata.cell_type(neighbor_index);
-                        if (neighbor_cell_type == Liquid)
-                            deactivate_cell = false;
-                        // Capture of cell located at "neighbor_index" if this condition is satisfied
-                        if ((diagonal_length_cell >= interface.crit_diagonal_length(26 * index + l)) &&
-                            (neighbor_cell_type == Liquid)) {
-                            // Use of atomic_compare_exchange
-                            // (https://github.com/kokkos/kokkos/wiki/Kokkos%3A%3Aatomic_compare_exchange) old_val =
-                            // atomic_compare_exchange(ptr_to_value,comparison_value, new_value); Atomically sets the
-                            // value at the address given by ptr_to_value to new_value if the current value at
-                            // ptr_to_value is equal to comparison_value Returns the previously stored value at the
-                            // address independent on whether the exchange has happened. If this cell's is a liquid
-                            // cell, change it to "TemporaryUpdate" type and return a value of "liquid" If this cell has
-                            // already been changed to "TemporaryUpdate" type, return a value of "0"
-                            int old_cell_type_value = Kokkos::atomic_compare_exchange(
-                                &celldata.cell_type(neighbor_index), Liquid, TemporaryUpdate);
-                            // Only proceed if cell_type was previously liquid (this current thread changed the value to
-                            // TemporaryUpdate)
-                            if (old_cell_type_value == Liquid) {
-                                const int event_idx = Kokkos::atomic_fetch_add(&interface.num_steer_cc(0), 1);
-                                interface.cc_steering_vector(event_idx) = index;
-                                interface.cc_steering_vector_idx(event_idx) = l;
-                                l = 26;
-                            }
+            //            if (celldata.cell_type(index) == Active) {
+            // Get undercooling of active cell
+            const float local_undercooling = temperature.getLocalUndercooling(index, cycle);
+            // Update diagonal length of octahedron based on local undercooling and interfacial response function
+            interface.diagonal_length(index) +=
+                irf.compute(local_undercooling); // Kokkos::fmax(0.0, local_undercooling));
+            const float diagonal_length_cell = interface.diagonal_length(index);
+            // Switch that becomes false if the cell has at least 1 liquid type neighbor
+            bool deactivate_cell = true;
+            // Cycle through all neighboring cells on this processor to see if they have been captured
+            for (int l = 0; l < 26; l++) {
+                // Local coordinates of adjacent cell center
+                const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                // Check if neighbor is in bounds
+                const int neighbor_index =
+                    grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                if (neighbor_index != -1) {
+                    const int neighbor_cell_type = celldata.cell_type(neighbor_index);
+                    if (neighbor_cell_type == Liquid)
+                        deactivate_cell = false;
+                    // Capture of cell located at "neighbor_index" if this condition is satisfied
+                    if ((diagonal_length_cell >= interface.crit_diagonal_length(26 * index + l)) &&
+                        (neighbor_cell_type == Liquid)) {
+                        // Use of atomic_compare_exchange
+                        // (https://github.com/kokkos/kokkos/wiki/Kokkos%3A%3Aatomic_compare_exchange) old_val =
+                        // atomic_compare_exchange(ptr_to_value,comparison_value, new_value); Atomically sets the
+                        // value at the address given by ptr_to_value to new_value if the current value at
+                        // ptr_to_value is equal to comparison_value Returns the previously stored value at the
+                        // address independent on whether the exchange has happened. If this cell's is a liquid
+                        // cell, change it to "TemporaryUpdate" type and return a value of "liquid" If this cell has
+                        // already been changed to "TemporaryUpdate" type, return a value of "0"
+                        int old_cell_type_value = Kokkos::atomic_compare_exchange(&celldata.cell_type(neighbor_index),
+                                                                                  Liquid, TemporaryUpdate);
+                        // Only proceed if cell_type was previously liquid (this current thread changed the value to
+                        // TemporaryUpdate)
+                        if (old_cell_type_value == Liquid) {
+                            const int event_idx = Kokkos::atomic_fetch_add(&interface.num_steer_cc(0), 1);
+                            interface.cc_steering_vector(event_idx) = index;
+                            interface.cc_steering_vector_idx(event_idx) = l;
                         }
                     }
                 }
-                if (deactivate_cell) {
-                    // This active cell has no more neighboring cells to be captured
-                    // Update the counter for the number of times this cell went from liquid to active to solid
-                    bool solidification_complete_y_n = temperature.updateCheckSolidificationCounter(index);
-                    // Did the cell solidify for the last time in the layer?
-                    // If so, this cell is solid - ignore until next layer (if needed)
-                    // If not, this cell is tempsolid, will become liquid again
-                    if (solidification_complete_y_n)
-                        celldata.cell_type(index) = Solid;
-                    else
-                        celldata.cell_type(index) = TempSolid;
-                }
             }
-            else if (cell_type_old == FutureActive) {
-                // Successful nucleation event - this cell is becoming a new active cell
-                celldata.cell_type(index) = TemporaryUpdate; // avoid operating on the new active cell before its
-                                                             // associated octahedron data is initialized
-                const int my_grain_id = grain_id(index); // grain_id was assigned as part of Nucleation
-
-                // Initialize new octahedron
-                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
-                // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative
-                // grain_id values)
-                const int my_orientation = getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
-                // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
-                // origin to keep the coordinate system continuous across ranks
-                const float cx = coord_x + 0.5;
-                const float cy = coord_y + grid.y_offset + 0.5;
-                const float cz = coord_z + 0.5;
-                // Calculate critical values at which this active cell leads to the activation of a neighboring
-                // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
-                // grain
-                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                 orientation.grain_unit_vector);
-                if (np > 1) {
-                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
-                    // slowdown is minor
-                    const int ghost_grain_id = my_grain_id;
-                    const float ghost_octahedron_center_x = cx;
-                    const float ghost_octahedron_center_y = cy;
-                    const float ghost_octahedron_center_z = cz;
-                    const float ghost_diagonal_length = interface._init_oct_size;
-                    // Collect data for the ghost nodes, if necessary
-                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
-                        grid.at_south_boundary, orientation.n_grain_orientations);
-                    if (!(data_fits_in_buffer)) {
-                        // This cell's data did not fit in the buffer with current size buf_size - mark with
-                        // temporary type
-                        celldata.cell_type(index) = ActiveFailedBufferLoad;
-                    }
-                    else {
-                        // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                        celldata.cell_type(index) = Active;
-                    }
-                } // End if statement for serial/parallel code
-                else {
-                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                    celldata.cell_type(index) = Active;
-                } // End if statement for serial/parallel code
+            if (deactivate_cell) {
+                // This active cell has no more neighboring cells to be captured
+                // Update the counter for the number of times this cell went from liquid to active to solid
+                bool solidification_complete_y_n = temperature.updateCheckSolidificationCounter(index);
+                // Did the cell solidify for the last time in the layer?
+                // If so, this cell is solid - ignore until next layer (if needed)
+                // If not, this cell is tempsolid, will become liquid again
+                if (solidification_complete_y_n)
+                    celldata.cell_type(index) = Solid;
+                else
+                    celldata.cell_type(index) = TempSolid;
             }
-            else if (cell_type_old == FutureLiquid) {
-                // This type was assigned to a cell that was recently transformed from active to liquid, due to its
-                // bordering of a cell above the liquidus. This information may need to be sent to other MPI ranks
-                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
-                // length
-                bool data_fits_in_buffer = interface.loadGhostNodes(
-                    -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
-                    grid.at_south_boundary, orientation.n_grain_orientations);
-                if (!(data_fits_in_buffer)) {
-                    // This cell's data did not fit in the buffer with current size buf_size - mark with temporary
-                    // type
-                    celldata.cell_type(index) = LiquidFailedBufferLoad;
-                }
-                else {
-                    // Cell activation is now finished - cell type can be changed from FutureLiquid to Active
-                    celldata.cell_type(index) = Liquid;
-                }
-            }
+            //            }
+            //            else if (cell_type_old == FutureActive) {
+            //                // Successful nucleation event - this cell is becoming a new active cell
+            //                celldata.cell_type(index) = TemporaryUpdate; // avoid operating on the new active cell
+            //                before its
+            //                                                             // associated octahedron data is initialized
+            //                const int my_grain_id = grain_id(index); // grain_id was assigned as part of Nucleation
+            //
+            //                // Initialize new octahedron
+            //                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+            //                // The orientation for the new grain will depend on its Grain ID (nucleated grains have
+            //                negative
+            //                // grain_id values)
+            //                const int my_orientation = getGrainOrientation(my_grain_id,
+            //                orientation.n_grain_orientations);
+            //                // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the
+            //                domain
+            //                // origin to keep the coordinate system continuous across ranks
+            //                const float cx = coord_x + 0.5;
+            //                const float cy = coord_y + grid.y_offset + 0.5;
+            //                const float cz = coord_z + 0.5;
+            //                // Calculate critical values at which this active cell leads to the activation of a
+            //                neighboring
+            //                // liquid cell. Octahedron center and cell center overlap for octahedra created as part of
+            //                a new
+            //                // grain
+            //                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
+            //                                                 orientation.grain_unit_vector);
+            //                if (np > 1) {
+            //                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this
+            //                    change if the
+            //                    // slowdown is minor
+            //                    const int ghost_grain_id = my_grain_id;
+            //                    const float ghost_octahedron_center_x = cx;
+            //                    const float ghost_octahedron_center_y = cy;
+            //                    const float ghost_octahedron_center_z = cz;
+            //                    const float ghost_diagonal_length = interface._init_oct_size;
+            //                    // Collect data for the ghost nodes, if necessary
+            //                    bool data_fits_in_buffer = interface.loadGhostNodes(
+            //                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
+            //                        ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local, coord_x, coord_y,
+            //                        coord_z, grid.at_north_boundary, grid.at_south_boundary,
+            //                        orientation.n_grain_orientations);
+            //                    if (!(data_fits_in_buffer)) {
+            //                        // This cell's data did not fit in the buffer with current size buf_size - mark
+            //                        with
+            //                        // temporary type
+            //                        celldata.cell_type(index) = ActiveFailedBufferLoad;
+            //                    }
+            //                    else {
+            //                        // Cell activation is now finished - cell type can be changed from TemporaryUpdate
+            //                        to Active celldata.cell_type(index) = Active;
+            //                    }
+            //                } // End if statement for serial/parallel code
+            //                else {
+            //                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to
+            //                    Active celldata.cell_type(index) = Active;
+            //                } // End if statement for serial/parallel code
+            //            }
+            //            else if (cell_type_old == FutureLiquid) {
+            //                // This type was assigned to a cell that was recently transformed from active to liquid,
+            //                due to its
+            //                // bordering of a cell above the liquidus. This information may need to be sent to other
+            //                MPI ranks
+            //                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
+            //                diagonal
+            //                // length
+            //                bool data_fits_in_buffer = interface.loadGhostNodes(
+            //                    -1, -1.0, -1.0, -1.0, 0.0, grid.ny_local, coord_x, coord_y, coord_z,
+            //                    grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
+            //                if (!(data_fits_in_buffer)) {
+            //                    // This cell's data did not fit in the buffer with current size buf_size - mark with
+            //                    temporary
+            //                    // type
+            //                    celldata.cell_type(index) = LiquidFailedBufferLoad;
+            //                }
+            //                else {
+            //                    // Cell activation is now finished - cell type can be changed from FutureLiquid to
+            //                    Active celldata.cell_type(index) = Liquid;
+            //                }
+            //            }
         });
     Kokkos::fence();
     Kokkos::deep_copy(interface.num_steer_cc_host, interface.num_steer_cc);
