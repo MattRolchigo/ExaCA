@@ -51,7 +51,7 @@ struct Timers {
 
     int id;
     Timer init, run, output;
-    Timer nucl, create_sv, capture, ghost;
+    Timer nucl, create_sv, capture, sv_rebuild, ghost;
     Timer layer;
     Timer heat_transfer;
 
@@ -63,6 +63,7 @@ struct Timers {
         , nucl()
         , create_sv()
         , capture()
+        , sv_rebuild()
         , ghost()
         , layer()
         , heat_transfer() {}
@@ -90,6 +91,9 @@ struct Timers {
 
     void startCapture() { capture.start(); }
     void stopCapture() { capture.stop(); }
+
+    void startSVRebuild() { sv_rebuild.start(); }
+    void stopSVRebuild() { sv_rebuild.stop(); }
 
     void startComm() { ghost.start(); }
     void stopComm() { ghost.stop(); }
@@ -126,6 +130,8 @@ struct Timers {
             << "]," << std::endl;
         log << "       \"MaxMinCellCaptureTime\": [" << capture.maxTime() << "," << capture.minTime() << "],"
             << std::endl;
+        log << "       \"MaxMinSteeringVectorRebuildTime\": [" << sv_rebuild.maxTime() << "," << sv_rebuild.minTime()
+            << "]," << std::endl;
         log << "       \"MaxMinGhostExchangeTime\": [" << ghost.maxTime() << "," << ghost.minTime() << "],"
             << std::endl;
         log << "       \"MaxMinOutputTime\": [" << output.maxTime() << "," << output.minTime() << "]" << std::endl;
@@ -139,6 +145,7 @@ struct Timers {
         nucl.reduceMPI();
         create_sv.reduceMPI();
         capture.reduceMPI();
+        sv_rebuild.reduceMPI();
         ghost.reduceMPI();
         output.reduceMPI();
 
@@ -165,6 +172,7 @@ struct Timers {
         std::cout << nucl.printMinMax("in CA nucleation");
         std::cout << create_sv.printMinMax("in CA steering vector creation");
         std::cout << capture.printMinMax("in CA cell capture");
+        std::cout << sv_rebuild.printMinMax("in CA steering vector rebuilding");
         std::cout << ghost.printMinMax("in CA cell communication");
         std::cout << output.printMinMax("exporting data");
 

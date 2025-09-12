@@ -41,8 +41,8 @@ struct Interface {
     view_type_float diagonal_length, octahedron_center, crit_diagonal_length;
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
     view_type_int send_size_south, send_size_north, steering_vector, num_steer;
-    view_type_int_host send_size_south_host, send_size_north_host, num_steer_host, num_steer_new_host;
-    view_type_int steering_vector_new;
+    view_type_int_host send_size_south_host, send_size_north_host, num_steer_host, num_steer_cc_host;
+    view_type_int num_steer_cc, cc_steering_vector, steering_vector_new;
     // Initial size of new octahedra
     float _init_oct_size;
 
@@ -76,7 +76,9 @@ struct Interface {
         , send_size_south_host(view_type_int_host("send_size_south_host", 1))
         , send_size_north_host(view_type_int_host("send_size_north_host", 1))
         , num_steer_host(view_type_int_host("steering_vector_size_host", 1))
-        , num_steer_new_host(view_type_int_host("steering_vector_size_new_host", 1))
+        , num_steer_cc(view_type_int("cc_steering_vector_size", 1))
+        , num_steer_cc_host(view_type_int_host("cc_steering_vector_size_host", 1))
+        , cc_steering_vector(view_type_int("cc_steering_vector", 5000))
         , steering_vector_new(view_type_int("steering_vector_new", domain_size))
         , _init_oct_size(init_oct_size) {
 
@@ -175,11 +177,13 @@ struct Interface {
     void fillSteeringVector_NoRemelt(const Grid &grid, view_type_int cell_type_view) {
 
         // Cells initialized as FutureActive type should be on the initial steering vector
+        auto _steering_vector = steering_vector;
+        auto _num_steer = num_steer;
         Kokkos::parallel_for(
             "FillSV", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
                 int cell_type_local = cell_type_view(index);
                 if (cell_type_local == FutureActive)
-                    steering_vector(Kokkos::atomic_fetch_add(&num_steer(0), 1)) = index;
+                    _steering_vector(Kokkos::atomic_fetch_add(&_num_steer(0), 1)) = index;
             });
         // Count of the number of cells on the initial steering vector on the host and device
         Kokkos::deep_copy(num_steer_host, num_steer);

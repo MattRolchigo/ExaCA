@@ -111,14 +111,19 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // checking the MPI buffers to ensure that all appropriate interface updates in the halo regions were
             // recorded
             timers.startCapture();
-            cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+            cellCaptureSV(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+            cellCapture(cycle, np, grid, celldata, temperature, interface, orientation);
             checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             timers.stopCapture();
 
+            timers.startSV();
+            //            if (remelting)
+            //                rebuildSteeringVector(interface, celldata);
+            timers.stopSV();
             if (np > 1) {
                 // Update ghost nodes
                 timers.startComm();
-                haloUpdate(cycle, id, grid, celldata, interface, orientation);
+                haloUpdate(id, grid, celldata, interface, orientation);
                 timers.stopComm();
             }
 
