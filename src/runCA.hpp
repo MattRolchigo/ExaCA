@@ -112,14 +112,14 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // recorded
             timers.startCapture();
             cellCaptureSV(cycle, np, grid, irf, celldata, temperature, interface, orientation);
-            cellCapture(cycle, np, grid, celldata, temperature, interface, orientation);
-            checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             timers.stopCapture();
 
-            timers.startSV();
+            timers.startSVRebuild();
+            cellCapture(cycle, np, grid, celldata, temperature, interface, orientation);
+            checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             //            if (remelting)
             //                rebuildSteeringVector(interface, celldata);
-            timers.stopSV();
+            timers.stopSVRebuild();
             if (np > 1) {
                 // Update ghost nodes
                 timers.startComm();

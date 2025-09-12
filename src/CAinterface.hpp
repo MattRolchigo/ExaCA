@@ -42,7 +42,7 @@ struct Interface {
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
     view_type_int send_size_south, send_size_north, steering_vector, num_steer;
     view_type_int_host send_size_south_host, send_size_north_host, num_steer_host, num_steer_cc_host;
-    view_type_int num_steer_cc, cc_steering_vector, steering_vector_new;
+    view_type_int num_steer_cc, cc_steering_vector, cc_steering_vector_idx, steering_vector_new;
     // Initial size of new octahedra
     float _init_oct_size;
 
@@ -79,6 +79,7 @@ struct Interface {
         , num_steer_cc(view_type_int("cc_steering_vector_size", 1))
         , num_steer_cc_host(view_type_int_host("cc_steering_vector_size_host", 1))
         , cc_steering_vector(view_type_int("cc_steering_vector", 5000))
+        , cc_steering_vector_idx(view_type_int("cc_steering_vector_idx", 5000))
         , steering_vector_new(view_type_int("steering_vector_new", domain_size))
         , _init_oct_size(init_oct_size) {
 
