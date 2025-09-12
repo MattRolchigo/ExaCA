@@ -51,7 +51,7 @@ struct Timers {
 
     int id;
     Timer init, run, output;
-    Timer nucl, create_sv, capture, sv_rebuild, ghost;
+    Timer nucl, create_sv, capture, sv_capture, sv_rebuild, ghost;
     Timer layer;
     Timer heat_transfer;
 
@@ -63,6 +63,7 @@ struct Timers {
         , nucl()
         , create_sv()
         , capture()
+        , sv_capture()
         , sv_rebuild()
         , ghost()
         , layer()
@@ -88,6 +89,9 @@ struct Timers {
 
     void startSV() { create_sv.start(); }
     void stopSV() { create_sv.stop(); }
+
+    void startCaptureSV() { sv_capture.start(); }
+    void stopCaptureSV() { sv_capture.stop(); }
 
     void startCapture() { capture.start(); }
     void stopCapture() { capture.stop(); }
@@ -127,6 +131,8 @@ struct Timers {
         log << "       \"MaxMinInitTime\": [" << init.maxTime() << "," << init.minTime() << "]," << std::endl;
         log << "       \"MaxMinNucleationTime\": [" << nucl.maxTime() << "," << nucl.minTime() << "]," << std::endl;
         log << "       \"MaxMinSteeringVectorCreationTime\": [" << create_sv.maxTime() << "," << create_sv.minTime()
+            << "]," << std::endl;
+        log << "       \"MaxMinCellCaptureSteerCreationTime\": [" << sv_capture.maxTime() << "," << sv_capture.minTime()
             << "]," << std::endl;
         log << "       \"MaxMinCellCaptureTime\": [" << capture.maxTime() << "," << capture.minTime() << "],"
             << std::endl;
@@ -171,6 +177,7 @@ struct Timers {
         std::cout << init.printMinMax("initializing data");
         std::cout << nucl.printMinMax("in CA nucleation");
         std::cout << create_sv.printMinMax("in CA steering vector creation");
+        std::cout << sv_capture.printMinMax("in CA steering vector creation for cell capture");
         std::cout << capture.printMinMax("in CA cell capture");
         std::cout << sv_rebuild.printMinMax("in CA steering vector rebuilding");
         std::cout << ghost.printMinMax("in CA cell communication");

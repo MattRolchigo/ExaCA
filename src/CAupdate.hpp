@@ -91,99 +91,102 @@ void fillSteeringVector_Remelt(const int cycle, const int np, const Grid &grid, 
                         }
                     }
                 }
-                else if ((celltype != TempSolid) && (past_crit_time)) {
-                    // Update cell undercooling
-                    temperature.updateUndercooling(index);
-                    if (celltype == Active) {
-                        // Add active cells below liquidus to steering vector
-                        interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
-                    }
-                }
-                //                else if (at_crit_time) { /// REMOVED FOR CHECK
+                //                else if ((celltype != TempSolid) && (past_crit_time)) {
+                //                    // Update cell undercooling
+                //                    temperature.updateUndercooling(index);
                 //                    if (celltype == Active) {
+                //                        // Add active cells below liquidus to steering vector
                 //                        interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0),
                 //                        1)) = index;
                 //                    }
-                //                    else if ((celltype == Liquid) && (grain_id(index) != 0)) {
-                else if ((at_crit_time) && (celltype == Liquid) && (grain_id(index) != 0)) {
+                //                }
+                else if (at_crit_time) { /// REMOVED FOR CHECK
+                    if (celltype == Active) {
+                        interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
+                    }
+                    else if ((celltype == Liquid) && (grain_id(index) != 0)) {
+                        // else if ((at_crit_time) && (celltype == Liquid) && (grain_id(index) != 0)) {
 
-                    // Get the x, y, z coordinates of the cell on this MPI rank
-                    int coord_x = grid.getCoordX(index);
-                    int coord_y = grid.getCoordY(index);
-                    int coord_z = grid.getCoordZ(index);
-                    // If this cell has cooled to the liquidus temperature, borders at least one solid/tempsolid
-                    // cell, and is part of a grain, it should become active. This only needs to be checked on the
-                    // time step where the cell reaches the liquidus, not every time step beyond this
-                    for (int l = 0; l < 26; l++) {
-                        // "l" correpsponds to the specific neighboring cell
-                        // Local coordinates of adjacent cell center
-                        int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                        int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                        int neighbor_coord_z = coord_z + interface.neighbor_z[l];
-                        const int neighbor_index =
-                            grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
-                        if (neighbor_index != -1) {
-                            if ((celldata.cell_type(neighbor_index) == TempSolid) ||
-                                (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
-                                // Cell activation to be performed as part of steering vector
-                                l = 26;
-                                // interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                // index;
-                                //  Successful nucleation event - this cell is becoming a new active cell
-                                celldata.cell_type(index) =
-                                    TemporaryUpdate; // avoid operating on the new active cell before its
-                                                     // associated octahedron data is initialized
-                                const int my_grain_id = grain_id(index); // grain_id was assigned as part of Nucleation
+                        // Get the x, y, z coordinates of the cell on this MPI rank
+                        int coord_x = grid.getCoordX(index);
+                        int coord_y = grid.getCoordY(index);
+                        int coord_z = grid.getCoordZ(index);
+                        // If this cell has cooled to the liquidus temperature, borders at least one solid/tempsolid
+                        // cell, and is part of a grain, it should become active. This only needs to be checked on the
+                        // time step where the cell reaches the liquidus, not every time step beyond this
+                        for (int l = 0; l < 26; l++) {
+                            // "l" correpsponds to the specific neighboring cell
+                            // Local coordinates of adjacent cell center
+                            int neighbor_coord_x = coord_x + interface.neighbor_x[l];
+                            int neighbor_coord_y = coord_y + interface.neighbor_y[l];
+                            int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                            const int neighbor_index =
+                                grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
+                            if (neighbor_index != -1) {
+                                if ((celldata.cell_type(neighbor_index) == TempSolid) ||
+                                    (celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
 
-                                // Initialize new octahedron
-                                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
-                                // The orientation for the new grain will depend on its Grain ID (nucleated grains have
-                                // negative grain_id values)
-                                const int my_orientation =
-                                    getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
-                                // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the
-                                // domain origin to keep the coordinate system continuous across ranks
-                                const float cx = coord_x + 0.5;
-                                const float cy = coord_y + grid.y_offset + 0.5;
-                                const float cz = coord_z + 0.5;
-                                // Calculate critical values at which this active cell leads to the activation of a
-                                // neighboring liquid cell. Octahedron center and cell center overlap for octahedra
-                                // created as part of a new grain
-                                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                                 orientation.grain_unit_vector);
-                                if (np > 1) {
-                                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this
-                                    // change if the slowdown is minor
-                                    const int ghost_grain_id = my_grain_id;
-                                    const float ghost_octahedron_center_x = cx;
-                                    const float ghost_octahedron_center_y = cy;
-                                    const float ghost_octahedron_center_z = cz;
-                                    const float ghost_diagonal_length = interface._init_oct_size;
-                                    // Collect data for the ghost nodes, if necessary
-                                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
-                                        ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local, coord_x,
-                                        coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
-                                        orientation.n_grain_orientations);
-                                    if (!(data_fits_in_buffer)) {
-                                        // This cell's data did not fit in the buffer with current size buf_size - mark
-                                        // with temporary type
-                                        celldata.cell_type(index) = ActiveFailedBufferLoad;
-                                    }
+                                    // Cell activation to be performed as part of steering vector
+                                    l = 26;
+                                    interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
+                                        index;
+                                    //  Successful nucleation event - this cell is becoming a new active cell
+                                    celldata.cell_type(index) =
+                                        TemporaryUpdate; // avoid operating on the new active cell before its
+                                    // associated octahedron data is initialized
+                                    const int my_grain_id =
+                                        grain_id(index); // grain_id was assigned as part of Nucleation
+
+                                    // Initialize new octahedron
+                                    interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                                    // The orientation for the new grain will depend on its Grain ID (nucleated grains
+                                    // have negative grain_id values)
+                                    const int my_orientation =
+                                        getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
+                                    // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to
+                                    // the domain origin to keep the coordinate system continuous across ranks
+                                    const float cx = coord_x + 0.5;
+                                    const float cy = coord_y + grid.y_offset + 0.5;
+                                    const float cz = coord_z + 0.5;
+                                    // Calculate critical values at which this active cell leads to the activation of a
+                                    // neighboring liquid cell. Octahedron center and cell center overlap for octahedra
+                                    // created as part of a new grain
+                                    interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
+                                                                     orientation.grain_unit_vector);
+                                    if (np > 1) {
+                                        // TODO: Test loading ghost nodes in a separate kernel, potentially adopting
+                                        // this change if the slowdown is minor
+                                        const int ghost_grain_id = my_grain_id;
+                                        const float ghost_octahedron_center_x = cx;
+                                        const float ghost_octahedron_center_y = cy;
+                                        const float ghost_octahedron_center_z = cz;
+                                        const float ghost_diagonal_length = interface._init_oct_size;
+                                        // Collect data for the ghost nodes, if necessary
+                                        bool data_fits_in_buffer = interface.loadGhostNodes(
+                                            ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
+                                            ghost_octahedron_center_z, ghost_diagonal_length, grid.ny_local, coord_x,
+                                            coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
+                                            orientation.n_grain_orientations);
+                                        if (!(data_fits_in_buffer)) {
+                                            // This cell's data did not fit in the buffer with current size buf_size -
+                                            // mark with temporary type
+                                            celldata.cell_type(index) = ActiveFailedBufferLoad;
+                                        }
+                                        else {
+                                            // Cell activation is now finished - cell type can be changed from
+                                            // TemporaryUpdate to Active
+                                            celldata.cell_type(index) = Active;
+                                        }
+                                    } // End if statement for serial/parallel code
                                     else {
                                         // Cell activation is now finished - cell type can be changed from
                                         // TemporaryUpdate to Active
                                         celldata.cell_type(index) = Active;
-                                    }
-                                } // End if statement for serial/parallel code
-                                else {
-                                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate
-                                    // to Active
-                                    celldata.cell_type(index) = Active;
-                                } // End if statement for serial/parallel code
-                                // This cell was at the edge of the temperature field - set indicator to true if this is
-                                // being tracked
-                                celldata.setMeltEdge(index, true);
+                                    } // End if statement for serial/parallel code
+                                    // This cell was at the edge of the temperature field - set indicator to true if
+                                    // this is being tracked
+                                    celldata.setMeltEdge(index, true);
+                                }
                             }
                         }
                     }
@@ -210,7 +213,7 @@ void cellCaptureSV(const int cycle, const int np, const Grid &grid, const Interf
     Kokkos::parallel_for(
         "CellCaptureSV", num_steer_host_old, KOKKOS_LAMBDA(const int &num) {
             // Reset steering vector size on device to 0, to be rebuilt next time step
-            interface.num_steer(0) = 0;
+            // interface.num_steer(0) = 0;
             // Get the 1D index of cell from the steering vector
             const int index = interface.steering_vector(num);
             // Using the 1D index, get the x, y, z coordinates of the cell on this MPI rank
@@ -395,11 +398,9 @@ void cellCapture(const int cycle, const int np, const Grid &grid, CellData<Memor
             //                        (neighbor_cell_type == Liquid)) {
 
             // Cell capture event - add to steering vector for next time step
-            //                            const float local_undercooling_capt =
-            //                            temperature.getLocalUndercooling(neighbor_index, cycle); if
-            //                            (local_undercooling_capt >= 0)
-            //                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0),
-            //                                1)) = neighbor_index;
+            const float local_undercooling_capt = temperature.getLocalUndercooling(neighbor_index, cycle);
+            if (local_undercooling_capt >= 0)
+                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = neighbor_index;
             const int my_grain_id = grain_id(index);
             const int my_orientation = getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
 
@@ -592,7 +593,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, CellData<Memor
             }
         });
     Kokkos::fence();
-    // Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
+    Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
 }
 
 template <typename MemorySpace>
@@ -606,7 +607,7 @@ void rebuildSteeringVector(Interface<MemorySpace> &interface, CellData<MemorySpa
         KOKKOS_LAMBDA(const int num, int &chunk_start, bool is_final) {
             const int index = interface.steering_vector(num);
             const int cell_type_local = celldata.cell_type(index);
-            if ((cell_type_local != Liquid) && (cell_type_local != TempSolid) && (cell_type_local != Solid)) {
+            if (cell_type_local == Active) {
                 if (is_final) {
                     // Copy from old steering vector to new one
                     interface.steering_vector_new(chunk_start) = interface.steering_vector(num);
@@ -713,8 +714,9 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
 
 // 1D domain decomposition: update ghost nodes with new cell data from nucleation.nucleateGrain and cellCapture routines
 template <typename MemorySpace>
-void haloUpdate(const int, const Grid &grid, CellData<MemorySpace> &celldata, Interface<MemorySpace> &interface,
-                Orientation<MemorySpace> &orientation) {
+void haloUpdate(const int, const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
+                Interface<MemorySpace> &interface, Orientation<MemorySpace> &orientation,
+                Temperature<MemorySpace> &temperature) {
 
     std::vector<MPI_Request> send_requests(2, MPI_REQUEST_NULL);
     std::vector<MPI_Request> recv_requests(2, MPI_REQUEST_NULL);
@@ -823,12 +825,10 @@ void haloUpdate(const int, const Grid &grid, CellData<MemorySpace> &celldata, In
                                                          new_octahedron_center_y, new_octahedron_center_z,
                                                          my_orientation, orientation.grain_unit_vector);
                         celldata.cell_type(index) = Active;
-                        //                        // Add to steering vector if undercooled
-                        //                        const float local_undercooling_capt =
-                        //                        temperature.getLocalUndercooling(index, cycle); if
-                        //                        (local_undercooling_capt >= 0)
-                        //                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0),
-                        //                            1)) = index;
+                        // Add to steering vector if undercooled
+                        const float local_undercooling_capt = temperature.getLocalUndercooling(index, cycle);
+                        if (local_undercooling_capt >= 0)
+                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
                     }
                 });
         }

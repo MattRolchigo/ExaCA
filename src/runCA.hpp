@@ -110,20 +110,23 @@ void runExaCA(int id, int np, Inputs inputs, Timers timers, Grid grid, Temperatu
             // melting of cells that have gone above the liquidus. Also places halo cell data into send buffers, later
             // checking the MPI buffers to ensure that all appropriate interface updates in the halo regions were
             // recorded
-            timers.startCapture();
+            timers.startCaptureSV();
             cellCaptureSV(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+            timers.stopCaptureSV();
+
+            timers.startCapture();
+            cellCapture(cycle, np, grid, celldata, temperature, interface, orientation);
+            checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
             timers.stopCapture();
 
             timers.startSVRebuild();
-            cellCapture(cycle, np, grid, celldata, temperature, interface, orientation);
-            checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
-            //            if (remelting)
-            //                rebuildSteeringVector(interface, celldata);
+            if (remelting)
+                rebuildSteeringVector(interface, celldata);
             timers.stopSVRebuild();
             if (np > 1) {
                 // Update ghost nodes
                 timers.startComm();
-                haloUpdate(id, grid, celldata, interface, orientation);
+                haloUpdate(id, cycle, grid, celldata, interface, orientation, temperature);
                 timers.stopComm();
             }
 
