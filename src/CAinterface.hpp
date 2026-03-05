@@ -31,6 +31,7 @@ struct Interface {
     using view_type_float = Kokkos::View<float *, memory_space>;
     using view_type_int = Kokkos::View<int *, memory_space>;
     using view_type_int_host = typename view_type_int::host_mirror_type;
+    using view_type_int_2d = Kokkos::View<int **, memory_space>;
     using neighbor_list_type = Kokkos::Array<int, 26>;
 
     // Using the default exec space for this memory space.
@@ -40,8 +41,9 @@ struct Interface {
     int buf_size, buf_components;
     view_type_float diagonal_length, octahedron_center, crit_diagonal_length;
     view_type_buffer buffer_south_send, buffer_north_send, buffer_south_recv, buffer_north_recv;
-    view_type_int send_size_south, send_size_north, steering_vector, num_steer;
-    view_type_int_host send_size_south_host, send_size_north_host, num_steer_host;
+    view_type_int send_size_south, send_size_north, steering_vector, num_steer, num_steer_cc;
+    view_type_int_host send_size_south_host, send_size_north_host, num_steer_host, num_steer_cc_host;
+    view_type_int_2d steering_vector_cc;
     // Initial size of new octahedra
     float _init_oct_size;
 
@@ -72,9 +74,13 @@ struct Interface {
         , send_size_north(view_type_int("send_size_north", 1))
         , steering_vector(view_type_int(Kokkos::ViewAllocateWithoutInitializing("steering_vector"), domain_size))
         , num_steer(view_type_int("steering_vector_size", 1))
+        , num_steer_cc(view_type_int("steering_vector_cc_size", 1))
         , send_size_south_host(view_type_int_host("send_size_south_host", 1))
         , send_size_north_host(view_type_int_host("send_size_north_host", 1))
         , num_steer_host(view_type_int_host("steering_vector_size_host", 1))
+        , num_steer_cc_host(view_type_int_host("steering_vector_cc_size_host", 1))
+        , steering_vector_cc(view_type_int_2d("steering_vector_size_cc_host", domain_size, 2))
+
         , _init_oct_size(init_oct_size) {
 
         // Set initial buffer size to the estimate
