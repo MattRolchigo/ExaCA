@@ -295,8 +295,8 @@ void testNucleateGrain() {
     // Copy views back to host to check nucleation results
     cell_type_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), celldata.cell_type);
     auto steering_vector_host_local =
-        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector);
-    auto num_steer_host_local = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer);
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector_new);
+    auto num_steer_host_local = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer_new);
     grain_id = celldata.getGrainIDSubview(grid);
     grain_id_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), grain_id);
 

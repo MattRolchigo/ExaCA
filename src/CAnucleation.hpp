@@ -400,7 +400,7 @@ struct Nucleation {
                             // exchange is successful (cell was liquid) Add future active cell location to steering
                             // vector and change cell type, assign new Grain ID
                             grain_id(nucleation_event_location) = nuclei_grain_id_local(nucleation_counter_device);
-                            interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
+                            interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) =
                                 nucleation_event_location;
                             // This cell was not at the edge of the temperature field - set indicator to false if this
                             // is being tracked

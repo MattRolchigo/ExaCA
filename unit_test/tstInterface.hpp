@@ -590,9 +590,9 @@ void testRemeltActivateCells() {
 
     // Copy data back to host to check steering vector construction results
     auto cell_type_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), celldata.cell_type);
-    Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
-    auto steering_vector_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector);
-    auto num_steer_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer);
+    Kokkos::deep_copy(interface.num_steer_host, interface.num_steer_new);
+    auto steering_vector_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.steering_vector_new);
+    auto num_steer_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), interface.num_steer_new);
     auto undercooling_current_host =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), temperature.undercooling_current);
     auto last_time_below_liquidus_host =
