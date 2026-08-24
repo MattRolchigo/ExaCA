@@ -52,39 +52,37 @@ struct Print {
     // ranks
     using view_type_int_host = Kokkos::View<int *, Kokkos::HostSpace>;
     using view_type_float_host = Kokkos::View<float *, Kokkos::HostSpace>;
-    view_type_int_host recv_y_offset, recv_ny_local, recv_buf_size;
-    // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0=
-    int send_buf_start_y, send_buf_end_y, send_buf_size;
+    view_type_int_host start_y_all_ranks, end_y_all_ranks;
+    // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0
+    int start_y_local, end_y_local, start_y_global, end_y_global;
     // Holds print options from input file
     PrintInputs _inputs;
     // Combined path/file prefix for output files
     std::string path_base_filename;
 
     // Default constructor - options are set in getPrintDataFromFile and copied into this struct
-    Print(const Grid &grid, const int np, PrintInputs inputs)
-        : recv_y_offset(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_y_offset"), np))
-        , recv_ny_local(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("Recv_ny_local"), np))
-        , recv_buf_size(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("RBufSize"), np))
+    Print(const Grid &grid, const int id, const int np, PrintInputs inputs)
+        : start_y_all_ranks(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("y_start"), np))
+        , end_y_all_ranks(view_type_int_host(Kokkos::ViewAllocateWithoutInitializing("y_end"), np))
         , _inputs(inputs) {
 
-        // Buffers for sending/receiving data across ranks
-        for (int recvrank = 0; recvrank < np; recvrank++) {
-            recv_y_offset(recvrank) = grid.getYOffset(recvrank, np);
-            recv_ny_local(recvrank) = grid.getNyLocal(recvrank, np);
-            recv_buf_size(recvrank) = grid.nx * recv_ny_local(recvrank) * grid.nz;
+        // Starting Y of local data does not interior walls or halo region
+        start_y_local = 0;
+        start_y_global = grid.y_offset;
+        if (id != 0) {
+            start_y_local = start_y_local + 1;
+            start_y_global = start_y_global + 1;
         }
-
-        // Y coordinates for a given rank's data being send/loaded into the view of all domain data on rank 0
-        if (grid.y_offset == 0)
-            send_buf_start_y = 0;
-        else
-            send_buf_start_y = 1;
-        if (grid.ny_local + grid.y_offset == grid.ny)
-            send_buf_end_y = grid.ny_local;
-        else
-            send_buf_end_y = grid.ny_local - 1;
-        send_buf_size = grid.nx * (send_buf_end_y - send_buf_start_y) * grid.nz;
-
+        // Ending Y of local data does not interior walls or halo region
+        end_y_local = grid.ny_local;
+        end_y_global = grid.y_offset + grid.ny_local;
+        if (id != np - 1) {
+            end_y_local = end_y_local - 1;
+            end_y_global = end_y_global - 1;
+        }
+        // Rank 0 collects values for Y coordinates start and end on each rank
+        MPI_Gather(&start_y_global, 1, MPI_INT, start_y_all_ranks.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Gather(&end_y_global, 1, MPI_INT, end_y_all_ranks.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         path_base_filename = _inputs.path_to_output + _inputs.base_filename;
     }
 
@@ -151,16 +149,18 @@ struct Print {
             // Place rank 0 data into view for whole domain
             for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
                 for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                    for (int coord_y_local = 0; coord_y_local < grid.ny_local; coord_y_local++) {
+                    for (int coord_y_local = start_y_local; coord_y_local < end_y_local; coord_y_local++) {
                         int index = grid.get1DIndex(coord_x, coord_y_local, coord_z);
-                        view_data_whole_domain(coord_z, coord_x, coord_y_local) = view_data_this_rank(index);
+                        int coord_y_global = coord_y_local + grid.y_offset;
+                        view_data_whole_domain(coord_z, coord_x, coord_y_global) = view_data_this_rank(index);
                     }
                 }
             }
-
-            // Receive values from other ranks - message size different for different ranks
+            // Receive values from other ranks - message size different for different ranks. Don't place wall cell data
+            // from lower/upper bounds in Y
             for (int recvrank = 1; recvrank < np; recvrank++) {
-                int recv_buf_size_this_rank = recv_buf_size(recvrank);
+                int recv_buf_size_this_rank =
+                    grid.nx * (end_y_all_ranks(recvrank) - start_y_all_ranks(recvrank)) * z_print_size;
                 host_view_type recv_buf(Kokkos::ViewAllocateWithoutInitializing("RecvBufData"),
                                         recv_buf_size_this_rank);
                 MPI_Recv(recv_buf.data(), recv_buf_size_this_rank, msg_type, recvrank, 0, MPI_COMM_WORLD,
@@ -168,8 +168,8 @@ struct Print {
                 int data_counter = 0;
                 for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
                     for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                        for (int coord_y_local = 0; coord_y_local < recv_ny_local(recvrank); coord_y_local++) {
-                            int coord_y_global = coord_y_local + recv_y_offset(recvrank);
+                        for (int coord_y_global = start_y_all_ranks(recvrank);
+                             coord_y_global < end_y_all_ranks(recvrank); coord_y_global++) {
                             view_data_whole_domain(coord_z, coord_x, coord_y_global) = recv_buf(data_counter);
                             data_counter++;
                         }
@@ -178,12 +178,13 @@ struct Print {
             }
         }
         else {
-            // Send non-ghost node data to rank 0
+            // Send non-ghost and non-wall cell data to rank 0
             int data_counter = 0;
+            int send_buf_size = grid.nx * (end_y_local - start_y_local) * z_print_size;
             host_view_type send_buf(Kokkos::ViewAllocateWithoutInitializing("SendBuf"), send_buf_size);
             for (int coord_z = 0; coord_z < z_print_size; coord_z++) {
                 for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
-                    for (int coord_y_local = send_buf_start_y; coord_y_local < send_buf_end_y; coord_y_local++) {
+                    for (int coord_y_local = start_y_local; coord_y_local < end_y_local; coord_y_local++) {
                         int index = grid.get1DIndex(coord_x, coord_y_local, coord_z);
                         send_buf(data_counter) = view_data_this_rank(index);
                         data_counter++;
@@ -519,12 +520,12 @@ struct Print {
         int z_print_size;
         float z_print_origin;
         if (current_layer_only) {
-            z_print_size = grid.nz_layer;
-            z_print_origin = grid.z_min + grid.z_layer_bottom * grid.deltax;
+            z_print_size = grid.nz_layer - 2;
+            z_print_origin = grid.z_min + (grid.z_layer_bottom + 1) * grid.deltax;
         }
         else {
-            z_print_size = grid.z_layer_bottom + grid.nz_layer;
-            z_print_origin = grid.z_min;
+            z_print_size = grid.z_layer_bottom + grid.nz_layer - 2;
+            z_print_origin = grid.z_min + grid.deltax;
         }
 
         if (_inputs.print_binary)
@@ -538,10 +539,11 @@ struct Print {
         else
             output_fstream << "ASCII" << std::endl;
         output_fstream << "DATASET STRUCTURED_POINTS" << std::endl;
-        output_fstream << "DIMENSIONS " << grid.nx << " " << grid.ny << " " << z_print_size << std::endl;
-        output_fstream << "ORIGIN " << grid.x_min << " " << grid.y_min << " " << z_print_origin << std::endl;
+        output_fstream << "DIMENSIONS " << grid.nx - 2 << " " << grid.ny - 2 << " " << z_print_size << std::endl;
+        output_fstream << "ORIGIN " << grid.x_min + grid.deltax << " " << grid.y_min + grid.deltax << " "
+                       << z_print_origin << std::endl;
         output_fstream << "SPACING " << grid.deltax << " " << grid.deltax << " " << grid.deltax << std::endl;
-        output_fstream << std::fixed << "POINT_DATA " << grid.nx * grid.ny * z_print_size << std::endl;
+        output_fstream << std::fixed << "POINT_DATA " << (grid.nx - 2) * (grid.ny - 2) * z_print_size << std::endl;
     }
 
     // Called on rank 0 to write view data to the vtk file
@@ -551,20 +553,20 @@ struct Print {
         if (id != 0)
             return;
 
-        // Printing the z coordinates spanning the current layer, or from the overall simulation bottom (k = 0) through
-        // the top of the current layer
-        int z_start = 0;
+        // Printing the z coordinates spanning the current layer, or from the overall simulation bottom (k = 1) through
+        // the top of the current layer. Exclude wall cells at top/bottom Z coordinates
+        int z_start = 1;
         int z_end;
         if (current_layer_only)
-            z_end = grid.nz_layer;
+            z_end = grid.nz_layer - 1;
         else
-            z_end = grid.z_layer_bottom + grid.nz_layer;
-        // Print data to the vtk file - casting to the appropriate type if necessary
+            z_end = grid.z_layer_bottom + grid.nz_layer - 1;
+        // Print data to the vtk file - casting to the appropriate type if necessary. Do not print wall cells in X, Y, Z
         output_fstream << "SCALARS " << var_name_label << " " << data_label << " 1" << std::endl;
         output_fstream << "LOOKUP_TABLE default" << std::endl;
         for (int coord_z = z_start; coord_z < z_end; coord_z++) {
-            for (int coord_y_global = 0; coord_y_global < grid.ny; coord_y_global++) {
-                for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
+            for (int coord_y_global = 1; coord_y_global < grid.ny - 1; coord_y_global++) {
+                for (int coord_x = 1; coord_x < grid.nx - 1; coord_x++) {
                     if (data_label == "int") {
                         int writeval = static_cast<int>(view_data_whole_domain(coord_z, coord_x, coord_y_global));
                         writeData(output_fstream, writeval, _inputs.print_binary, true);
@@ -611,8 +613,8 @@ struct Print {
                                    Orientation<OrientationMemory> &orientation) {
 
         // Print grain orientations to file - either all layers (print_region = 2), or if in an intermediate state, the
-        // layers up to the current one (print_region = 1) z_end will equal grid.nz if this is the final layer
-        int z_end = grid.z_layer_bottom + grid.nz_layer;
+        // layers up to the current one (print_region = 1) z_end will equal grid.nz - 1 if this is the final layer
+        int z_end = grid.z_layer_bottom + grid.nz_layer - 1;
         std::ofstream misorientations_ofstream;
         writeHeader(misorientations_ofstream, misorientations_filename, grid, false);
         misorientations_ofstream << "SCALARS Angle_z short 1" << std::endl;
@@ -626,9 +628,9 @@ struct Print {
         // nucleated grains are assigned values between 100-162 to differentiate them. Additionally, 200 is printed as
         // the misorientation for cells in the powder layer that have not been assigned a grain ID.
         // For prior layers, cell type check is unnecessary as these regions have all solidified
-        for (int k = 0; k < grid.z_layer_bottom; k++) {
-            for (int j = 0; j < grid.ny; j++) {
-                for (int i = 0; i < grid.nx; i++) {
+        for (int k = 1; k <= grid.z_layer_bottom; k++) {
+            for (int j = 1; j < grid.ny - 1; j++) {
+                for (int i = 1; i < grid.nx - 1; i++) {
                     short int_print_val;
                     if (grain_id_whole_domain(k, i, j) == 0)
                         int_print_val = 200;
@@ -654,9 +656,9 @@ struct Print {
         }
         // For current layer, check cell types to see if -1 should be printed (if this is a print following a layer, all
         // cells will be solid and no -1s should be written)
-        for (int k = grid.z_layer_bottom; k < z_end; k++) {
-            for (int j = 0; j < grid.ny; j++) {
-                for (int i = 0; i < grid.nx; i++) {
+        for (int k = grid.z_layer_bottom + 1; k < z_end; k++) {
+            for (int j = 1; j < grid.ny - 1; j++) {
+                for (int i = 1; i < grid.nx - 1; i++) {
                     short int_print_val;
                     if (grain_id_whole_domain(k, i, j) == 0)
                         int_print_val = 200;

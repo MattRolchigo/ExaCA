@@ -276,7 +276,7 @@ struct Interface {
                         const int coord_x, const int coord_y, const int coord_z, const bool at_north_boundary,
                         const bool at_south_boundary, const int n_grain_orientations) const {
         bool data_fits_in_buffer = true;
-        if ((coord_y == 1) && (!(at_south_boundary))) {
+        if ((coord_y == 2) && (!(at_south_boundary))) {
             int ghost_position_south = Kokkos::atomic_fetch_add(&send_size_south(0), 1);
             if (ghost_position_south >= buf_size)
                 data_fits_in_buffer = false;
@@ -294,7 +294,7 @@ struct Interface {
                 buffer_south_send(ghost_position_south, 8) = ghost_phase_id;
             }
         }
-        else if ((coord_y == ny_local - 2) && (!(at_north_boundary))) {
+        else if ((coord_y == ny_local - 3) && (!(at_north_boundary))) {
             int ghost_position_north = Kokkos::atomic_fetch_add(&send_size_north(0), 1);
             if (ghost_position_north >= buf_size)
                 data_fits_in_buffer = false;

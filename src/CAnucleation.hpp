@@ -170,7 +170,9 @@ struct Nucleation {
     // Initialize nucleation site locations, GrainID values, and time at which nucleation events will potentially occur,
     // accounting for multiple possible nucleation events in cells that melt and solidify multiple times
     template <class... Params>
-    void placeNuclei(std::string simulation_type, const Temperature<memory_space> &temperature, const InterfacialResponseFunction &irf, const unsigned long rng_seed, const int layernumber, const Grid &grid, const int id, const double deltat) {
+    void placeNuclei(std::string simulation_type, const Temperature<memory_space> &temperature,
+                     const InterfacialResponseFunction &irf, const unsigned long rng_seed, const int layernumber,
+                     const Grid &grid, const int id, const double deltat) {
 
         // TODO: convert this subroutine into kokkos kernels, rather than copying data back to the host, and nucleation
         // data back to the device again. This is currently performed on the device due to heavy usage of standard
@@ -191,11 +193,12 @@ struct Nucleation {
         // Gaussian distribution of nucleation undercooling
         std::normal_distribution<double> nucleation_undercooling_dist(_inputs.dtn, _inputs.dtsigma);
 
-        // Max number of nucleated grains in this layer
-        // Use long int in intermediate steps calculating the number of nucleated grains, though the number should be
-        // small enough to be stored as an int
-        const double domain_volume = (grid.x_max - grid.x_min) * (grid.y_max - grid.y_min) *
-                                     (grid.z_max_layer(layernumber) - grid.z_min_layer(layernumber));
+        // Max number of nucleated grains in this layer - domain volume doesn't include the wall cells at global
+        // boundaries Use long int in intermediate steps calculating the number of nucleated grains, though the number
+        // should be small enough to be stored as an int
+        const double domain_volume = (grid.x_max - grid.x_min - 2 * grid.deltax) *
+                                     (grid.y_max - grid.y_min - 2 * grid.deltax) *
+                                     (grid.z_max_layer(layernumber) - grid.z_min_layer(layernumber) - 2 * grid.deltax);
         // If each cell underwent solidification 1x, the number of potential nuclei in the layer
         const long int nuclei_this_layer_single_long = std::lround(_inputs.n_max * domain_volume);
         // Multiplier for the number of nucleation events per layer, based on the max number of solidification events

@@ -81,6 +81,9 @@ struct CellData {
         int grain_location_y = Kokkos::floorf(static_cast<float>(grid.ny) / 2.0);
         int grain_location_z = Kokkos::floorf(static_cast<float>(grid.nz) / 2.0);
 
+        // Liquid cells in domain interior, Wall cells at exterior
+        initCellType(Liquid, grid);
+
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
         auto grain_id_all_layers_local = grain_id_all_layers;
@@ -93,19 +96,16 @@ struct CellData {
                 int coord_y = grid.getCoordY(index);
                 int coord_z = grid.getCoordZ(index);
                 int coord_y_global = coord_y + grid.y_offset;
+                // If this location is on this MPI rank and is not a wall cell, create active cell
                 if ((coord_x == grain_location_x) && (coord_y_global == grain_location_y) &&
-                    (coord_z == grain_location_z)) {
+                    (coord_z == grain_location_z) && (cell_type_local(index) != Wall)) {
                     cell_type_local(index) = Active;
                     grain_id_all_layers_local(index) = single_grain_orientation_local + 1;
+                    printf("Rank %d initialized a grain with orientation %d at X = %d, Y = %d, Z = %d\n", id,
+                           single_grain_orientation_local, grain_location_x, grain_location_y, grain_location_z);
                 }
-                else
-                    cell_type_local(index) = Liquid;
             });
-        if ((grain_location_y >= grid.y_offset) && (grain_location_y < grid.y_offset + grid.ny_local))
-            std::cout << "Rank " << id << " initialized a grain with orientation " << single_grain_orientation_local
-                      << " initialized at X = " << grain_location_x << ", Y = " << grain_location_y
-                      << ", Z = " << grain_location_z << std::endl;
-
+        Kokkos::fence();
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0)
             std::cout << "Grain struct initialized" << std::endl;
@@ -115,8 +115,9 @@ struct CellData {
     view_type_int_2d_host getSurfaceActiveCellData(int &substrate_act_cells, const Grid &grid,
                                                    const unsigned long rng_seed) {
 
-        // Number of cells at the bottom surface that could potentially be assigned GrainID values
-        const int bottom_surface_size = grid.nx * grid.ny;
+        // Number of cells at the bottom surface that could potentially be assigned GrainID values (accounting for wall
+        // cells at +/-X, +/-Y global domain bounds)
+        const int bottom_surface_size = (grid.nx - 2) * (grid.ny - 2);
 
         // First get number of substrate grains for each initialization condition
         if (_inputs.surface_init_mode == "SurfaceSiteFraction")
@@ -142,12 +143,12 @@ struct CellData {
             std::mt19937_64 gen(rng_seed);
             std::shuffle(grain_locations_1d.begin(), grain_locations_1d.end(), gen);
             // Fill act_cell_data_host with the non-zero grain IDs and their associated X and Y based on the position in
-            // the 1D vector
+            // the 1D vector. Do not place cells at X = Y = 0 or X = nx-1, Y=ny-1 as these are wall cell locations
             int act_cell_count = 0;
             for (int n = 0; n < bottom_surface_size; n++) {
                 if (grain_locations_1d[n] != 0) {
-                    act_cell_data_host(act_cell_count, 0) = grid.getCoordXGlobal(n);
-                    act_cell_data_host(act_cell_count, 1) = grid.getCoordYGlobal(n);
+                    act_cell_data_host(act_cell_count, 0) = grid.getCoordXGlobal(n) + 1;
+                    act_cell_data_host(act_cell_count, 1) = grid.getCoordYGlobal(n) + 1;
                     act_cell_data_host(act_cell_count, 2) = grain_locations_1d[n];
                     act_cell_count++;
                 }
@@ -196,8 +197,8 @@ struct CellData {
         // Copy views of substrate grain locations and IDs back to the device
         auto act_cell_data = Kokkos::create_mirror_view_and_copy(memory_space(), act_cell_data_host);
 
-        // Start with all cells as liquid prior to locating substrate grain seeds
-        Kokkos::deep_copy(cell_type, Liquid);
+        // Liquid cells in domain interior, Wall cells at exterior
+        initCellType(Liquid, grid);
 
         // Local copies for lambda capture.
         auto cell_type_local = cell_type;
@@ -207,30 +208,33 @@ struct CellData {
         auto policy = Kokkos::RangePolicy<execution_space>(0, substrate_act_cells);
         Kokkos::parallel_for(
             "ConstrainedGrainInit", policy, KOKKOS_LAMBDA(const int &n) {
-                // What are the X and Y coordinates of this active cell relative to the X and Y bounds of this rank?
-                if ((act_cell_data(n, 1) >= grid.y_offset) && (act_cell_data(n, 1) < grid.y_offset + grid.ny_local)) {
-                    // Convert X and Y coordinates to values relative to this MPI rank's grid (Z = 0 for these active
-                    // cells, at bottom surface) GrainIDs come from the position on the list of substrate active cells
-                    // to avoid reusing the same value
+                // What are the X and Y coordinates of this active cell relative to the X and Y bounds of this rank? Do
+                // not place active cells at Y = 0 or Y = ny_local-1, as these are reserved for wall cells
+                if ((act_cell_data(n, 1) >= grid.y_offset + 1) &&
+                    (act_cell_data(n, 1) < grid.y_offset + grid.ny_local - 1)) {
+                    // Convert X and Y coordinates to values relative to this MPI rank's grid (Z = 1 for these active
+                    // cells, at bottom surface, since Z = 0 is wall cells) GrainIDs come from the position on the list
+                    // of substrate active cells to avoid reusing the same value
                     int coord_x = act_cell_data(n, 0);
                     int coord_y = act_cell_data(n, 1) - grid.y_offset;
-                    int coord_z = 0;
+                    int coord_z = 1;
                     int index = grid.get1DIndex(coord_x, coord_y, coord_z);
                     cell_type_local(index) = Active;
                     grain_id_all_layers_local(index) = act_cell_data(n, 2); // assign GrainID > 0 to epitaxial seeds
                 }
             });
-        // Option to fill empty sites at bottom surface with the grain ID of the nearest grain
+        // Option to fill empty sites at bottom surface (Z = 1) with the grain ID of the nearest grain
         if (_inputs.fill_bottom_surface) {
             auto md_policy =
                 Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
                     {0, 0}, {grid.nx, grid.ny_local});
-            // For cells that are not associated with grain centers, optionally assign them the GrainID of the nearest
-            // grain center
+            // For cells that are not associated with grain centers (and are not wall cells), optionally assign them the
+            // GrainID of the nearest grain center
             Kokkos::parallel_for(
                 "BaseplateGen", md_policy, KOKKOS_LAMBDA(const int coord_x, const int coord_y) {
-                    int index_all_layers = grid.get1DIndex(coord_x, coord_y, 0);
-                    if (grain_id_all_layers_local(index_all_layers) == 0) {
+                    int index_all_layers = grid.get1DIndex(coord_x, coord_y, 1);
+                    if ((grain_id_all_layers_local(index_all_layers) == 0) &&
+                        (cell_type_local(index_all_layers) != Wall)) {
                         // This cell needs to be assigned a GrainID value
                         // Check each possible baseplate grain center to find the closest one
                         float min_distance_to_this_grain = grid.nx * grid.ny;
@@ -272,6 +276,10 @@ struct CellData {
     // the data from a file
     void initSubstrate_BaseplatePowder(const int id, const Grid &grid, const unsigned long rng_seed) {
 
+        // Resize cell type view for current layer
+        Kokkos::realloc(cell_type, grid.domain_size);
+        // Solid cells in domain interior, Wall cells at exterior
+        initCellType(Solid, grid);
         // Determine the number of cells in the Z direction that are part of the baseplate
         int baseplate_size_z = getBaseplateSizeZ(id, grid);
         // Generate the baseplate microstructure, or read it from a file, to initialize the grain ID values from Z = 0
@@ -284,7 +292,7 @@ struct CellData {
         // Powder layer extends from Z = powder_bottom_z up to but not including Z = powder_top_z
         // Bottom of layer is the next coordinate up from the baseplate
         int powder_bottom_z = Kokkos::round((_inputs.baseplate_top_z - grid.z_min) / grid.deltax) + 1;
-        int powder_top_z = Kokkos::round((grid.z_max_layer[0] - grid.z_min) / grid.deltax) + 1;
+        int powder_top_z = Kokkos::round((grid.z_max_layer[0] - grid.z_min) / grid.deltax);
         // Generate powder grain structure grain IDs for top of layer 0 if needed (i.e, if the powder layer height is
         // more than zero cells)
         if (powder_top_z > powder_bottom_z) {
@@ -294,7 +302,7 @@ struct CellData {
         }
         // Check to make sure enough grain ID values exist to avoid integer overflow in initialization of future powder
         // layers
-        const int size_z_all_powder_layers = Kokkos::round((grid.z_max - _inputs.baseplate_top_z) / grid.deltax) + 1;
+        const int size_z_all_powder_layers = Kokkos::round((grid.z_max - _inputs.baseplate_top_z) / grid.deltax);
         const int grain_structure_volume = grid.nx * grid.ny * size_z_all_powder_layers;
         const std::string powder_layers_label = std::to_string(grid._inputs.number_of_layers) + " powder layers";
         const int number_total_powder_grains =
@@ -302,29 +310,47 @@ struct CellData {
         if (id == 0)
             std::cout << "Expected number of grains in the powder layers of this simulation: "
                       << number_total_powder_grains << std::endl;
-
-        // Resize view and init cell types to solid
-        Kokkos::realloc(cell_type, grid.domain_size);
-        Kokkos::deep_copy(cell_type, Solid);
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0) {
             std::cout << "Grain struct initialized" << std::endl;
         }
     }
 
+    // Cells of type "interior_cell_type" for all cells not at domain/layer edges, Wall cells at domain/layer edges
+    void initCellType(const int interior_cell_type, const Grid &grid) {
+
+        // Local copy for lambda capture
+        auto cell_type_local = cell_type;
+        auto policy = Kokkos::RangePolicy<execution_space>(0, grid.domain_size);
+        Kokkos::parallel_for(
+            "SingleGrainInit", policy, KOKKOS_LAMBDA(const int &index) {
+                int coord_x = grid.getCoordX(index);
+                int coord_y = grid.getCoordY(index);
+                int coord_z = grid.getCoordZ(index);
+                if ((coord_x == 0) || (coord_x == grid.nx - 1) || (coord_y == 0) || (coord_y == grid.ny_local - 1) ||
+                    (coord_z == 0) || (coord_z == grid.nz_layer - 1)) {
+                    cell_type_local(index) = Wall;
+                }
+                else {
+                    cell_type_local(index) = interior_cell_type;
+                }
+            });
+    }
+
     // Determine the height of the baseplate, in CA cells
-    // The baseplate always starts at the simulation bottom (Z coordinate corresponding to z_min, Z index = 0),
-    // regardless of whether the first layer melts the cells at the bottom or not. If baseplate_through_powder is true,
-    // the baseplate microstructure extends through the entire simulation domain in Z (size nz). If
-    // baseplate_through_powder is false, the baseplate top from the input file is used, or it is assumed that the top
-    // of the baseplate is at Z = 0 microns
+    // The baseplate always starts at the simulation bottom (excluding wall cells at Z = 0, i.e., baseplate starts at Z
+    // coordinate corresponding to z_min+deltax, Z index = 1), regardless of whether the first layer melts the cells at
+    // the bottom or not. If baseplate_through_powder is true, the baseplate microstructure extends through the entire
+    // simulation domain in Z (excluding wall cells at Z = nz-1, i.e., (size nz-2). If baseplate_through_powder is
+    // false, the baseplate top from the input file is used, or it is assumed that the top of the baseplate is at Z = 0
+    // microns
     int getBaseplateSizeZ(const int id, const Grid &grid) {
         int baseplate_size_z;
         if (_inputs.baseplate_through_powder)
-            baseplate_size_z = grid.nz;
+            baseplate_size_z = grid.nz - 2;
         else {
-            baseplate_size_z = Kokkos::round((_inputs.baseplate_top_z - grid.z_min) / grid.deltax) + 1;
-            int max_baseplate_size_z = Kokkos::round((grid.z_max_layer[0] - grid.z_min) / grid.deltax) + 1;
+            baseplate_size_z = Kokkos::round((_inputs.baseplate_top_z - grid.z_min) / grid.deltax);
+            int max_baseplate_size_z = Kokkos::round((grid.z_max_layer[0] - grid.z_min) / grid.deltax) - 1;
             if (baseplate_size_z > max_baseplate_size_z) {
                 baseplate_size_z = max_baseplate_size_z;
                 if (id == 0)
@@ -402,9 +428,12 @@ struct CellData {
         if (id == 0)
             std::cout << "Substrate dimensions from file are " << nx_s << " by " << ny_s << " by " << nz_s
                       << ", voxel spacing is " << deltax_s << std::endl;
-        checkSubstrateBound(x_min_s, nx_s, deltax_s, grid.x_min, grid.x_max, "X", grid.deltax);
-        checkSubstrateBound(y_min_s, ny_s, deltax_s, grid.y_min, grid.y_max, "Y", grid.deltax);
-        checkSubstrateBound(z_min_s, nz_s, deltax_s, grid.z_min, _inputs.baseplate_top_z, "Z", grid.deltax);
+        checkSubstrateBound(x_min_s, nx_s, deltax_s, grid.x_min + grid.deltax, grid.x_max - grid.deltax, "X",
+                            grid.deltax);
+        checkSubstrateBound(y_min_s, ny_s, deltax_s, grid.y_min + grid.deltax, grid.y_max - grid.deltax, "Y",
+                            grid.deltax);
+        checkSubstrateBound(z_min_s, nz_s, deltax_s, grid.z_min + grid.deltax, _inputs.baseplate_top_z, "Z",
+                            grid.deltax);
 
         // Ignore line
         skipLines(substrate, 1);
@@ -447,17 +476,21 @@ struct CellData {
                 const int coord_x_global = grid.getCoordX(index_all_layers);
                 const int coord_y_global = grid.getCoordY(index_all_layers) + grid.y_offset;
                 const int coord_z_global = grid.getCoordZ(index_all_layers);
-                const double x_location = grid.x_min + coord_x_global * grid.deltax;
-                const double y_location = grid.y_min + coord_y_global * grid.deltax;
-                const double z_location = grid.z_min + coord_z_global * grid.deltax;
-                // What voxel does this correspond to in the substrate?
-                const int coord_x_s = Kokkos::round((x_location - x_min_s) / deltax_s);
-                const int coord_y_s = Kokkos::round((y_location - y_min_s) / deltax_s);
-                const int coord_z_s = Kokkos::round((z_location - z_min_s) / deltax_s);
-                grain_id_all_layers_local(index_all_layers) = grain_id_s(coord_z_s, coord_x_s, coord_y_s);
-                Kokkos::MinMaxScalar<int> current{grain_id_all_layers_local(index_all_layers),
-                                                  grain_id_all_layers_local(index_all_layers)};
-                bounds_grain_id_reducer.join(update, current);
+                // Don't place grains into wall cells around domain edges
+                if ((coord_x_global > 0) && (coord_x_global < grid.nx - 1) && (coord_y_global > 0) &&
+                    (coord_y_global < grid.ny - 1) && (coord_z_global > 0) && (coord_z_global < grid.nz - 1)) {
+                    const double x_location = grid.x_min + coord_x_global * grid.deltax;
+                    const double y_location = grid.y_min + coord_y_global * grid.deltax;
+                    const double z_location = grid.z_min + coord_z_global * grid.deltax;
+                    // What voxel does this correspond to in the substrate?
+                    const int coord_x_s = Kokkos::round((x_location - x_min_s) / deltax_s);
+                    const int coord_y_s = Kokkos::round((y_location - y_min_s) / deltax_s);
+                    const int coord_z_s = Kokkos::round((z_location - z_min_s) / deltax_s);
+                    grain_id_all_layers_local(index_all_layers) = grain_id_s(coord_z_s, coord_x_s, coord_y_s);
+                    Kokkos::MinMaxScalar<int> current{grain_id_all_layers_local(index_all_layers),
+                                                      grain_id_all_layers_local(index_all_layers)};
+                    bounds_grain_id_reducer.join(update, current);
+                }
             },
             bounds_grain_id_reducer);
         Kokkos::fence();
@@ -510,9 +543,9 @@ struct CellData {
 
         std::mt19937_64 gen(rng_seed);
 
-        // Based on the desired volume (convert to cubic microns to match units) and the substrate grain spacing,
-        // determine the number of grains
-        const int grain_structure_volume = grid.nx * grid.ny * size_z;
+        // Based on the desired volume (convert to cubic microns to match units, and ignore wall cells around domain
+        // edges) and the substrate grain spacing, determine the number of grains
+        const int grain_structure_volume = (grid.nx - 2) * (grid.ny - 2) * (size_z - 2);
         const int number_of_grains = getNumberOfGrains(grid, grain_structure_volume, mean_grain_spacing, region_type);
         // TODO: Use device RNG to generate grain locations, instead of host with copy
         // List of potential grain IDs (starting at next_layer_first_epitaxial_grain_id) - index corresponds to the
@@ -571,8 +604,10 @@ struct CellData {
                 int coord_z_all_layers = grid.getCoordZGlobal(new_grain_loc);
                 int coord_y_global = grid.getCoordYGlobal(new_grain_loc);
                 int coord_x = grid.getCoordXGlobal(new_grain_loc);
-                if ((coord_y_global >= grid.y_offset) && (coord_y_global < grid.y_offset + grid.ny_local)) {
-                    // This grain is associated with a cell on this MPI rank
+                if ((coord_x > 0) && (coord_x < grid.nx - 1) && (coord_y_global > grid.y_offset) &&
+                    (coord_y_global < grid.y_offset + grid.ny_local - 1) && (coord_z_all_layers > 0) &&
+                    (coord_z_all_layers < grid.nz - 1)) {
+                    // This grain is associated with a non-wall cell on this MPI rank
                     int coord_y = coord_y_global - grid.y_offset;
                     int index_all_layers = grid.get1DIndex(coord_x, coord_y, coord_z_all_layers);
                     grain_id_all_layers_local(index_all_layers) = new_grain_ids_device(n);
@@ -582,7 +617,7 @@ struct CellData {
 
         auto md_policy =
             Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<3, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>(
-                {region_bottom, 0, 0}, {region_top, grid.nx, grid.ny_local});
+                {region_bottom, 1, 1}, {region_top, grid.nx - 1, grid.ny_local - 1});
         // For cells that are not associated with grain centers, assign them the GrainID of the nearest grain center
         Kokkos::parallel_for(
             "VoronoiGrainAssignment", md_policy,
@@ -630,8 +665,8 @@ struct CellData {
         // z_layer_bottom
         // Powder layer extends from Z = powder_bottom_z (1 cell above the top of the previous layer) up to but not
         // including Z = powder_top_z
-        int powder_bottom_z = Kokkos::round((grid.z_max_layer[nextlayernumber - 1] - grid.z_min) / grid.deltax) + 1;
-        int powder_top_z = Kokkos::round((grid.z_max_layer[nextlayernumber] - grid.z_min) / grid.deltax) + 1;
+        int powder_bottom_z = Kokkos::round((grid.z_max_layer[nextlayernumber - 1] - grid.z_min) / grid.deltax) + 2;
+        int powder_top_z = Kokkos::round((grid.z_max_layer[nextlayernumber] - grid.z_min) / grid.deltax);
         if (!(_inputs.baseplate_through_powder)) {
             // Unique RNG seed for each powder layer to avoid placing powder grains in same locations
             std::string powder_layer_label = "powder layer " + std::to_string(nextlayernumber);
@@ -640,9 +675,9 @@ struct CellData {
                                powder_rng_seed, powder_layer_label);
         }
 
-        // Resize and init cell types to Solid for layer "layernumber + 1"
+        // Resize and init cell types to Solid for layer "layernumber + 1", Wall cells at exterior
         Kokkos::realloc(cell_type, grid.domain_size);
-        Kokkos::deep_copy(cell_type, Solid);
+        initCellType(Solid, grid);
         // Current layer melt pool edge indicator, if needed
         if (_store_melt_pool_edge)
             getCurrentLayerMeltEdge(grid.layer_range);
@@ -661,11 +696,15 @@ struct CellData {
         Kokkos::parallel_reduce(
             "NumSolidifiedCells", grid.domain_size_all_layers,
             KOKKOS_LAMBDA(const int index, int &update_meltcount, int &update_nucleatecount) {
+                int coord_x = grid.getCoordX(index);
                 int coord_y = grid.getCoordY(index);
-                // Is this Y coordinate in the halo region? If so, do not increment counter
+                int coord_z = grid.getCoordZ(index);
+                // Is this coordinate in the halo or wall region? If so, do not increment counter
                 bool in_halo_region = false;
-                if (((coord_y == 0) && (!grid.at_south_boundary)) ||
-                    ((coord_y == grid.ny_local - 1) && (!grid.at_north_boundary)))
+                if (((coord_y == 1) && (!grid.at_south_boundary)) ||
+                    ((coord_y == grid.ny_local - 2) && (!grid.at_north_boundary)) || (coord_y == 0) ||
+                    (coord_y == grid.ny_local - 1) || (coord_x == 0) || (coord_x == grid.nx - 1) || (coord_z == 0) ||
+                    (coord_z == grid.nz - 1))
                     in_halo_region = true;
                 if ((grain_id_all_layers_local(index) < 0) && (!in_halo_region))
                     update_nucleatecount++;
@@ -707,7 +746,7 @@ struct CellData {
         auto _cell_type = cell_type;
         Kokkos::parallel_for(
             "calcUndercoolingCurrent", domain_size, KOKKOS_LAMBDA(const int &index) {
-                if (_cell_type(index) != Solid) {
+                if ((_cell_type(index) != Solid) && (_cell_type(index) != Wall)) {
                     if (temperature.current_cooling_rate(index) >= 0)
                         temperature.undercooling_current(index) = temperature.getUndercooling(cycle, index);
                 }

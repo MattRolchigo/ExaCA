@@ -116,7 +116,7 @@ int main(int argc, char *argv[]) {
                                    inputs.domain.deltat);
 
             // Initialize printing struct from inputs
-            Print print(grid, np, inputs.print);
+            Print print(grid, id, np, inputs.print);
 
             // End of initialization
             timers.stopInit();

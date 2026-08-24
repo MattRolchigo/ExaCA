@@ -98,7 +98,7 @@ struct Grid {
             z_min_layer(n) = z_min + n * inputs.layer_height * deltax;
             z_max_layer(n) = global_high_corner[2] + n * inputs.layer_height * deltax;
         }
-        // Domain decomposition
+        // Domain decomposition with halos, wall padding
         decomposeDomain(id, np, "FromFinch");
         MPI_Barrier(MPI_COMM_WORLD);
         if (id == 0)
@@ -188,24 +188,22 @@ struct Grid {
                 z_max_layer(0) = z_max;
             }
         }
-        // Domain decomposition
+        // Domain decomposition with halos, wall padding
         decomposeDomain(id, np, simulation_type);
         MPI_Barrier(MPI_COMM_WORLD);
-        if (id == 0)
-            std::cout << "Mesh initialized: initial domain size is " << nz_layer << " out of " << nz
-                      << " total cells in the Z direction" << std::endl;
-    };
-
-    // Perform domain decomposition and initialize first layer's grid
-    void decomposeDomain(const int id, const int np, std::string simulation_type) {
-
         if (id == 0) {
-            std::cout << "Domain size: " << nx << " by " << ny << " by " << nz << std::endl;
+            std::cout << "Mesh initialized: initial domain size is " << nz_layer << " cells in the Z direction"
+                      << std::endl;
+            std::cout << "Global domain size: " << nx << " by " << ny << " by " << nz << std::endl;
             std::cout << "X Limits of domain: " << x_min << " and " << x_max << std::endl;
             std::cout << "Y Limits of domain: " << y_min << " and " << y_max << std::endl;
             std::cout << "Z Limits of domain: " << z_min << " and " << z_max << std::endl;
             std::cout << "================================================================" << std::endl;
         }
+    };
+
+    // Perform domain decomposition and initialize first layer's grid
+    void decomposeDomain(const int id, const int np, std::string simulation_type) {
 
         // Decompose the domain into subdomains on each MPI rank: Calculate ny_local and y_offset for each rank, where
         // each subdomain contains "ny_local" in Y, offset from the full domain origin by "y_offset" cells in Y
@@ -227,6 +225,8 @@ struct Grid {
 
         // Add halo regions with a width of 1 in +/- Y if this MPI rank is not as a domain boundary in said direction
         addHalo();
+        // Add wall cells with a width of 1 in +/- X, Y, and Z for all MPI ranks
+        addDomainWallPads();
         // Domain size across all ranks and all layers
         domain_size_all_layers = getDomainSizeAllLayers();
         // Gather ny_local and y_offset information on rank 0 to print to screen in rank order
@@ -244,11 +244,34 @@ struct Grid {
         // CAinitialize.cpp and CAcelldata.hpp)
         z_layer_bottom = calcZLayerBottom(simulation_type, 0);
         z_layer_top = calcZLayerTop(simulation_type, 0);
-        nz_layer = calcNzLayer(id, 0);
+        nz_layer = calcNzLayer(id, 0, false);
         domain_size = calcDomainSize(); // Number of cells in the current layer on this MPI rank
         bottom_of_current_layer = getBottomOfCurrentLayer();
         top_of_current_layer = getTopOfCurrentLayer();
         layer_range = std::make_pair(bottom_of_current_layer, top_of_current_layer);
+    }
+
+    // Add padding of wall cells around each MPI rank's domain in X and Y, and to each individual layer
+    void addDomainWallPads() {
+        // Global domain bounds: +2 to each
+        nx += 2;
+        ny += 2;
+        nz += 2;
+        // Each MPI rank's local Y bounds are extended by 2
+        ny_local += 2;
+        // Global x,y,z origin reduced by deltax due to wall cells
+        x_min -= deltax;
+        y_min -= deltax;
+        z_min -= deltax;
+        // Upper x,y,z corner extended by deltax due to wall cells
+        x_max += deltax;
+        y_max += deltax;
+        z_max += deltax;
+        // For each layer, z_min_layer is reduced by 1 and z_max_layer increased by 1
+        for (int layer = 0; layer < number_of_layers; layer++) {
+            z_min_layer(layer) -= deltax;
+            z_max_layer(layer) += deltax;
+        }
     }
 
     // Read x, y, z coordinates in tempfile_thislayer (temperature file in either an ASCII or binary format) and return
@@ -575,9 +598,9 @@ struct Grid {
     }
 
     // Calculate the size of the active domain in Z for layer layernumber
-    int calcNzLayer(const int id, const int layernumber) {
+    int calcNzLayer(const int id, const int layernumber, const bool write_act_size = true) {
         int nz_layer_local = z_layer_top - z_layer_bottom + 1;
-        if (id == 0)
+        if ((id == 0) && (write_act_size))
             std::cout << "Layer " << layernumber << "'s active domain is from Z = " << z_layer_bottom << " through "
                       << z_layer_top << " (" << nz_layer_local << ") cells" << std::endl;
         return nz_layer_local;
@@ -615,17 +638,11 @@ struct Grid {
         layer_range = std::make_pair(bottom_of_current_layer, top_of_current_layer);
     }
 
-    // Get the 1D cell coordinate from the x, y, and z cell positions of a neighboring cell, returning -1 is the
-    // neighbor coordinate is not in bounds
+    // Get the 1D cell coordinate from the x, y, and z cell positions of a neighboring cell, assuming the neighbor is
+    // always in bounds
     KOKKOS_INLINE_FUNCTION
     int getNeighbor1DIndex(const int neighbor_coord_x, const int neighbor_coord_y, const int neighbor_coord_z) const {
-        int neighbor_index;
-        if ((neighbor_coord_x < 0) || (neighbor_coord_x >= nx) || (neighbor_coord_y < 0) ||
-            (neighbor_coord_y >= ny_local) || (neighbor_coord_z >= nz_layer) || (neighbor_coord_z < 0))
-            neighbor_index = -1;
-        else
-            neighbor_index = neighbor_coord_z * nx * ny_local + neighbor_coord_x * ny_local + neighbor_coord_y;
-        return neighbor_index;
+        return neighbor_coord_z * nx * ny_local + neighbor_coord_x * ny_local + neighbor_coord_y;
     }
 
     // Get the 1D cell coordinate from the x, y, and z cell positions
