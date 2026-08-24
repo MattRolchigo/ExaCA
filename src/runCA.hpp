@@ -47,7 +47,7 @@ void runExaCALayer(int id, int np, int layernumber, int &cycle, Inputs inputs, T
 
         // Create steering vector of cells that are active and undercooled on this time step
         timers.startSV();
-        fillSteeringVector(cycle, grid, celldata, temperature, interface);
+        // fillSteeringVector(cycle, grid, celldata, temperature, interface);
         timers.stopSV();
 
         // Iterate over the steering vector to perform active cell creation and capture operations, and if needed,

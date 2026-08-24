@@ -152,8 +152,8 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
                                 // Mark adjacent active cells to this as cells that should be converted into liquid,
                                 // as they are more likely heating than cooling
                                 celldata.cell_type(neighbor_index) = FutureLiquid;
-                                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                    neighbor_index;
+                                interface.steering_vector_new(
+                                    Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = neighbor_index;
                             }
                         }
                     }
@@ -166,13 +166,12 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
 // Determine which cells are associated with the "steering vector" of cells that are active and below the liquidus
 // temperature on this time step
 template <typename MemorySpace>
-void fillSteeringVector(const int cycle, const Grid &grid, CellData<MemorySpace> &celldata,
-                        Temperature<MemorySpace> &temperature, Interface<MemorySpace> &interface) {
+void fillSteeringVector(const Grid &grid, CellData<MemorySpace> &celldata, Interface<MemorySpace> &interface) {
     Kokkos::parallel_for(
         "FillSV", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
-            if ((celldata.cell_type(index) == Active) && (cycle > temperature.last_time_below_liquidus(index))) {
+            if (celldata.cell_type(index) == Active) {
                 // Add active cells below liquidus to steering vector
-                interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) = index;
+                interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
             }
         });
     Kokkos::fence();
@@ -191,12 +190,15 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
     // Get grain_id subview for this layer
     auto grain_id = celldata.getGrainIDSubview(grid);
     auto phase_id = celldata.getPhaseIDSubview(grid);
+    // Swap old and new steering vectors
+    Kokkos::kokkos_swap(interface.steering_vector, interface.steering_vector_new);
+    Kokkos::kokkos_swap(interface.num_steer, interface.num_steer_new);
+    Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
+    Kokkos::deep_copy(interface.num_steer_new, 0);
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
     Kokkos::parallel_for(
         "CellCapture", interface.num_steer_host(0), KOKKOS_LAMBDA(const int &num) {
-            // Reset steering vector size on device to 0, to be rebuilt next time step
-            interface.num_steer(0) = 0;
             // Get the 1D index of cell from the steering vector
             const int index = interface.steering_vector(num);
             // Using the 1D index, get the x, y, z coordinates of the cell on this MPI rank
@@ -250,6 +252,10 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                             // This cell was not at the edge of the temperature field - set indicator to false if
                             // this is being tracked
                             celldata.setMeltEdge(neighbor_index, false);
+
+                            // Add newly captured cell to new steering vector for next time step
+                            interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) =
+                                neighbor_index;
 
                             // The new cell is captured by this cell's growing octahedron
                             grain_id(neighbor_index) = my_grain_id;
@@ -468,6 +474,10 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                     temperature.setEndingUndercooling(cycle, index);
                     temperature.updateSolidificationCounter(index);
                 }
+                else {
+                    // Add to new steering vector for next time step, cell is still active
+                    interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
+                }
             }
             else if (cell_type_old == FutureActive) {
                 // Successful nucleation event - this cell is becoming a new active cell
@@ -477,6 +487,9 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                 const int my_phase_id = phase_id(index); // phase_id was assigned as part of Nucleation
 
                 temperature.setStartingUndercooling(cycle, index);
+
+                // Add to new steering vector for next time step
+                interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
 
                 // Initialize new octahedron
                 interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);

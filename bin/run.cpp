@@ -118,6 +118,10 @@ int main(int argc, char *argv[]) {
             // Initialize printing struct from inputs
             Print print(grid, id, np, inputs.print);
 
+            // Fill initial steering vector if active cells have already been assigned
+            if (full_domain_solidification)
+                fillSteeringVector(grid, celldata, interface);
+
             // End of initialization
             timers.stopInit();
             MPI_Barrier(MPI_COMM_WORLD);
