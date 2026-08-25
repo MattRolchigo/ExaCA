@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
             // Variables characterizing the active cell region within each rank's grid, including buffers for ghost node
             // data (fixed size) and the steering vector/steering vector size on host/device
             Interface<memory_space> interface(id, grid.domain_size, inputs.substrate.init_oct_size);
-            // Initialize octahedra for initial active cells, if necessary for this problem type
+            // Initialize octahedra and steering vector for initial active cells, if necessary for this problem type
             if (full_domain_solidification)
                 createOctahedra_NoRemelt(grid, celldata, temperature, orientation, interface);
             MPI_Barrier(MPI_COMM_WORLD);
@@ -117,10 +117,6 @@ int main(int argc, char *argv[]) {
 
             // Initialize printing struct from inputs
             Print print(grid, id, np, inputs.print);
-
-            // Fill initial steering vector if active cells have already been assigned
-            if (full_domain_solidification)
-                fillSteeringVector(grid, celldata, interface);
 
             // End of initialization
             timers.stopInit();

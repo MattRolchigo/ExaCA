@@ -51,7 +51,7 @@ struct Timers {
 
     int id;
     Timer init, run, output;
-    Timer nucl, melt_act, create_sv, capture, ghost;
+    Timer nucl, melt_act, capture, ghost;
     Timer layer;
     Timer heat_transfer;
 
@@ -62,7 +62,6 @@ struct Timers {
         , output()
         , nucl()
         , melt_act()
-        , create_sv()
         , capture()
         , ghost()
         , layer()
@@ -88,9 +87,6 @@ struct Timers {
 
     void startMeltAct() { melt_act.start(); }
     void stopMeltAct() { melt_act.stop(); }
-
-    void startSV() { create_sv.start(); }
-    void stopSV() { create_sv.stop(); }
 
     void startCapture() { capture.start(); }
     void stopCapture() { capture.stop(); }
@@ -128,8 +124,6 @@ struct Timers {
         log << "       \"MaxMinNucleationTime\": [" << nucl.maxTime() << "," << nucl.minTime() << "]," << std::endl;
         log << "       \"MaxMinMeltingActivationTime\": [" << melt_act.maxTime() << "," << melt_act.minTime() << "],"
             << std::endl;
-        log << "       \"MaxMinSteeringVectorCreationTime\": [" << create_sv.maxTime() << "," << create_sv.minTime()
-            << "]," << std::endl;
         log << "       \"MaxMinCellCaptureTime\": [" << capture.maxTime() << "," << capture.minTime() << "],"
             << std::endl;
         log << "       \"MaxMinGhostExchangeTime\": [" << ghost.maxTime() << "," << ghost.minTime() << "],"
@@ -144,7 +138,6 @@ struct Timers {
         init.reduceMPI();
         nucl.reduceMPI();
         melt_act.reduceMPI();
-        create_sv.reduceMPI();
         capture.reduceMPI();
         ghost.reduceMPI();
         output.reduceMPI();
@@ -170,7 +163,6 @@ struct Timers {
         std::cout << init.printMinMax("initializing data");
         std::cout << nucl.printMinMax("in CA nucleation");
         std::cout << melt_act.printMinMax("in CA melting and reactivation of cells");
-        std::cout << create_sv.printMinMax("in CA steering vector creation");
         std::cout << capture.printMinMax("in CA cell capture");
         std::cout << ghost.printMinMax("in CA cell communication");
         std::cout << output.printMinMax("exporting data");

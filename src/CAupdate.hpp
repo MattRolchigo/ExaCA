@@ -52,6 +52,8 @@ void createOctahedra_NoRemelt(const Grid &grid, CellData<MemorySpace> &celldata,
 
                 interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
                                                  orientation.grain_unit_vector);
+                // Add to steering vector for first iteration
+                interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
             }
         });
 }
@@ -114,8 +116,8 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
                                 if ((celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
                                     // Cell activation to be performed as part of steering vector
                                     l = 26;
-                                    interface.steering_vector(Kokkos::atomic_fetch_add(&interface.num_steer(0), 1)) =
-                                        index;
+                                    interface.steering_vector_new(
+                                        Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
                                     celldata.cell_type(index) = FutureActive;
                                     // Single phase alloy or second phase transformation after the first
                                     // solidification event, set phase to primary. Otherwise, set phase to secondary
@@ -163,24 +165,6 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
     Kokkos::fence();
 }
 
-// Determine which cells are associated with the "steering vector" of cells that are active and below the liquidus
-// temperature on this time step
-template <typename MemorySpace>
-void fillSteeringVector(const Grid &grid, CellData<MemorySpace> &celldata, Interface<MemorySpace> &interface) {
-    Kokkos::parallel_for(
-        "FillSV", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
-            if (celldata.cell_type(index) == Active) {
-                // Add active cells below liquidus to steering vector
-                interface.steering_vector_new(Kokkos::atomic_fetch_add(&interface.num_steer_new(0), 1)) = index;
-            }
-        });
-    Kokkos::fence();
-
-    // Copy size of steering vector (containing positions of undercooled active cells added in this routine, as well as
-    // FutureLiquid and FutureActive cells added in remeltActivateCells) to the host
-    Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
-}
-
 // Decentered octahedron algorithm for the capture of new interface cells by grains
 template <typename MemorySpace>
 void cellCapture(const int cycle, const int np, const Grid &grid, const InterfacialResponseFunction &irf,
@@ -194,6 +178,7 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
     Kokkos::kokkos_swap(interface.steering_vector, interface.steering_vector_new);
     Kokkos::kokkos_swap(interface.num_steer, interface.num_steer_new);
     Kokkos::deep_copy(interface.num_steer_host, interface.num_steer);
+    // Reset size of new steering vector to 0 (cells will be added to it on this time step)
     Kokkos::deep_copy(interface.num_steer_new, 0);
     // Loop over list of active and soon-to-be active cells, potentially performing cell capture events and updating
     // cell types
