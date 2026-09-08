@@ -188,7 +188,7 @@ void fillSteeringVector(const int cycle, const Grid &grid, CellData<MemorySpace>
 
 // Decentered octahedron algorithm for the capture of new interface cells by grains
 template <typename MemorySpace>
-void cellCapture(const int cycle, const int np, const Grid &grid, const InterfacialResponseFunction &irf,
+void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, const InterfacialResponseFunction &irf,
                  CellData<MemorySpace> &celldata, Temperature<MemorySpace> &temperature,
                  Interface<MemorySpace> &interface, Orientation<MemorySpace> &orientation) {
 
@@ -282,41 +282,15 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                                                                  octahedron_data[1], octahedron_data[2], my_orientation,
                                                                  orientation.grain_unit_vector, my_phase_id);
 
-                                if (np > 1) {
-                                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting
-                                    // this change if the slowdown is minor
-                                    const int ghost_grain_id = my_grain_id;
-                                    const float ghost_octahedron_center_x = octahedron_data[0];
-                                    const float ghost_octahedron_center_y = octahedron_data[1];
-                                    const float ghost_octahedron_center_z = octahedron_data[2];
-                                    const float ghost_diagonal_length = octahedron_data[3];
-                                    const float ghost_phase_id = my_phase_id;
-                                    // Collect data for the ghost nodes, if necessary
-                                    // Data loaded into the ghost nodes is for the cell that was just captured
-                                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y,
-                                        ghost_octahedron_center_z, ghost_diagonal_length, ghost_phase_id, grid.ny_local,
-                                        neighbor_coord_x, neighbor_coord_y, neighbor_coord_z, grid.at_north_boundary,
-                                        grid.at_south_boundary, orientation.n_grain_orientations);
-                                    if (!(data_fits_in_buffer)) {
-                                        // This cell's data did not fit in the buffer with current size buf_size -
-                                        // mark with temporary type
-                                        celldata.cell_type(neighbor_index) = ActiveFailedBufferLoad;
-                                    }
-                                    else {
-                                        // Cell activation is now finished - cell type can be changed from
-                                        // TemporaryUpdate to Active
-                                        celldata.cell_type(neighbor_index) = Active;
-                                    }
-                                } // End if statement for serial/parallel code
-                                else {
-                                    // Only update the new cell's type once Critical Diagonal Length, Triangle
-                                    // Index, and Diagonal Length values have been assigned to it Avoids the race
-                                    // condition in which the new cell is activated, and another thread acts on the
-                                    // new active cell before the cell's new critical diagonal length/triangle
-                                    // index/diagonal length values are assigned
-                                    celldata.cell_type(neighbor_index) = Active;
-                                }
+                                // Collect data for the ghost nodes, if necessary
+                                // Data loaded into the ghost nodes is for the cell that was just captured
+                                // Note: this only updates the cell type once all octahedron attributes have been
+                                // calculated to avoid any potential race condition with operating on the active cell
+                                // before it has been fully initialized
+                                celldata.cell_type(neighbor_index) = interface.loadGhostNodesSuccess(
+                                    mpi_parallel, Active, ActiveFailedBufferLoad, my_grain_id, octahedron_data,
+                                    my_phase_id, grid.ny_local, neighbor_coord_x, neighbor_coord_y, neighbor_coord_z,
+                                    grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
                             } // End if statement within locked capture loop
                         } // End if statement for outer capture loop
                     } // End if statement over neighbors on the active grid
@@ -349,57 +323,29 @@ void cellCapture(const int cycle, const int np, const Grid &grid, const Interfac
                 const float cx = coord_x + 0.5;
                 const float cy = coord_y + grid.y_offset + 0.5;
                 const float cz = coord_z + 0.5;
+                float octahedron_data[4] = {cx, cy, cz, interface._init_oct_size};
                 // Calculate critical values at which this active cell leads to the activation of a neighboring
                 // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
                 // grain
                 interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
                                                  orientation.grain_unit_vector, my_phase_id);
-                if (np > 1) {
-                    // TODO: Test loading ghost nodes in a separate kernel, potentially adopting this change if the
-                    // slowdown is minor
-                    const int ghost_grain_id = my_grain_id;
-                    const float ghost_octahedron_center_x = cx;
-                    const float ghost_octahedron_center_y = cy;
-                    const float ghost_octahedron_center_z = cz;
-                    const float ghost_diagonal_length = interface._init_oct_size;
-                    const int ghost_phase_id = phase_id(index);
-                    // Collect data for the ghost nodes, if necessary
-                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, coord_y, coord_z,
-                        grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
-                    if (!(data_fits_in_buffer)) {
-                        // This cell's data did not fit in the buffer with current size buf_size - mark with
-                        // temporary type
-                        celldata.cell_type(index) = ActiveFailedBufferLoad;
-                    }
-                    else {
-                        // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                        celldata.cell_type(index) = Active;
-                    }
-                } // End if statement for serial/parallel code
-                else {
-                    // Cell activation is now finished - cell type can be changed from TemporaryUpdate to Active
-                    celldata.cell_type(index) = Active;
-                } // End if statement for serial/parallel code
+                // Collect data for the ghost nodes, if necessary
+                // Data loaded into the ghost nodes is for the cell that was just activated or underwent nucleation
+                // Note: this only updates the cell type once all octahedron attributes have been calculated to avoid
+                // any potential race condition with operating on the active cell before it has been fully initialized
+                celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                    mpi_parallel, Active, ActiveFailedBufferLoad, my_grain_id, octahedron_data, my_phase_id,
+                    grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
+                    orientation.n_grain_orientations);
             }
             else if (cell_type_old == FutureLiquid) {
                 // This type was assigned to a cell that was recently transformed from active to liquid, due to its
                 // bordering of a cell above the liquidus. This information may need to be sent to other MPI ranks
-                // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for diagonal
-                // length
-                bool data_fits_in_buffer = interface.loadGhostNodes(
-                    -1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
-                    grid.at_south_boundary, orientation.n_grain_orientations);
-                if (!(data_fits_in_buffer)) {
-                    // This cell's data did not fit in the buffer with current size buf_size - mark with temporary
-                    // type
-                    celldata.cell_type(index) = LiquidFailedBufferLoad;
-                }
-                else {
-                    // Cell activation is now finished - cell type can be changed from FutureLiquid to Active
-                    celldata.cell_type(index) = Liquid;
-                }
+                // Dummy values for Grain ID, Phase ID, and octahedron data
+                float octahedron_data[4] = {0.0};
+                celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                    mpi_parallel, Liquid, LiquidFailedBufferLoad, 0, octahedron_data, 0, grid.ny_local, coord_x,
+                    coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
             }
         });
     Kokkos::fence();
@@ -433,57 +379,59 @@ void refillBuffers(const Grid &grid, CellData<MemorySpace> &celldata, Interface<
                 int index_north_buffer = grid.get1DIndex(coord_x, grid.ny_local - 2, coord_z);
                 if (celldata.cell_type(index_south_buffer) == ActiveFailedBufferLoad) {
                     int ghost_grain_id = grain_id(index_south_buffer);
-                    float ghost_octahedron_center_x = interface.octahedron_center(3 * index_south_buffer);
-                    float ghost_octahedron_center_y = interface.octahedron_center(3 * index_south_buffer + 1);
-                    float ghost_octahedron_center_z = interface.octahedron_center(3 * index_south_buffer + 2);
-                    float ghost_diagonal_length = interface.diagonal_length(index_south_buffer);
+                    float octahedron_data[4] = {interface.octahedron_center(3 * index_south_buffer),
+                                                interface.octahedron_center(3 * index_south_buffer + 1),
+                                                interface.octahedron_center(3 * index_south_buffer + 2),
+                                                interface.diagonal_length(index_south_buffer)};
                     float ghost_phase_id = phase_id(index_south_buffer);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
-                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, 1, coord_z,
-                        grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-                    celldata.cell_type(index_south_buffer) = Active;
+                    celldata.cell_type(index_south_buffer) = interface.loadGhostNodesSuccess(
+                        true, Active, ActiveFailedBufferLoad, ghost_grain_id, octahedron_data, ghost_phase_id,
+                        grid.ny_local, coord_x, 1, coord_z, grid.at_north_boundary, grid.at_south_boundary,
+                        n_grain_orientations);
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
-                    interface.checkBufferSize(data_fits_in_buffer);
+                    if (celldata.cell_type(index_south_buffer) == ActiveFailedBufferLoad)
+                        interface.checkBufferSize();
                 }
                 else if (celldata.cell_type(index_south_buffer) == LiquidFailedBufferLoad) {
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
-                    bool data_fits_in_buffer =
-                        interface.loadGhostNodes(-1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, 1, coord_z,
-                                                 grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-                    celldata.cell_type(index_south_buffer) = Liquid;
+                    float octahedron_data[4] = {0.0};
+                    celldata.cell_type(index_south_buffer) = interface.loadGhostNodesSuccess(
+                        true, Liquid, LiquidFailedBufferLoad, 0, octahedron_data, 0, grid.ny_local, coord_x, 1, coord_z,
+                        grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
-                    interface.checkBufferSize(data_fits_in_buffer);
+                    if (celldata.cell_type(index_south_buffer) == LiquidFailedBufferLoad)
+                        interface.checkBufferSize();
                 }
                 if (celldata.cell_type(index_north_buffer) == ActiveFailedBufferLoad) {
                     int ghost_grain_id = grain_id(index_north_buffer);
-                    float ghost_octahedron_center_x = interface.octahedron_center(3 * index_north_buffer);
-                    float ghost_octahedron_center_y = interface.octahedron_center(3 * index_north_buffer + 1);
-                    float ghost_octahedron_center_z = interface.octahedron_center(3 * index_north_buffer + 2);
-                    float ghost_diagonal_length = interface.diagonal_length(index_north_buffer);
+                    float octahedron_data[4] = {interface.octahedron_center(3 * index_north_buffer),
+                                                interface.octahedron_center(3 * index_north_buffer + 1),
+                                                interface.octahedron_center(3 * index_north_buffer + 2),
+                                                interface.diagonal_length(index_north_buffer)};
                     float ghost_phase_id = phase_id(index_north_buffer);
                     // Collect data for the ghost nodes, if necessary
                     // Data loaded into the ghost nodes is for the cell that was just captured
-                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                        ghost_grain_id, ghost_octahedron_center_x, ghost_octahedron_center_y, ghost_octahedron_center_z,
-                        ghost_diagonal_length, ghost_phase_id, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
-                        grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-                    celldata.cell_type(index_north_buffer) = Active;
+                    celldata.cell_type(index_north_buffer) = interface.loadGhostNodesSuccess(
+                        true, Active, ActiveFailedBufferLoad, ghost_grain_id, octahedron_data, ghost_phase_id,
+                        grid.ny_local, coord_x, grid.ny_local - 2, coord_z, grid.at_north_boundary,
+                        grid.at_south_boundary, n_grain_orientations);
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
-                    interface.checkBufferSize(data_fits_in_buffer);
+                    if (celldata.cell_type(index_north_buffer) == ActiveFailedBufferLoad)
+                        interface.checkBufferSize();
                 }
                 else if (celldata.cell_type(index_north_buffer) == LiquidFailedBufferLoad) {
                     // Dummy values for first 4 arguments (Grain ID and octahedron center coordinates), 0 for
                     // diagonal length
-                    bool data_fits_in_buffer = interface.loadGhostNodes(
-                        -1, -1.0, -1.0, -1.0, 0.0, 1, grid.ny_local, coord_x, grid.ny_local - 2, coord_z,
+                    float octahedron_data[4] = {0.0};
+                    celldata.cell_type(index_north_buffer) = interface.loadGhostNodesSuccess(
+                        true, Liquid, LiquidFailedBufferLoad, 0, octahedron_data, 0, grid.ny_local, coord_x, 1, coord_z,
                         grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-                    celldata.cell_type(index_north_buffer) = Liquid;
                     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
-                    interface.checkBufferSize(data_fits_in_buffer);
+                    if (celldata.cell_type(index_north_buffer) == LiquidFailedBufferLoad)
+                        interface.checkBufferSize();
                 }
             }
         });

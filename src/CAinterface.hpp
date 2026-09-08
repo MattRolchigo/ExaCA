@@ -415,16 +415,19 @@ struct Interface {
     // a 1D halo region Uses check to ensure that the buffer position does not reach the buffer size - if it does, keep
     // incrementing the send size counters for use resizing the buffers in the future
     KOKKOS_INLINE_FUNCTION
-    bool loadGhostNodes(const int ghost_grain_id, const float ghost_octahedron_center_x,
-                        const float ghost_octahedron_center_y, const float ghost_octahedron_center_z,
-                        const float ghost_diagonal_length, const int ghost_phase_id, const int ny_local,
-                        const int coord_x, const int coord_y, const int coord_z, const bool at_north_boundary,
-                        const bool at_south_boundary, const int n_grain_orientations) const {
-        bool data_fits_in_buffer = true;
+    int loadGhostNodesSuccess(const bool mpi_parallel, const int load_success_type, const int load_failure_type,
+                              const int ghost_grain_id, const float (&octahedron_data)[4], const int ghost_phase_id,
+                              const int ny_local, const int coord_x, const int coord_y, const int coord_z,
+                              const bool at_north_boundary, const bool at_south_boundary,
+                              const int n_grain_orientations) const {
+        // No halo load if not running on multiple MPI ranks
+        if (!mpi_parallel)
+            return load_success_type;
+        // Otherwise, attempt to load the octahedron data into the appropriate buffer
         if ((coord_y == 1) && (!(at_south_boundary))) {
             int ghost_position_south = Kokkos::atomic_fetch_add(&send_size_south(0), 1);
             if (ghost_position_south >= buf_size)
-                data_fits_in_buffer = false;
+                return load_failure_type;
             else {
                 buffer_south_send(ghost_position_south, 0) = static_cast<float>(coord_x);
                 buffer_south_send(ghost_position_south, 1) = static_cast<float>(coord_z);
@@ -432,17 +435,17 @@ struct Interface {
                     static_cast<float>(getGrainOrientation(ghost_grain_id, n_grain_orientations, false));
                 buffer_south_send(ghost_position_south, 3) =
                     static_cast<float>(getGrainNumber(ghost_grain_id, n_grain_orientations));
-                buffer_south_send(ghost_position_south, 4) = ghost_octahedron_center_x;
-                buffer_south_send(ghost_position_south, 5) = ghost_octahedron_center_y;
-                buffer_south_send(ghost_position_south, 6) = ghost_octahedron_center_z;
-                buffer_south_send(ghost_position_south, 7) = ghost_diagonal_length;
+                buffer_south_send(ghost_position_south, 4) = octahedron_data[0];
+                buffer_south_send(ghost_position_south, 5) = octahedron_data[1];
+                buffer_south_send(ghost_position_south, 6) = octahedron_data[2];
+                buffer_south_send(ghost_position_south, 7) = octahedron_data[3];
                 buffer_south_send(ghost_position_south, 8) = ghost_phase_id;
             }
         }
         else if ((coord_y == ny_local - 2) && (!(at_north_boundary))) {
             int ghost_position_north = Kokkos::atomic_fetch_add(&send_size_north(0), 1);
             if (ghost_position_north >= buf_size)
-                data_fits_in_buffer = false;
+                return load_failure_type;
             else {
                 buffer_north_send(ghost_position_north, 0) = static_cast<float>(coord_x);
                 buffer_north_send(ghost_position_north, 1) = static_cast<float>(coord_z);
@@ -450,23 +453,22 @@ struct Interface {
                     static_cast<float>(getGrainOrientation(ghost_grain_id, n_grain_orientations, false));
                 buffer_north_send(ghost_position_north, 3) =
                     static_cast<float>(getGrainNumber(ghost_grain_id, n_grain_orientations));
-                buffer_north_send(ghost_position_north, 4) = ghost_octahedron_center_x;
-                buffer_north_send(ghost_position_north, 5) = ghost_octahedron_center_y;
-                buffer_north_send(ghost_position_north, 6) = ghost_octahedron_center_z;
-                buffer_north_send(ghost_position_north, 7) = ghost_diagonal_length;
+                buffer_north_send(ghost_position_north, 4) = octahedron_data[0];
+                buffer_north_send(ghost_position_north, 5) = octahedron_data[1];
+                buffer_north_send(ghost_position_north, 6) = octahedron_data[2];
+                buffer_north_send(ghost_position_north, 7) = octahedron_data[3];
                 buffer_north_send(ghost_position_north, 8) = ghost_phase_id;
             }
         }
-        return data_fits_in_buffer;
+        return load_success_type;
     }
 
     // If data doesn't fit in the buffer after the resize, warn that buffer data may have been lost
     KOKKOS_INLINE_FUNCTION
-    void checkBufferSize([[maybe_unused]] const bool data_fits_in_buffer) const {
+    void checkBufferSize() const {
 #if KOKKOS_VERSION >= 40200
-        if (!data_fits_in_buffer)
-            Kokkos::printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
-                           "results at MPI processor boundaries may be inaccurate\n");
+        Kokkos::printf("Error: Send/recv buffer resize failed to include all necessary data, predicted "
+                       "results at MPI processor boundaries may be inaccurate\n");
 #endif
     }
 };
