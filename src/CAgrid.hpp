@@ -634,8 +634,7 @@ struct Grid {
         int index = coord_z * nx * ny_local + coord_x * ny_local + coord_y_local;
         return index;
     }
-    // TODO: There is probably some creative way to combine these functions and return one object containing the x, y,
-    // and z positions Get the z cell position of the cell from the 1D cell coordinate
+    // Get the z cell position of the cell from the 1D cell coordinate
     KOKKOS_INLINE_FUNCTION
     int getCoordZ(const int index) const {
         int coord_z = index / (nx * ny_local);
@@ -654,6 +653,14 @@ struct Grid {
         int rem = index % (nx * ny_local);
         int coord_x = rem / ny_local;
         return coord_x;
+    }
+    // Get the x,y,z position of the cell from the 1D coordinate
+    KOKKOS_FUNCTION
+    void getCoordXYZ(int (&cell_location)[3], const int index) const {
+        cell_location[2] = getCoordZ(index);
+        int rem = index % (nx * ny_local);
+        cell_location[1] = rem % ny_local;
+        cell_location[0] = rem / ny_local;
     }
     // Get the z cell position of the cell from the 1D cell coordinate with respect to the overall simulation domain
     // (all MPI ranks)

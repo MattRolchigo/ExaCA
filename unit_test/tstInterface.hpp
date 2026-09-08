@@ -740,7 +740,8 @@ void testCreateNewOctahedron() {
         for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
             for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
                 int index = grid.get1DIndex(coord_x, coord_y, coord_z);
-                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                int cell_location[3] = {coord_x, coord_y, coord_z};
+                interface.createNewOctahedron(index, cell_location, grid.y_offset);
             }
         }
     }

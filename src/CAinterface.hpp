@@ -189,12 +189,11 @@ struct Interface {
     // Assign octahedron a small initial size, and a center location
     // Note that the Y coordinate is relative to the domain origin to keep the coordinate system continuous across ranks
     KOKKOS_INLINE_FUNCTION
-    void createNewOctahedron(const int index, const int coord_x, const int coord_y, const int y_offset,
-                             const int coord_z) const {
+    void createNewOctahedron(const int index, const int (&cell_location)[3], const int y_offset) const {
         diagonal_length(index) = _init_oct_size;
-        octahedron_center(3 * index) = coord_x + 0.5;
-        octahedron_center(3 * index + 1) = coord_y + y_offset + 0.5;
-        octahedron_center(3 * index + 2) = coord_z + 0.5;
+        octahedron_center(3 * index) = cell_location[0] + 0.5;
+        octahedron_center(3 * index + 1) = cell_location[1] + y_offset + 0.5;
+        octahedron_center(3 * index + 2) = cell_location[2] + 0.5;
     }
 
     // Create a new octahedron based on capture of cell centered at (xp,yp,zp) from cell at index, in capture direction

@@ -31,9 +31,8 @@ void createOctahedra_NoRemelt(const Grid &grid, CellData<MemorySpace> &celldata,
         "InitSV", grid.domain_size, KOKKOS_LAMBDA(const int &index) {
             if (celldata.cell_type(index) == Active) {
                 // Create octahedra for cells initially designated as active (
-                const int coord_x = grid.getCoordX(index);
-                const int coord_y = grid.getCoordY(index);
-                const int coord_z = grid.getCoordZ(index);
+                int cell_location[3];
+                grid.getCoordXYZ(cell_location, index);
 
                 const int my_grain_id = grain_id(index);
                 // The orientation for the new grain will depend on its Grain ID
@@ -42,13 +41,13 @@ void createOctahedra_NoRemelt(const Grid &grid, CellData<MemorySpace> &celldata,
                 temperature.setStartingUndercooling(0, index);
 
                 // Initialize new octahedron
-                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                interface.createNewOctahedron(index, cell_location, grid.y_offset);
 
                 // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
                 // origin to keep the coordinate system continuous across ranks
-                const float cx = coord_x + 0.5;
-                const float cy = coord_y + grid.y_offset + 0.5;
-                const float cz = coord_z + 0.5;
+                const float cx = cell_location[0] + 0.5;
+                const float cy = cell_location[1] + grid.y_offset + 0.5;
+                const float cz = cell_location[2] + 0.5;
 
                 interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
                                                  orientation.grain_unit_vector);
@@ -94,25 +93,24 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
                         temperature.current_cooling_rate(index) = temperature.cooling_rate_list(liquidus_time_counter);
                         if ((celltype == Liquid) && (grain_id(index) != 0)) {
                             // Get the x, y, z coordinates of the cell on this MPI rank
-                            int coord_x = grid.getCoordX(index);
-                            int coord_y = grid.getCoordY(index);
-                            int coord_z = grid.getCoordZ(index);
+                            int cell_location[3];
+                            grid.getCoordXYZ(cell_location, index);
                             // If this cell has cooled to the liquidus temperature, borders at least one solid
                             // cell, and is part of a grain, it should become active. This only needs to be checked on
                             // the time step where the cell reaches the liquidus, not every time step beyond this
                             for (int l = 0; l < 26; l++) {
                                 // "l" correpsponds to the specific neighboring cell
                                 // Local coordinates of adjacent cell center
-                                int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                                int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                                int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                                int neighbor_coord_x = cell_location[0] + interface.neighbor_x[l];
+                                int neighbor_coord_y = cell_location[1] + interface.neighbor_y[l];
+                                int neighbor_coord_z = cell_location[2] + interface.neighbor_z[l];
                                 const int neighbor_index =
                                     grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
                                 if (neighbor_index != -1) {
                                     // TODO: Should check if at global domain edge in X or Y too, since this would also
                                     // make the cell a candidate for activation. This check could also be done outside
                                     // of the loop over neighbors l=0:25 since coord_z does not vary inside this loop
-                                    if ((celldata.cell_type(neighbor_index) == Solid) || (coord_z == 0)) {
+                                    if ((celldata.cell_type(neighbor_index) == Solid) || (cell_location[2] == 0)) {
                                         // Cell activation to be performed as part of steering vector
                                         l = 26;
                                         interface.steering_vector(
@@ -139,15 +137,14 @@ void remeltActivateCells(const int cycle, const Grid &grid, const InterfacialRes
                         // than cooling down These are converted to the temporary FutureLiquid state, to be later
                         // iterated over and loaded into the steering vector as necessary Get the x, y, z coordinates of
                         // the cell on this MPI rank
-                        int coord_x = grid.getCoordX(index);
-                        int coord_y = grid.getCoordY(index);
-                        int coord_z = grid.getCoordZ(index);
+                        int cell_location[3];
+                        grid.getCoordXYZ(cell_location, index);
                         for (int l = 0; l < 26; l++) {
                             // "l" correpsponds to the specific neighboring cell
                             // Local coordinates of adjacent cell center
-                            int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                            int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                            int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                            int neighbor_coord_x = cell_location[0] + interface.neighbor_x[l];
+                            int neighbor_coord_y = cell_location[1] + interface.neighbor_y[l];
+                            int neighbor_coord_z = cell_location[2] + interface.neighbor_z[l];
                             const int neighbor_index =
                                 grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
                             if (neighbor_index != -1) {
@@ -204,9 +201,8 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
             // Get the 1D index of cell from the steering vector
             const int index = interface.steering_vector(num);
             // Using the 1D index, get the x, y, z coordinates of the cell on this MPI rank
-            const int coord_x = grid.getCoordX(index);
-            const int coord_y = grid.getCoordY(index);
-            const int coord_z = grid.getCoordZ(index);
+            int cell_location[3];
+            grid.getCoordXYZ(cell_location, index);
             const int cell_type_old = celldata.cell_type(index);
             // Cells of interest for the CA - active cells and future active/liquid cells
             if (cell_type_old == Active) {
@@ -221,9 +217,9 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 // Cycle through all neighboring cells on this processor to see if they have been captured
                 for (int l = 0; l < 26; l++) {
                     // Local coordinates of adjacent cell center
-                    const int neighbor_coord_x = coord_x + interface.neighbor_x[l];
-                    const int neighbor_coord_y = coord_y + interface.neighbor_y[l];
-                    const int neighbor_coord_z = coord_z + interface.neighbor_z[l];
+                    const int neighbor_coord_x = cell_location[0] + interface.neighbor_x[l];
+                    const int neighbor_coord_y = cell_location[1] + interface.neighbor_y[l];
+                    const int neighbor_coord_z = cell_location[2] + interface.neighbor_z[l];
                     // Check if neighbor is in bounds
                     const int neighbor_index =
                         grid.getNeighbor1DIndex(neighbor_coord_x, neighbor_coord_y, neighbor_coord_z);
@@ -314,15 +310,15 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 temperature.setStartingUndercooling(cycle, index);
 
                 // Initialize new octahedron
-                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                interface.createNewOctahedron(index, cell_location, grid.y_offset);
                 // The orientation for the new grain will depend on its Grain ID (nucleated grains have negative
                 // grain_id values)
                 const int my_orientation = getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
                 // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
                 // origin to keep the coordinate system continuous across ranks
-                const float cx = coord_x + 0.5;
-                const float cy = coord_y + grid.y_offset + 0.5;
-                const float cz = coord_z + 0.5;
+                const float cx = cell_location[0] + 0.5;
+                const float cy = cell_location[1] + grid.y_offset + 0.5;
+                const float cz = cell_location[2] + 0.5;
                 float octahedron_data[4] = {cx, cy, cz, interface._init_oct_size};
                 // Calculate critical values at which this active cell leads to the activation of a neighboring
                 // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
@@ -335,8 +331,8 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 // any potential race condition with operating on the active cell before it has been fully initialized
                 celldata.cell_type(index) = interface.loadGhostNodesSuccess(
                     mpi_parallel, Active, ActiveFailedBufferLoad, my_grain_id, octahedron_data, my_phase_id,
-                    grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
-                    orientation.n_grain_orientations);
+                    grid.ny_local, cell_location[0], cell_location[1], cell_location[2], grid.at_north_boundary,
+                    grid.at_south_boundary, orientation.n_grain_orientations);
             }
             else if (cell_type_old == FutureLiquid) {
                 // This type was assigned to a cell that was recently transformed from active to liquid, due to its
@@ -344,8 +340,9 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 // Dummy values for Grain ID, Phase ID, and octahedron data
                 float octahedron_data[4] = {0.0};
                 celldata.cell_type(index) = interface.loadGhostNodesSuccess(
-                    mpi_parallel, Liquid, LiquidFailedBufferLoad, 0, octahedron_data, 0, grid.ny_local, coord_x,
-                    coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, orientation.n_grain_orientations);
+                    mpi_parallel, Liquid, LiquidFailedBufferLoad, 0, octahedron_data, 0, grid.ny_local,
+                    cell_location[0], cell_location[1], cell_location[2], grid.at_north_boundary,
+                    grid.at_south_boundary, orientation.n_grain_orientations);
             }
         });
     Kokkos::fence();
