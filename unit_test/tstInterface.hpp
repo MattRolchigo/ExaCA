@@ -33,6 +33,9 @@ void testHaloUpdate() {
     MPI_Comm_size(MPI_COMM_WORLD, &np);
     // Get individual process ID
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
+    bool mpi_parallel = false;
+    if (np > 1)
+        mpi_parallel = true;
 
     // Initialize empty inputs/grid structs - set these manually for test
     Inputs inputs;
@@ -173,14 +176,18 @@ void testHaloUpdate() {
                 int coord_x = grid.getCoordX(index);
                 int coord_y = grid.getCoordY(index);
                 int ghost_gid = grain_id(index);
-                float ghost_docx = interface.octahedron_center(3 * index);
-                float ghost_docy = interface.octahedron_center(3 * index + 1);
-                float ghost_docz = interface.octahedron_center(3 * index + 2);
-                float ghost_dl = interface.diagonal_length(index);
+                float octahedron_data[4];
+                octahedron_data[0] = interface.octahedron_center(3 * index);
+                octahedron_data[1] = interface.octahedron_center(3 * index + 1);
+                octahedron_data[2] = interface.octahedron_center(3 * index + 2);
+                octahedron_data[3] = interface.diagonal_length(index);
                 float ghost_pid = 0.0;
-                interface.loadGhostNodes(ghost_gid, ghost_docx, ghost_docy, ghost_docz, ghost_dl, ghost_pid,
-                                         grid.ny_local, coord_x, coord_y, coord_z, grid.at_north_boundary,
-                                         grid.at_south_boundary, orientation.n_grain_orientations);
+                celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                    mpi_parallel, Active, ActiveFailedBufferLoad, ghost_gid, octahedron_data, ghost_pid, grid.ny_local,
+                    coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
+                    orientation.n_grain_orientations);
+                if (celldata.cell_type(index) != Active)
+                    printf("Warning: failed to load cell %d data into buffer\n", index);
             }
         });
     haloUpdate(0, 0, grid, celldata, interface, orientation);
@@ -245,6 +252,9 @@ void testResizeRefillBuffers() {
     MPI_Comm_size(MPI_COMM_WORLD, &np);
     // Get individual process ID
     MPI_Comm_rank(MPI_COMM_WORLD, &id);
+    bool mpi_parallel = false;
+    if (np > 1)
+        mpi_parallel = true;
 
     // Initialize empty inputs/grid structs
     Inputs inputs;
@@ -302,18 +312,16 @@ void testResizeRefillBuffers() {
             grain_id(index) = coord_x;
             int ghost_gid = coord_x;
             interface.octahedron_center(3 * index) = coord_x + 0.5;
-            float ghost_docx = coord_x + 0.5;
             interface.octahedron_center(3 * index + 1) = coord_y + 0.5;
-            float ghost_docy = coord_y + 0.5;
             interface.octahedron_center(3 * index + 2) = coord_z + 0.5;
-            float ghost_docz = coord_z + 0.5;
             interface.diagonal_length(index) = static_cast<float>(coord_y);
-            float ghost_dl = static_cast<float>(coord_y);
+            float octahedron_data[4] = {static_cast<float>(coord_x + 0.5), static_cast<float>(coord_y + 0.5),
+                                        static_cast<float>(coord_z + 0.5), static_cast<float>(coord_y)};
             float ghost_pid = 0.0;
             // Load into appropriate buffers
-            interface.loadGhostNodes(ghost_gid, ghost_docx, ghost_docy, ghost_docz, ghost_dl, ghost_pid, grid.ny_local,
-                                     coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
-                                     n_grain_orientations);
+            celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                mpi_parallel, Active, ActiveFailedBufferLoad, ghost_gid, octahedron_data, ghost_pid, grid.ny_local,
+                coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
         });
     Kokkos::parallel_for(
         "InitDomainActiveCellsSouth", 1, KOKKOS_LAMBDA(const int &) {
@@ -325,18 +333,16 @@ void testResizeRefillBuffers() {
             grain_id(index) = coord_x;
             int ghost_gid = coord_x;
             interface.octahedron_center(3 * index) = coord_x + 0.5;
-            float ghost_docx = coord_x + 0.5;
             interface.octahedron_center(3 * index + 1) = coord_y + 0.5;
-            float ghost_docy = coord_y + 0.5;
             interface.octahedron_center(3 * index + 2) = coord_z + 0.5;
-            float ghost_docz = coord_z + 0.5;
             interface.diagonal_length(index) = static_cast<float>(coord_y);
-            float ghost_dl = static_cast<float>(coord_y);
+            float octahedron_data[4] = {static_cast<float>(coord_x + 0.5), static_cast<float>(coord_y + 0.5),
+                                        static_cast<float>(coord_z + 0.5), static_cast<float>(coord_y)};
             float ghost_pid = 0.0;
             // Load into appropriate buffers
-            interface.loadGhostNodes(ghost_gid, ghost_docx, ghost_docy, ghost_docz, ghost_dl, ghost_pid, grid.ny_local,
-                                     coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary,
-                                     n_grain_orientations);
+            celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                mpi_parallel, Active, ActiveFailedBufferLoad, ghost_gid, octahedron_data, ghost_pid, grid.ny_local,
+                coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
         });
 
     // Each rank will have "id % 4" cells of additional data to send to the south, and 1 cell of additional data to send
@@ -353,22 +359,16 @@ void testResizeRefillBuffers() {
             grain_id(index) = coord_x;
             int ghost_gid = coord_x;
             interface.octahedron_center(3 * index) = coord_x + 0.5;
-            float ghost_docx = coord_x + 0.5;
-            interface.octahedron_center(3 * index + 1) = coord_x + 0.5;
-            float ghost_docy = coord_y + 0.5;
-            interface.octahedron_center(3 * index + 2) = coord_y + 0.5;
-            float ghost_docz = coord_z + 0.5;
+            interface.octahedron_center(3 * index + 1) = coord_y + 0.5;
+            interface.octahedron_center(3 * index + 2) = coord_z + 0.5;
             interface.diagonal_length(index) = static_cast<float>(coord_y);
-            float ghost_dl = static_cast<float>(coord_y);
+            float octahedron_data[4] = {static_cast<float>(coord_x + 0.5), static_cast<float>(coord_y + 0.5),
+                                        static_cast<float>(coord_z + 0.5), static_cast<float>(coord_y)};
             float ghost_pid = 0.0;
             // Attempt to load into appropriate buffers
-            bool data_fits_in_buffer = interface.loadGhostNodes(
-                ghost_gid, ghost_docx, ghost_docy, ghost_docz, ghost_dl, ghost_pid, grid.ny_local, coord_x, coord_y,
-                coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-            if (!(data_fits_in_buffer)) {
-                // This cell's data did not fit in the buffer with current size buf_size - mark with temporary type
-                celldata.cell_type(index) = ActiveFailedBufferLoad;
-            }
+            celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                mpi_parallel, Active, ActiveFailedBufferLoad, ghost_gid, octahedron_data, ghost_pid, grid.ny_local,
+                coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
         });
 
     Kokkos::parallel_for(
@@ -380,22 +380,16 @@ void testResizeRefillBuffers() {
             grain_id(index) = coord_x;
             int ghost_gid = coord_x;
             interface.octahedron_center(3 * index) = coord_x + 0.5;
-            float ghost_docx = coord_x + 0.5;
             interface.octahedron_center(3 * index + 1) = coord_y + 0.5;
-            float ghost_docy = coord_y + 0.5;
             interface.octahedron_center(3 * index + 2) = coord_z + 0.5;
-            float ghost_docz = coord_z + 0.5;
             interface.diagonal_length(index) = static_cast<float>(coord_y);
-            float ghost_dl = static_cast<float>(coord_y);
+            float octahedron_data[4] = {static_cast<float>(coord_x + 0.5), static_cast<float>(coord_y + 0.5),
+                                        static_cast<float>(coord_z + 0.5), static_cast<float>(coord_y)};
             float ghost_pid = 0.0;
             // Attempt to load into appropriate buffers
-            bool data_fits_in_buffer = interface.loadGhostNodes(
-                ghost_gid, ghost_docx, ghost_docy, ghost_docz, ghost_dl, ghost_pid, grid.ny_local, coord_x, coord_y,
-                coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
-            if (!(data_fits_in_buffer)) {
-                // This cell's data did not fit in the buffer with current size buf_size - mark with temporary type
-                celldata.cell_type(index) = ActiveFailedBufferLoad;
-            }
+            celldata.cell_type(index) = interface.loadGhostNodesSuccess(
+                mpi_parallel, Active, ActiveFailedBufferLoad, ghost_gid, octahedron_data, ghost_pid, grid.ny_local,
+                coord_x, coord_y, coord_z, grid.at_north_boundary, grid.at_south_boundary, n_grain_orientations);
         });
 
     // Attempt to resize buffers and load the remaining data
@@ -746,7 +740,8 @@ void testCreateNewOctahedron() {
         for (int coord_x = 0; coord_x < grid.nx; coord_x++) {
             for (int coord_y = 0; coord_y < grid.ny_local; coord_y++) {
                 int index = grid.get1DIndex(coord_x, coord_y, coord_z);
-                interface.createNewOctahedron(index, coord_x, coord_y, grid.y_offset, coord_z);
+                int cell_location[3] = {coord_x, coord_y, coord_z};
+                interface.createNewOctahedron(index, cell_location, grid.y_offset);
             }
         }
     }

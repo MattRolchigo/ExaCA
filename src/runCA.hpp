@@ -22,7 +22,7 @@ void runExaCALayer(int id, int np, int layernumber, int &cycle, Inputs inputs, T
                    std::string simulation_type, bool full_domain_solidification = true) {
 
     int x_switch = 0;
-
+    bool mpi_parallel = (np > 1);
     // Loop continues until all liquid cells claimed by solid grains, and no solid cells undergo remelting
     do {
 
@@ -55,7 +55,7 @@ void runExaCALayer(int id, int np, int layernumber, int &cycle, Inputs inputs, T
         // checking the MPI buffers to ensure that all appropriate interface updates in the halo regions were
         // recorded
         timers.startCapture();
-        cellCapture(cycle, np, grid, irf, celldata, temperature, interface, orientation);
+        cellCapture(cycle, mpi_parallel, grid, irf, celldata, temperature, interface, orientation);
         checkBuffers(id, cycle, grid, celldata, interface, orientation.n_grain_orientations);
         timers.stopCapture();
 
