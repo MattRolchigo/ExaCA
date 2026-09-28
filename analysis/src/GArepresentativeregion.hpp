@@ -436,7 +436,7 @@ struct RepresentativeRegion {
                         min_dir = x_bounds_cells[0];
                         max_dir = x_bounds_cells[1];
                     }
-                    else if (direction == "Y") {
+                    else {
                         min_dir = y_bounds_cells[0];
                         max_dir = y_bounds_cells[1];
                     }
