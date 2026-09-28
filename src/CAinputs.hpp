@@ -796,7 +796,10 @@ struct Inputs {
                 exaca_log << "      \"Ny\": " << grid.ny << "," << std::endl;
             }
             exaca_log << "      \"Nz\": " << grid.nz << "," << std::endl;
-            exaca_log << "      \"PeriodicXY\": " << domain.is_periodic << "," << std::endl;
+            if (domain.is_periodic)
+                exaca_log << "      \"PeriodicXY\": true," << std::endl;
+            else
+                exaca_log << "      \"PeriodicXY\": false," << std::endl;
             exaca_log << "      \"CellSize\": " << grid.deltax << "," << std::endl;
             exaca_log << "      \"TimeStep\": " << domain.deltat << "," << std::endl;
             exaca_log << "      \"XBounds\": [" << grid.x_min << "," << grid.x_max << "]," << std::endl;
