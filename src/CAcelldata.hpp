@@ -286,8 +286,15 @@ struct CellData {
                             int coord_y_grain_global = act_cell_data(n, 1);
                             int coord_x_grain = act_cell_data(n, 0);
                             int coord_y_global = coord_y + grid.y_offset;
-                            float distance_to_this_grain_x = coord_x - coord_x_grain;
-                            float distance_to_this_grain_y = coord_y_global - coord_y_grain_global;
+                            float distance_to_this_grain_x = Kokkos::abs(coord_x - coord_x_grain);
+                            float distance_to_this_grain_y = Kokkos::abs(coord_y_global - coord_y_grain_global);
+                            // Optionally consider periodic boundary condition in distance calculation
+                            if (is_periodic) {
+                                distance_to_this_grain_x =
+                                    Kokkos::fmin(distance_to_this_grain_x, grid.nx - distance_to_this_grain_x);
+                                distance_to_this_grain_y =
+                                    Kokkos::fmin(distance_to_this_grain_y, grid.ny - distance_to_this_grain_y);
+                            }
                             float distance_to_this_grain =
                                 Kokkos::sqrt(distance_to_this_grain_x * distance_to_this_grain_x +
                                              distance_to_this_grain_y * distance_to_this_grain_y);
