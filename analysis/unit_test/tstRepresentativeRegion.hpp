@@ -398,9 +398,9 @@ void testCollectGrainStats_Periodic() {
 // RUN TESTS
 //---------------------------------------------------------------------------//
 TEST(TEST_CATEGORY, representative_region) {
-    //    testConstructRepresentativeRegion_Volume();
-    //    testConstructRepresentativeRegion_Area();
-    //    testCollectGrainStats();
+    testConstructRepresentativeRegion_Volume();
+    testConstructRepresentativeRegion_Area();
+    testCollectGrainStats();
     testCollectGrainStats_Periodic();
 }
 } // end namespace Test
