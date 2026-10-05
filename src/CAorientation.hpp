@@ -41,6 +41,7 @@ struct Orientation {
     // phase
     view_type_float_2d grain_unit_vector;
     view_type_float_2d_host grain_bunge_euler_host, grain_rgb_ipfz_host;
+    view_type_int aligned_diagonal;
     int _num_phases;
     bool _solidification_transformation_yn;
 
@@ -70,8 +71,31 @@ struct Orientation {
             // GrainOrientationVectors.csv, this will be an empty string
             getEulerIPFZFilenames(grain_unit_vector_file, rng_seed);
         }
+        aligned_diagonal = getAlignedDiagonal();
         if (id == 0)
             std::cout << "Done with orientation initialization " << std::endl;
+    }
+
+    view_type_int getAlignedDiagonal() {
+        view_type_int aligned_diagonal_local(Kokkos::ViewAllocateWithoutInitializing("aligned_diagonal"),
+                                             n_grain_orientations);
+        auto grain_unit_vector_local = grain_unit_vector;
+        Kokkos::parallel_for(
+            "getAlignedDiagonal", n_grain_orientations, KOKKOS_LAMBDA(const int &i) {
+                int misorientation_index_min = -1;
+                float misorientation_angle_min = 54.7356;
+                for (int l = 0; l < 3; l++) {
+                    float misorientation = Kokkos::abs(
+                        (180 / M_PI) * Kokkos::acos(Kokkos::abs(grain_unit_vector_local(9 * i + 3 * l + 2, 0))));
+                    if (misorientation < misorientation_angle_min) {
+                        misorientation_angle_min = misorientation;
+                        misorientation_index_min = l;
+                    }
+                }
+                aligned_diagonal_local(i) = misorientation_index_min;
+            });
+        Kokkos::fence();
+        return aligned_diagonal_local;
     }
 
     // Get grain orientations from the specified file and the number of grain orientations and return a host view

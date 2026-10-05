@@ -43,14 +43,12 @@ void createOctahedra_NoRemelt(const Grid &grid, CellData<MemorySpace> &celldata,
                 // Initialize new octahedron
                 interface.createNewOctahedron(index, cell_location, grid.y_offset);
 
-                // Octahedron center is at (cx, cy, cz) - note that the Y coordinate is relative to the domain
-                // origin to keep the coordinate system continuous across ranks
-                const float cx = cell_location[0] + 0.5;
-                const float cy = cell_location[1] + grid.y_offset + 0.5;
-                const float cz = cell_location[2] + 0.5;
-
-                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                 orientation.grain_unit_vector);
+                // Calculate critical values at which this active cell leads to the activation of a neighboring
+                // liquid cell. Growth is proportional to the distance between cell centers and the crystallographic
+                // orientation of the grain
+                int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                const float primary_arm_dir_z = orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
             }
         });
 }
@@ -207,10 +205,26 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
             // Cells of interest for the CA - active cells and future active/liquid cells
             if (cell_type_old == Active) {
                 // Get undercooling of active cell
-                const float local_undercooling = temperature.getUndercooling(cycle, index);
+                const float undercooling_grad_per_cell = temperature._inputs.G * grid.deltax;
+                const float undercooling_adj = interface.diagonal_length(index) * undercooling_grad_per_cell;
+                const float local_undercooling = temperature.getUndercooling(cycle, index) - undercooling_adj;
                 // Update diagonal length of octahedron based on local undercooling and interfacial response
                 // function
+                //                if (cell_location[2] == 1)
+                //                    printf("Cell %d %d %d DL
+                //                    %f\n",cell_location[0],cell_location[1],cell_location[2],interface.diagonal_length(index));
+
                 interface.diagonal_length(index) += irf.compute(local_undercooling, phase_id(index));
+                //                if (cell_location[2] == 1)
+                //                    printf("Cell %d %d %d DL
+                //                    %f\n",cell_location[0],cell_location[1],cell_location[2],interface.diagonal_length(index));
+
+                //                if ((cell_location[0] == 5) && (cell_location[1] == 7) && (cell_location[2] == 4))
+                //                    printf("DL = %f\n",interface.diagonal_length(index));
+                //                else if ((cell_location[0] == 5) && (cell_location[1] == 6) && (cell_location[2] ==
+                //                4))
+                //                    printf("ADL = %f\n",interface.diagonal_length(index));
+
                 const float diagonal_length_cell = interface.diagonal_length(index);
                 // Switch that becomes false if the cell has at least 1 liquid type neighbor
                 bool deactivate_cell = true;
@@ -244,6 +258,11 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                             // TemporaryUpdate)
                             if (old_cell_type_value == Liquid) {
                                 // Cell capture event
+                                //                                if (neighbor_coord_z == 4)
+                                //                                    printf("Cycle %d Cell at %d %d %d captured cell at
+                                //                                    %d %d %d, DL %f CDL
+                                //                                    %f\n",cycle,cell_location[0],cell_location[1],cell_location[2],neighbor_coord_x,neighbor_coord_y,neighbor_coord_z,diagonal_length_cell,
+                                //                                    interface.crit_diagonal_length(26 * index + l));
                                 const int my_grain_id = grain_id(index);
                                 const int my_orientation =
                                     getGrainOrientation(my_grain_id, orientation.n_grain_orientations);
@@ -272,11 +291,13 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                                 interface.createNewOctahedron(octahedron_data, l, index, xp, yp, zp,
                                                               orientation.grain_unit_vector, my_orientation,
                                                               my_phase_id, neighbor_index);
-                                // Get new critical diagonal length values for the newly activated cell (at array
-                                // position "neighbor_index")
-                                interface.calcCritDiagonalLength(neighbor_index, xp, yp, zp, octahedron_data[0],
-                                                                 octahedron_data[1], octahedron_data[2], my_orientation,
-                                                                 orientation.grain_unit_vector, my_phase_id);
+                                // Calculate critical values at which this active cell leads to the activation of a
+                                // neighboring liquid cell. Growth is proportional to the distance between cell centers
+                                // and the crystallographic orientation of the grain
+                                int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                                const float primary_arm_dir_z =
+                                    orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                                interface.calcCritDiagonalLengthAlt(neighbor_index, primary_arm_dir_z);
 
                                 // Collect data for the ghost nodes, if necessary
                                 // Data loaded into the ghost nodes is for the cell that was just captured
@@ -321,10 +342,11 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 const float cz = cell_location[2] + 0.5;
                 float octahedron_data[4] = {cx, cy, cz, interface._init_oct_size};
                 // Calculate critical values at which this active cell leads to the activation of a neighboring
-                // liquid cell. Octahedron center and cell center overlap for octahedra created as part of a new
-                // grain
-                interface.calcCritDiagonalLength(index, cx, cy, cz, cx, cy, cz, my_orientation,
-                                                 orientation.grain_unit_vector, my_phase_id);
+                // liquid cell. Growth is proportional to the distance between cell centers and the crystallographic
+                // orientation of the grain
+                int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                const float primary_arm_dir_z = orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
                 // Collect data for the ghost nodes, if necessary
                 // Data loaded into the ghost nodes is for the cell that was just activated or underwent nucleation
                 // Note: this only updates the cell type once all octahedron attributes have been calculated to avoid
@@ -546,16 +568,13 @@ void haloUpdate(const int, const int id, const int np, const Grid &grid, CellDat
                         int my_orientation = getGrainOrientation(grain_id(index), orientation.n_grain_orientations);
                         interface.diagonal_length(index) = static_cast<float>(new_diagonal_length);
                         phase_id(index) = new_phase_id;
-                        // Cell center - note that the Y coordinate is relative to the domain origin to keep the
-                        // coordinate system continuous across ranks
-                        float xp = coord_x + 0.5;
-                        float yp = coord_y + grid.y_offset + 0.5;
-                        float zp = coord_z + 0.5;
-                        // Calculate critical values at which this active cell leads to the activation of a
-                        // neighboring liquid cell
-                        interface.calcCritDiagonalLength(index, xp, yp, zp, new_octahedron_center_x,
-                                                         new_octahedron_center_y, new_octahedron_center_z,
-                                                         my_orientation, orientation.grain_unit_vector, new_phase_id);
+                        // Calculate critical values at which this active cell leads to the activation of a neighboring
+                        // liquid cell. Growth is proportional to the distance between cell centers and the
+                        // crystallographic orientation of the grain
+                        int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                        const float primary_arm_dir_z =
+                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                        interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
                         celldata.cell_type(index) = Active;
                     }
                 });
@@ -601,17 +620,13 @@ void updatePeriodicBoundaries(const bool mpi_parallel, const Grid &grid, CellDat
                     interface.diagonal_length(index_exterior) = interface.diagonal_length(index_interior);
                     const int my_orientation =
                         getGrainOrientation(grain_id(index_exterior), orientation.n_grain_orientations);
-                    // (xp,yp,zp) are the global coordinates of the new cell's center
-                    // Note that the Y coordinate is relative to the domain origin to keep the coordinate
-                    // system continuous across ranks
-                    const float xp = interface.coord_x_exterior[bound_num] + 0.5;
-                    const float yp = coord_y + grid.y_offset + 0.5;
-                    const float zp = coord_z + 0.5;
-                    interface.calcCritDiagonalLength(
-                        index_exterior, xp, yp, zp, interface.octahedron_center(3 * index_exterior),
-                        interface.octahedron_center(3 * index_exterior + 1),
-                        interface.octahedron_center(3 * index_exterior + 2), my_orientation,
-                        orientation.grain_unit_vector, phase_id(index_exterior));
+                    // Calculate critical values at which this active cell leads to the activation of a neighboring
+                    // liquid cell. Growth is proportional to the distance between cell centers and the crystallographic
+                    // orientation of the grain
+                    int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                    const float primary_arm_dir_z =
+                        orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                    interface.calcCritDiagonalLengthAlt(index_exterior, primary_arm_dir_z);
                     celldata.cell_type(index_exterior) = Active;
                     float octahedron_data[4] = {interface.octahedron_center(3 * index_exterior),
                                                 interface.octahedron_center(3 * index_exterior + 1),
@@ -650,17 +665,13 @@ void updatePeriodicBoundaries(const bool mpi_parallel, const Grid &grid, CellDat
                         interface.diagonal_length(index_exterior) = interface.diagonal_length(index_interior);
                         const int my_orientation =
                             getGrainOrientation(grain_id(index_exterior), orientation.n_grain_orientations);
-                        // (xp,yp,zp) are the global coordinates of the new cell's center
-                        // Note that the Y coordinate is relative to the domain origin to keep the coordinate
-                        // system continuous across ranks
-                        const float xp = coord_x + 0.5;
-                        const float yp = interface.coord_y_exterior[bound_num] + grid.y_offset + 0.5;
-                        const float zp = coord_z + 0.5;
-                        interface.calcCritDiagonalLength(
-                            index_exterior, xp, yp, zp, interface.octahedron_center(3 * index_exterior),
-                            interface.octahedron_center(3 * index_exterior + 1),
-                            interface.octahedron_center(3 * index_exterior + 2), my_orientation,
-                            orientation.grain_unit_vector, phase_id(index_exterior));
+                        // Calculate critical values at which this active cell leads to the activation of a neighboring
+                        // liquid cell. Growth is proportional to the distance between cell centers and the
+                        // crystallographic orientation of the grain
+                        int aligned_dir = orientation.aligned_diagonal(my_orientation);
+                        const float primary_arm_dir_z =
+                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                        interface.calcCritDiagonalLengthAlt(index_exterior, primary_arm_dir_z);
                         celldata.cell_type(index_exterior) = Active;
                     }
                 }

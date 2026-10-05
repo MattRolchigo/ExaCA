@@ -117,6 +117,8 @@ struct SubstrateInputs {
     double baseplate_bottom_z = std::numeric_limits<double>::max();
     // Initial size of octahedra during initialization of an active cell
     float init_oct_size = 0.01;
+    // Empirical parameter governing grain impingement
+    float epsilon = 0.0;
 };
 
 struct PrintInputs {

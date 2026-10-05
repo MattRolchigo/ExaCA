@@ -46,7 +46,8 @@ struct Interface {
     view_type_int_host send_size_south_host, send_size_north_host, num_steer_host;
     // Initial size of new octahedra
     float _init_oct_size;
-
+    // Empirical coefficient for grain impingement
+    float _epsilon;
     // Neighbor lists
     neighbor_list_type neighbor_x, neighbor_y, neighbor_z;
 
@@ -61,7 +62,7 @@ struct Interface {
     // Constructor for views and view bounds for current layer
     // Use default initialization to 0 for num_steer_host and num_steer and buffer counts
     Interface(const int id, const int domain_size, const float init_oct_size, const int nx, const int ny,
-              const bool _is_periodic = false, const int buf_size_initial_estimate = 25,
+              const bool _is_periodic = false, const float epsilon = 0.0, const int buf_size_initial_estimate = 25,
               const int buf_components_temp = 9)
         : diagonal_length(view_type_float(Kokkos::ViewAllocateWithoutInitializing("diagonal_length"), domain_size))
         , octahedron_center(
@@ -83,7 +84,8 @@ struct Interface {
         , send_size_south_host(view_type_int_host("send_size_south_host", 1))
         , send_size_north_host(view_type_int_host("send_size_north_host", 1))
         , num_steer_host(view_type_int_host("steering_vector_size_host", 1))
-        , _init_oct_size(init_oct_size) {
+        , _init_oct_size(init_oct_size)
+        , _epsilon(epsilon) {
 
         // Set initial buffer size to the estimate
         buf_size = buf_size_initial_estimate;
@@ -364,7 +366,7 @@ struct Interface {
         // half diagonal length of new octahedron
         const float new_octahedron_diag_length = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
 
-        diagonal_length(neighbor_index) = new_octahedron_diag_length;
+        diagonal_length(neighbor_index) = 0.0001; // new_octahedron_diag_length;
         // Calculate coordinates of new decentered octahedron center
         const float capt_diag_x = xc - cxold;
         const float capt_diag_y = yc - cyold;
@@ -454,6 +456,21 @@ struct Interface {
             float d3 = x0 * fx[3] + y0 * fy[3] + z0 * fz[3];
             float dfabs = fmax(fmax(fabs(d0), fabs(d1)), fmax(fabs(d2), fabs(d3)));
             crit_diagonal_length(26 * index + n) = dfabs;
+        }
+    }
+
+    // Alternative calculation of critical diagonal length, related only to <100> alignment with Z, distance between
+    // cells, and the parameter epsilon
+    KOKKOS_FUNCTION void calcCritDiagonalLengthAlt(const int index, const float primary_arm_dir_z) const {
+        for (int n = 0; n < 26; n++) {
+            float unit_vec_neighbor[3];
+            float dist_to_neighbor = Kokkos::sqrt(neighbor_x[n] * neighbor_x[n] + neighbor_y[n] * neighbor_y[n] +
+                                                  neighbor_z[n] * neighbor_z[n]);
+            unit_vec_neighbor[0] = neighbor_x[n] / dist_to_neighbor;
+            unit_vec_neighbor[1] = neighbor_y[n] / dist_to_neighbor;
+            unit_vec_neighbor[2] = neighbor_z[n] / dist_to_neighbor;
+            float mis_angle = (180.0 / 3.14159) * Kokkos::acos(primary_arm_dir_z);
+            crit_diagonal_length(26 * index + n) = dist_to_neighbor + _epsilon * mis_angle;
         }
     }
 

@@ -280,6 +280,8 @@ struct Inputs {
         }
 
         // Substrate inputs:
+        if (input_data["Substrate"].contains("Epsilon"))
+            substrate.epsilon = input_data["Substrate"]["Epsilon"];
         if (simulation_type == "Directional") {
             // Must contain inputs corresponding to one of the three modes
             // fract_surface_sites_active only used for mode (i)
