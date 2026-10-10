@@ -366,7 +366,7 @@ struct Interface {
         // half diagonal length of new octahedron
         const float new_octahedron_diag_length = Kokkos::sqrt(2.0f) * Kokkos::fmax(l_12, l_13);
 
-        diagonal_length(neighbor_index) = 0.0001; // new_octahedron_diag_length;
+        diagonal_length(neighbor_index) = _init_oct_size;
         // Calculate coordinates of new decentered octahedron center
         const float capt_diag_x = xc - cxold;
         const float capt_diag_y = yc - cyold;
@@ -387,7 +387,7 @@ struct Interface {
         octahedron_data[0] = cx;
         octahedron_data[1] = cy;
         octahedron_data[2] = cz;
-        octahedron_data[3] = new_octahedron_diag_length;
+        octahedron_data[3] = _init_oct_size;
     }
 
     // For the newly active cell located at 1D array position index (3D center coordinate of xp, yp, zp),

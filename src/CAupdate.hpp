@@ -47,7 +47,8 @@ void createOctahedra_NoRemelt(const Grid &grid, CellData<MemorySpace> &celldata,
                 // liquid cell. Growth is proportional to the distance between cell centers and the crystallographic
                 // orientation of the grain
                 int aligned_dir = orientation.aligned_diagonal(my_orientation);
-                const float primary_arm_dir_z = orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                const float primary_arm_dir_z =
+                    orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                 interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
             }
         });
@@ -296,7 +297,7 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                                 // and the crystallographic orientation of the grain
                                 int aligned_dir = orientation.aligned_diagonal(my_orientation);
                                 const float primary_arm_dir_z =
-                                    orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                                    orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                                 interface.calcCritDiagonalLengthAlt(neighbor_index, primary_arm_dir_z);
 
                                 // Collect data for the ghost nodes, if necessary
@@ -345,7 +346,8 @@ void cellCapture(const int cycle, const bool mpi_parallel, const Grid &grid, con
                 // liquid cell. Growth is proportional to the distance between cell centers and the crystallographic
                 // orientation of the grain
                 int aligned_dir = orientation.aligned_diagonal(my_orientation);
-                const float primary_arm_dir_z = orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                const float primary_arm_dir_z =
+                    orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                 interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
                 // Collect data for the ghost nodes, if necessary
                 // Data loaded into the ghost nodes is for the cell that was just activated or underwent nucleation
@@ -573,7 +575,7 @@ void haloUpdate(const int, const int id, const int np, const Grid &grid, CellDat
                         // crystallographic orientation of the grain
                         int aligned_dir = orientation.aligned_diagonal(my_orientation);
                         const float primary_arm_dir_z =
-                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                         interface.calcCritDiagonalLengthAlt(index, primary_arm_dir_z);
                         celldata.cell_type(index) = Active;
                     }
@@ -625,7 +627,7 @@ void updatePeriodicBoundaries(const bool mpi_parallel, const Grid &grid, CellDat
                     // orientation of the grain
                     int aligned_dir = orientation.aligned_diagonal(my_orientation);
                     const float primary_arm_dir_z =
-                        orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                        orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                     interface.calcCritDiagonalLengthAlt(index_exterior, primary_arm_dir_z);
                     celldata.cell_type(index_exterior) = Active;
                     float octahedron_data[4] = {interface.octahedron_center(3 * index_exterior),
@@ -670,7 +672,7 @@ void updatePeriodicBoundaries(const bool mpi_parallel, const Grid &grid, CellDat
                         // crystallographic orientation of the grain
                         int aligned_dir = orientation.aligned_diagonal(my_orientation);
                         const float primary_arm_dir_z =
-                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir, 2);
+                            orientation.grain_unit_vector(9 * my_orientation + 3 * aligned_dir + 2, 0);
                         interface.calcCritDiagonalLengthAlt(index_exterior, primary_arm_dir_z);
                         celldata.cell_type(index_exterior) = Active;
                     }
