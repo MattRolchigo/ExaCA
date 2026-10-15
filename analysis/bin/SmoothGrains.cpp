@@ -741,7 +741,7 @@ int main(int argc, char *argv[]) {
     grain_output_stream << "ORIGIN " << xmin << " " << ymin << " " << zmin << std::endl;
     grain_output_stream << "SPACING " << deltax << " " << deltax << " " << deltax << std::endl;
     grain_output_stream << std::fixed << "POINT_DATA " << N << std::endl;
-    grain_output_stream << "SCALARS grainID int 1" << std::endl;
+    grain_output_stream << "SCALARS GrainID int 1" << std::endl;
     grain_output_stream << "LOOKUP_TABLE default" << std::endl;
     for (int k = 0; k < nz; k++) {
         for (int j = 0; j < ny; j++) {
