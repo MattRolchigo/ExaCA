@@ -881,6 +881,10 @@ struct Inputs {
             irf.D[phase_num] = irf_phase_data["coefficients"]["D"];
             irf.function[phase_num] = irf.cubic;
         }
+        if (functionform == "xie") {
+            irf.D[phase_num] = irf_phase_data["coefficients"]["D"];
+            irf.function[phase_num] = irf.xie;
+        }
         else if ((functionform == "quadratic") || (functionform == "power") || (functionform == "exponential")) {
             // D should not have been given, this functional form only takes 3 input fitting parameters
             if (irf_phase_data["coefficients"]["D"] != nullptr) {
