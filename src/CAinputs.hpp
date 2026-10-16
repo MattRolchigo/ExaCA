@@ -881,7 +881,7 @@ struct Inputs {
             irf.D[phase_num] = irf_phase_data["coefficients"]["D"];
             irf.function[phase_num] = irf.cubic;
         }
-        if (functionform == "xie") {
+        else if (functionform == "xie") {
             irf.D[phase_num] = irf_phase_data["coefficients"]["D"];
             irf.function[phase_num] = irf.xie;
         }
